@@ -21,19 +21,20 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CATALOG_JSON = DATA_DIR / "catalogo.json"
 PEDIDOS_DIR = DATA_DIR / "pedidos"
 
-# Tipos de recurso validos
+# Tipos de recurso validos (categorias fisicas, no cambian)
 VALID_RESOURCES = {"MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"}
 
-# Robots fisicos validos
-VALID_ROBOTS = {
-    "2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6",
-    "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049",
-}
 
-ROBOT_ALIASES = {
-    "3020 M-4": "3020-M4",
-    "6040-M5 (PARCIAL)": "6040-M5",
-}
+def _get_valid_robots() -> set:
+    """Lee robots validos desde config.json."""
+    from config_manager import get_physical_robots
+    return set(get_physical_robots())
+
+
+def _get_robot_aliases() -> dict:
+    """Lee aliases de robots desde config.json."""
+    from config_manager import get_robot_aliases
+    return get_robot_aliases()
 
 # Estilos comunes para templates Excel
 _HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
@@ -243,18 +244,20 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
 
 
 def _normalize_robot(val):
-    """Normaliza nombre de robot."""
+    """Normaliza nombre de robot usando config."""
     if not val:
         return None
     s = str(val).strip()
     if not s:
         return None
-    if s in ROBOT_ALIASES:
-        s = ROBOT_ALIASES[s]
-    if s in VALID_ROBOTS:
+    aliases = _get_robot_aliases()
+    valid = _get_valid_robots()
+    if s in aliases:
+        s = aliases[s]
+    if s in valid:
         return s
     s_upper = s.upper().replace(" ", "")
-    for robot in VALID_ROBOTS:
+    for robot in valid:
         if robot.upper().replace(" ", "") == s_upper:
             return robot
     return None

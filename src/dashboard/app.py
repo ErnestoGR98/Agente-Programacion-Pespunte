@@ -60,12 +60,13 @@ st.markdown("""
 
 from dashboard.state import init_state
 from dashboard.components.sidebar import render_sidebar
-from dashboard.pages.datos import render as render_datos
-from dashboard.pages.resumen_semanal import render as render_resumen
-from dashboard.pages.programa_diario import render as render_programa
-from dashboard.pages.utilizacion import render as render_utilizacion
-from dashboard.pages.robots import render as render_robots
-from dashboard.pages.cuellos_botella import render as render_cuellos
+from dashboard.views.datos import render as render_datos
+from dashboard.views.resumen_semanal import render as render_resumen
+from dashboard.views.programa_diario import render as render_programa
+from dashboard.views.utilizacion import render as render_utilizacion
+from dashboard.views.robots import render as render_robots
+from dashboard.views.cuellos_botella import render as render_cuellos
+from dashboard.views.configuracion import render as render_config
 
 # Inicializar estado
 init_state()
@@ -73,19 +74,18 @@ init_state()
 # Sidebar (siempre visible)
 render_sidebar()
 
-# Area principal
-if st.session_state.pipeline_step >= 2:
-    # Tabs con resultados + Datos siempre accesible
-    tab_datos, tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Datos",
-        "Resumen Semanal",
-        "Programa Diario",
-        "Utilizacion HC",
-        "Robots",
-        "Cuellos de Botella",
-    ])
-    with tab_datos:
-        render_datos()
+# Area principal - siempre mostrar tabs
+st.title("Sistema de Programacion - Pespunte")
+
+step = st.session_state.pipeline_step
+
+if step >= 2:
+    # Todos los tabs disponibles tras optimizacion
+    tab_names = [
+        "Datos", "Resumen Semanal", "Programa Diario",
+        "Utilizacion HC", "Robots", "Cuellos de Botella", "Configuracion",
+    ]
+    tab_datos, tab1, tab2, tab3, tab4, tab5, tab_cfg = st.tabs(tab_names)
     with tab1:
         render_resumen()
     with tab2:
@@ -97,20 +97,17 @@ if st.session_state.pipeline_step >= 2:
     with tab5:
         render_cuellos()
 
-elif st.session_state.pipeline_step == 1:
-    # Datos cargados, mostrar preview junto con tab de Datos
-    tab_datos, tab_preview = st.tabs(["Datos", "Preview"])
-
-    with tab_datos:
-        render_datos()
-
+elif step == 1:
+    # Datos cargados, preview disponible
+    tab_names = ["Datos", "Preview", "Configuracion"]
+    tab_datos, tab_preview, tab_cfg = st.tabs(tab_names)
     with tab_preview:
-        st.title("Datos Cargados")
+        st.subheader("Datos Cargados")
         st.info("Ajuste parametros en el panel izquierdo y presione **Optimizar**.")
 
         matched = st.session_state.matched_models
         if matched:
-            st.subheader(f"{len(matched)} Modelos Listos para Optimizar")
+            st.markdown(f"**{len(matched)} Modelos Listos para Optimizar**")
             import pandas as pd
             rows = []
             for m in matched:
@@ -130,23 +127,12 @@ elif st.session_state.pipeline_step == 1:
                 st.text(f"  {m['codigo']} - Vol: {m['total_producir']}")
 
 else:
-    # Estado inicial: mostrar pagina de datos como principal
-    st.title("Sistema de Programacion - Pespunte")
-    st.markdown(
-        """
-        ### Bienvenido
+    # Estado inicial: Datos + Configuracion
+    tab_names = ["Datos", "Configuracion"]
+    tab_datos, tab_cfg = st.tabs(tab_names)
 
-        Este dashboard permite:
-        - **Capturar** pedidos semanales y gestionar el catalogo de operaciones
-        - **Optimizar** la programacion de produccion con CP-SAT
-        - **Analizar** la utilizacion de recursos, robots y headcount
-        - **Exportar** los resultados a Excel
-
-        **Para comenzar:**
-        1. Configure el **Catalogo** de operaciones (una vez por temporada)
-        2. Ingrese el **Pedido Semanal** (cada semana)
-        3. Presione **Cargar al Optimizador** y luego **Optimizar**
-        """
-    )
-    st.divider()
+# Tabs comunes a todos los estados
+with tab_datos:
     render_datos()
+with tab_cfg:
+    render_config()

@@ -15,8 +15,9 @@ from dashboard.data_manager import (
     save_pedido, load_pedido, list_pedidos, delete_pedido,
     import_pedido_from_template, build_matched_models,
     generate_template_pedido, generate_template_catalogo,
-    VALID_RESOURCES, VALID_ROBOTS,
+    VALID_RESOURCES,
 )
+from config_manager import get_fabricas, get_physical_robots
 
 
 def render():
@@ -96,7 +97,7 @@ def _render_pedido_form():
     with col2:
         fabrica = st.selectbox(
             "Fabrica",
-            ["FABRICA 1", "FABRICA 2", "FABRICA 3"],
+            get_fabricas(),
             key="pedido_fabrica",
         )
 
@@ -178,7 +179,7 @@ def _render_pedido_table():
             "MODELO": st.column_config.TextColumn("MODELO", width="medium"),
             "FABRICA": st.column_config.SelectboxColumn(
                 "FABRICA",
-                options=["FABRICA 1", "FABRICA 2", "FABRICA 3"],
+                options=get_fabricas(),
                 width="small",
             ),
             "VOLUMEN": st.column_config.NumberColumn(
@@ -490,7 +491,7 @@ def _save_edited_model(model_num, codigo_full, edited_df):
         robots = []
         for r in robots_str.split(","):
             r = r.strip()
-            if r and r in VALID_ROBOTS:
+            if r and r in set(get_physical_robots()):
                 robots.append(r)
 
         operations.append({
