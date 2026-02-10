@@ -3,10 +3,10 @@ headless = true
 maxUploadSize = 50
 
 [theme]
-primaryColor = "#2E4057"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
+primaryColor = "#4DA8DA"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1A1F2B"
+textColor = "#E0E0E0"
 font = "sans serif"
 
 [browser]
