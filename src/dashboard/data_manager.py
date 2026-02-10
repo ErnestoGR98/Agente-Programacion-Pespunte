@@ -1,0 +1,588 @@
+"""
+data_manager.py - Persistencia de datos y generacion de templates Excel.
+
+Maneja:
+  - Catalogo de operaciones: guardado/carga en JSON, importacion desde Excel
+  - Pedidos semanales: guardado/carga en JSON, importacion desde Excel template
+  - Generacion de templates Excel vacios para que el usuario los llene
+"""
+
+import json
+import re
+import io
+from pathlib import Path
+from copy import deepcopy
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+# Directorio base de datos (pespunte-agent/data/)
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
+CATALOG_JSON = DATA_DIR / "catalogo.json"
+PEDIDOS_DIR = DATA_DIR / "pedidos"
+
+# Tipos de recurso validos
+VALID_RESOURCES = {"MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"}
+
+# Robots fisicos validos
+VALID_ROBOTS = {
+    "2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6",
+    "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049",
+}
+
+ROBOT_ALIASES = {
+    "3020 M-4": "3020-M4",
+    "6040-M5 (PARCIAL)": "6040-M5",
+}
+
+# Estilos comunes para templates Excel
+_HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+_HEADER_FILL = PatternFill(start_color="2E4057", end_color="2E4057", fill_type="solid")
+_HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_THIN_BORDER = Border(
+    left=Side(style="thin"),
+    right=Side(style="thin"),
+    top=Side(style="thin"),
+    bottom=Side(style="thin"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Catalogo: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_catalog(catalog: dict):
+    """Guarda el catalogo completo a JSON."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CATALOG_JSON, "w", encoding="utf-8") as f:
+        json.dump(catalog, f, ensure_ascii=False, indent=2)
+
+
+def load_catalog() -> dict | None:
+    """Carga el catalogo desde JSON. Retorna None si no existe."""
+    if not CATALOG_JSON.exists():
+        return None
+    with open(CATALOG_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def delete_catalog_model(model_num: str) -> bool:
+    """Elimina un modelo del catalogo. Retorna True si se elimino."""
+    catalog = load_catalog()
+    if catalog and model_num in catalog:
+        del catalog[model_num]
+        save_catalog(catalog)
+        return True
+    return False
+
+
+def save_catalog_model(model_num: str, model_data: dict):
+    """Guarda o actualiza un modelo individual en el catalogo."""
+    catalog = load_catalog() or {}
+    catalog[model_num] = model_data
+    save_catalog(catalog)
+
+
+# ---------------------------------------------------------------------------
+# Catalogo: importacion desde Excel existente (formato CATALOGO DE FRACCIONES)
+# ---------------------------------------------------------------------------
+
+def import_catalog_from_existing_excel(file_or_path) -> dict:
+    """
+    Importa catalogo desde el Excel existente (formato CATALOGO DE FRACCIONES).
+    Usa la misma logica de catalog_loader.py pero guarda como JSON.
+
+    Args:
+        file_or_path: ruta a archivo o UploadedFile de Streamlit
+
+    Returns:
+        dict con el catalogo parseado
+    """
+    import sys
+    src_dir = str(Path(__file__).parent.parent)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    from catalog_loader import load_catalog_v2
+
+    # Si es un UploadedFile de Streamlit, guardar temporalmente
+    if hasattr(file_or_path, "read"):
+        import tempfile, os
+        suffix = os.path.splitext(file_or_path.name)[1] if hasattr(file_or_path, "name") else ".xlsx"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_or_path.read())
+            tmp_path = tmp.name
+        file_or_path.seek(0)  # Reset para posibles lecturas futuras
+        catalog = load_catalog_v2(tmp_path)
+        os.unlink(tmp_path)
+    else:
+        catalog = load_catalog_v2(str(file_or_path))
+
+    # Guardar como JSON
+    save_catalog(catalog)
+    return catalog
+
+
+# ---------------------------------------------------------------------------
+# Catalogo: importacion desde template propio
+# ---------------------------------------------------------------------------
+
+def import_catalog_from_template(file_or_bytes) -> tuple:
+    """
+    Importa catalogo desde el template Excel propio.
+
+    Template tiene columnas: MODELO, FRACCION, OPERACION, RECURSO, RATE,
+    ROBOT_1, ROBOT_2, ..., ROBOT_8
+
+    Returns:
+        (catalog_dict, errors_list)
+    """
+    if hasattr(file_or_bytes, "read"):
+        wb = openpyxl.load_workbook(file_or_bytes, data_only=True)
+    else:
+        wb = openpyxl.load_workbook(io.BytesIO(file_or_bytes), data_only=True)
+
+    ws = wb.active
+    errors = []
+    raw_ops = {}
+
+    for row in range(2, ws.max_row + 1):
+        modelo = ws.cell(row=row, column=1).value
+        fraccion = ws.cell(row=row, column=2).value
+        operacion = ws.cell(row=row, column=3).value
+        recurso = ws.cell(row=row, column=4).value
+        rate = ws.cell(row=row, column=5).value
+
+        if not modelo or not fraccion:
+            continue
+
+        modelo_str = str(modelo).strip()
+        model_num = re.match(r"^(\d+)", modelo_str)
+        if not model_num:
+            errors.append(f"Fila {row}: MODELO '{modelo_str}' no inicia con numero")
+            continue
+        model_num = model_num.group(1)
+
+        # Validar recurso
+        recurso_str = str(recurso).strip().upper() if recurso else ""
+        if recurso_str and recurso_str not in VALID_RESOURCES:
+            errors.append(f"Fila {row}: RECURSO '{recurso_str}' no valido. "
+                          f"Debe ser: {', '.join(sorted(VALID_RESOURCES))}")
+            continue
+
+        # Validar rate
+        try:
+            rate_val = float(rate)
+            if rate_val <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            errors.append(f"Fila {row}: RATE '{rate}' debe ser numerico > 0")
+            continue
+
+        # Parsear robots (columnas 6-13)
+        robots = []
+        for col in range(6, 14):
+            val = ws.cell(row=row, column=col).value
+            robot = _normalize_robot(val)
+            if robot and robot not in robots:
+                robots.append(robot)
+
+        sec_per_pair = round(3600.0 / rate_val)
+
+        if model_num not in raw_ops:
+            raw_ops[model_num] = {"codigo_full": modelo_str, "ops": []}
+
+        raw_ops[model_num]["ops"].append({
+            "fraccion": int(fraccion),
+            "operacion": str(operacion).strip() if operacion else f"OP-{fraccion}",
+            "etapa": "",
+            "recurso": recurso_str or "GENERAL",
+            "recurso_raw": recurso_str,
+            "robots": robots,
+            "rate": round(rate_val, 2),
+            "sec_per_pair": sec_per_pair,
+        })
+
+    # Construir catalogo final
+    catalog = {}
+    for model_num, data in raw_ops.items():
+        ops = sorted(data["ops"], key=lambda x: x["fraccion"])
+        # Deduplicar por fraccion
+        seen = set()
+        unique_ops = []
+        for op in ops:
+            if op["fraccion"] not in seen:
+                seen.add(op["fraccion"])
+                unique_ops.append(op)
+
+        total_sec = sum(op["sec_per_pair"] for op in unique_ops)
+        resource_summary = {}
+        for op in unique_ops:
+            r = op["recurso"]
+            resource_summary[r] = resource_summary.get(r, 0) + 1
+
+        robot_ops = sum(1 for op in unique_ops if op.get("robots"))
+        all_robots = set()
+        for op in unique_ops:
+            for r in op.get("robots", []):
+                all_robots.add(r)
+
+        catalog[model_num] = {
+            "codigo_full": data["codigo_full"],
+            "operations": unique_ops,
+            "total_sec_per_pair": total_sec,
+            "num_ops": len(unique_ops),
+            "resource_summary": resource_summary,
+            "robot_ops": robot_ops,
+            "robots_used": sorted(all_robots),
+        }
+
+    if catalog:
+        save_catalog(catalog)
+
+    return catalog, errors
+
+
+def _normalize_robot(val):
+    """Normaliza nombre de robot."""
+    if not val:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    if s in ROBOT_ALIASES:
+        s = ROBOT_ALIASES[s]
+    if s in VALID_ROBOTS:
+        return s
+    s_upper = s.upper().replace(" ", "")
+    for robot in VALID_ROBOTS:
+        if robot.upper().replace(" ", "") == s_upper:
+            return robot
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Pedidos: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_pedido(name: str, pedido: list):
+    """
+    Guarda un pedido semanal.
+
+    Args:
+        name: nombre del pedido (ej: "sem_8_2025")
+        pedido: lista de dicts con keys: modelo, fabrica, volumen
+    """
+    PEDIDOS_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = PEDIDOS_DIR / f"{name}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(pedido, f, ensure_ascii=False, indent=2)
+
+
+def load_pedido(name: str) -> list | None:
+    """Carga un pedido por nombre. Retorna None si no existe."""
+    filepath = PEDIDOS_DIR / f"{name}.json"
+    if not filepath.exists():
+        return None
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def list_pedidos() -> list:
+    """Lista los nombres de pedidos guardados."""
+    PEDIDOS_DIR.mkdir(parents=True, exist_ok=True)
+    return sorted([
+        f.stem for f in PEDIDOS_DIR.glob("*.json")
+    ])
+
+
+def delete_pedido(name: str) -> bool:
+    """Elimina un pedido guardado."""
+    filepath = PEDIDOS_DIR / f"{name}.json"
+    if filepath.exists():
+        filepath.unlink()
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Pedido: importacion desde template Excel
+# ---------------------------------------------------------------------------
+
+def import_pedido_from_template(file_or_bytes) -> tuple:
+    """
+    Importa pedido semanal desde template Excel.
+
+    Template: MODELO | FABRICA | VOLUMEN
+
+    Returns:
+        (pedido_list, errors_list)
+    """
+    if hasattr(file_or_bytes, "read"):
+        wb = openpyxl.load_workbook(file_or_bytes, data_only=True)
+    else:
+        wb = openpyxl.load_workbook(io.BytesIO(file_or_bytes), data_only=True)
+
+    ws = wb.active
+    errors = []
+    pedido = []
+
+    for row in range(2, ws.max_row + 1):
+        modelo = ws.cell(row=row, column=1).value
+        fabrica = ws.cell(row=row, column=2).value
+        volumen = ws.cell(row=row, column=3).value
+
+        if not modelo:
+            continue
+
+        modelo_str = str(modelo).strip()
+        if not modelo_str:
+            continue
+
+        # Validar fabrica
+        fabrica_str = str(fabrica).strip() if fabrica else "FABRICA 1"
+
+        # Validar volumen
+        try:
+            vol = int(float(volumen))
+            if vol <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            errors.append(f"Fila {row}: VOLUMEN '{volumen}' debe ser entero > 0")
+            continue
+
+        pedido.append({
+            "modelo": modelo_str,
+            "fabrica": fabrica_str,
+            "volumen": vol,
+        })
+
+    return pedido, errors
+
+
+# ---------------------------------------------------------------------------
+# Conversion: pedido + catalogo -> modelos listos para optimizador
+# ---------------------------------------------------------------------------
+
+def build_matched_models(pedido: list, catalog: dict) -> tuple:
+    """
+    Cruza pedido con catalogo para construir la lista de modelos
+    con la misma estructura que espera el optimizador.
+
+    Returns:
+        (matched, unmatched) donde:
+        - matched: lista de dicts compatibles con optimizer_weekly/v2
+        - unmatched: lista de dicts de modelos sin match en catalogo
+    """
+    matched = []
+    unmatched = []
+
+    for item in pedido:
+        modelo_str = item["modelo"]
+        # Extraer numero de modelo
+        m = re.match(r"^(\d+)", modelo_str)
+        model_num = m.group(1) if m else modelo_str
+
+        if model_num in catalog:
+            cat = catalog[model_num]
+            model = {
+                "codigo": modelo_str,
+                "modelo_num": model_num,
+                "suela": "",
+                "volumen_declarado": item["volumen"],
+                "total_producir": item["volumen"],
+                "fabrica": item["fabrica"],
+                "daily_prs_original": {},
+                "operations": deepcopy(cat["operations"]),
+                "total_sec_per_pair": cat["total_sec_per_pair"],
+                "num_ops": cat["num_ops"],
+                "catalog_code": cat["codigo_full"],
+                "resource_summary": cat.get("resource_summary", {}),
+            }
+            matched.append(model)
+        else:
+            unmatched.append({
+                "codigo": modelo_str,
+                "modelo_num": model_num,
+                "total_producir": item["volumen"],
+                "fabrica": item["fabrica"],
+            })
+
+    return matched, unmatched
+
+
+# ---------------------------------------------------------------------------
+# Generacion de Templates Excel
+# ---------------------------------------------------------------------------
+
+def generate_template_pedido() -> bytes:
+    """Genera template Excel vacio para pedido semanal. Retorna bytes."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pedido Semanal"
+
+    headers = ["MODELO", "FABRICA", "VOLUMEN"]
+    col_widths = [20, 15, 12]
+
+    # Encabezados
+    for col, (header, width) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
+        cell.border = _THIN_BORDER
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+    # Filas de ejemplo
+    examples = [
+        ("65413 NE", "FABRICA 1", 1700),
+        ("95420 NE", "FABRICA 2", 800),
+        ("91721 NE", "FABRICA 1", 450),
+    ]
+    for row, (modelo, fab, vol) in enumerate(examples, 2):
+        ws.cell(row=row, column=1, value=modelo).font = Font(italic=True, color="999999")
+        ws.cell(row=row, column=2, value=fab).font = Font(italic=True, color="999999")
+        ws.cell(row=row, column=3, value=vol).font = Font(italic=True, color="999999")
+        for col in range(1, 4):
+            ws.cell(row=row, column=col).border = _THIN_BORDER
+
+    # Instrucciones
+    ws_inst = wb.create_sheet("Instrucciones")
+    ws_inst.column_dimensions["A"].width = 80
+    instructions = [
+        "TEMPLATE - PEDIDO SEMANAL",
+        "",
+        "Llene la hoja 'Pedido Semanal' con los modelos a producir esta semana.",
+        "",
+        "Columnas:",
+        "  MODELO  - Codigo del modelo (debe existir en el catalogo). Ej: 65413 NE",
+        "  FABRICA - Fabrica asignada. Ej: FABRICA 1, FABRICA 2, FABRICA 3",
+        "  VOLUMEN - Pares totales a producir en la semana. Debe ser > 0",
+        "",
+        "Notas:",
+        "  - Las filas de ejemplo (en gris) se pueden sobreescribir",
+        "  - El MODELO debe coincidir con el catalogo de operaciones",
+        "  - No dejar filas vacias entre modelos",
+    ]
+    for i, line in enumerate(instructions, 1):
+        ws_inst.cell(row=i, column=1, value=line)
+    ws_inst.cell(row=1, column=1).font = Font(bold=True, size=14)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def generate_template_catalogo() -> bytes:
+    """Genera template Excel vacio para catalogo de operaciones. Retorna bytes."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Catalogo"
+
+    headers = [
+        "MODELO", "FRACCION", "OPERACION", "RECURSO", "RATE",
+        "ROBOT_1", "ROBOT_2", "ROBOT_3", "ROBOT_4",
+        "ROBOT_5", "ROBOT_6", "ROBOT_7", "ROBOT_8",
+    ]
+    col_widths = [20, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
+
+    # Encabezados
+    for col, (header, width) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
+        cell.border = _THIN_BORDER
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+    # Filas de ejemplo
+    examples = [
+        ("65413 NE", 1, "PEGAR FELPA", "MESA", 120, "", "", "", "", "", "", "", ""),
+        ("65413 NE", 2, "COSER PUNTERA", "ROBOT", 80, "3020-M4", "3020-M6", "", "", "", "", "", ""),
+        ("65413 NE", 3, "ADORNAR COSTADOS", "PLANA", 90, "", "", "", "", "", "", "", ""),
+        ("95420 NE", 1, "PEGAR FORRO", "MESA", 110, "", "", "", "", "", "", "", ""),
+        ("95420 NE", 2, "COSER LATERAL", "ROBOT", 75, "6040-M4", "6040-M5", "", "", "", "", "", ""),
+    ]
+    for row, vals in enumerate(examples, 2):
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(row=row, column=col, value=val if val != "" else None)
+            cell.font = Font(italic=True, color="999999")
+            cell.border = _THIN_BORDER
+
+    # Instrucciones
+    ws_inst = wb.create_sheet("Instrucciones")
+    ws_inst.column_dimensions["A"].width = 80
+    instructions = [
+        "TEMPLATE - CATALOGO DE OPERACIONES",
+        "",
+        "Llene la hoja 'Catalogo' con las operaciones de cada modelo.",
+        "",
+        "Columnas:",
+        "  MODELO    - Codigo del modelo. Ej: 65413 NE",
+        "  FRACCION  - Numero secuencial de la operacion (1, 2, 3...)",
+        "  OPERACION - Descripcion de la operacion. Ej: PEGAR FELPA",
+        "  RECURSO   - Tipo de recurso. Debe ser uno de:",
+        "              MESA, ROBOT, PLANA, POSTE-LINEA, MESA-LINEA, PLANA-LINEA",
+        "  RATE      - Pares por hora (numerico, > 0)",
+        "  ROBOT_1 a ROBOT_8 - Robots que pueden procesar esta operacion (opcional)",
+        "",
+        "Robots validos:",
+        "  2A-3020-M1, 2A-3020-M2, 3020-M4, 3020-M6,",
+        "  6040-M4, 6040-M5, CHACHE 048, CHACHE 049",
+        "",
+        "Notas:",
+        "  - Las filas de ejemplo (en gris) se pueden sobreescribir",
+        "  - Las fracciones deben ser secuenciales por modelo (1, 2, 3...)",
+        "  - Solo llenar ROBOT_x para operaciones que usan robot",
+        "  - El MODELO se repite en cada fila de fraccion",
+    ]
+    for i, line in enumerate(instructions, 1):
+        ws_inst.cell(row=i, column=1, value=line)
+    ws_inst.cell(row=1, column=1).font = Font(bold=True, size=14)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def export_catalog_to_template(catalog: dict) -> bytes:
+    """Exporta el catalogo actual al formato template Excel."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Catalogo"
+
+    headers = [
+        "MODELO", "FRACCION", "OPERACION", "RECURSO", "RATE",
+        "ROBOT_1", "ROBOT_2", "ROBOT_3", "ROBOT_4",
+        "ROBOT_5", "ROBOT_6", "ROBOT_7", "ROBOT_8",
+    ]
+    col_widths = [20, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
+
+    for col, (header, width) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
+        cell.border = _THIN_BORDER
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+    row = 2
+    for model_num in sorted(catalog.keys()):
+        model_data = catalog[model_num]
+        for op in model_data["operations"]:
+            ws.cell(row=row, column=1, value=model_data["codigo_full"])
+            ws.cell(row=row, column=2, value=op["fraccion"])
+            ws.cell(row=row, column=3, value=op["operacion"])
+            ws.cell(row=row, column=4, value=op["recurso"])
+            ws.cell(row=row, column=5, value=op["rate"])
+            for i, robot in enumerate(op.get("robots", [])[:8]):
+                ws.cell(row=row, column=6 + i, value=robot)
+            for col in range(1, 14):
+                ws.cell(row=row, column=col).border = _THIN_BORDER
+            row += 1
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
