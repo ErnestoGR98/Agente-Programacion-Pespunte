@@ -55,6 +55,16 @@ st.markdown("""
     iframe[title="streamlit_dataframe.dataframe"] {
         max-height: 400px;
     }
+    /* Bordes visibles en tablas dataframe */
+    [data-testid="stDataFrame"] table th {
+        border-bottom: 2px solid #666 !important;
+        border-right: 1px solid #555 !important;
+        font-weight: bold !important;
+    }
+    [data-testid="stDataFrame"] table td {
+        border-bottom: 1px solid #444 !important;
+        border-right: 1px solid #3a3a3a !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 

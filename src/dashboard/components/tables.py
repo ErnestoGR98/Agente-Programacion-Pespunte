@@ -4,15 +4,15 @@ tables.py - Helpers para tablas estilizadas con colores por recurso.
 
 import pandas as pd
 
-# Colores por tipo de recurso (hex CSS)
+# Colores por tipo de recurso (saturados para dark mode)
 RESOURCE_COLORS = {
-    "MESA": "#D4E6F1",
-    "MESA-LINEA": "#A9CCE3",
-    "ROBOT": "#F9E79F",
-    "PLANA": "#A9DFBF",
-    "PLANA-LINEA": "#7DCEA0",
-    "POSTE-LINEA": "#F5CBA7",
-    "GENERAL": "#D5DBDB",
+    "MESA": "#5B9BD5",
+    "MESA-LINEA": "#2E75B6",
+    "ROBOT": "#E2AC00",
+    "PLANA": "#48A868",
+    "PLANA-LINEA": "#2D8B4E",
+    "POSTE-LINEA": "#D98040",
+    "GENERAL": "#808890",
 }
 
 
@@ -40,10 +40,13 @@ def build_daily_df(day_schedule, block_labels):
 
 
 def style_by_resource(df):
-    """Aplica color de fondo por fila segun el tipo de RECURSO, con texto oscuro."""
+    """Aplica color de fondo por fila segun el tipo de RECURSO, con texto blanco y bordes."""
     styles = pd.DataFrame("", index=df.index, columns=df.columns)
     for idx, row in df.iterrows():
         recurso = row.get("RECURSO", "GENERAL")
-        color = RESOURCE_COLORS.get(recurso, "#D5DBDB")
-        styles.loc[idx] = f"background-color: {color}; color: #1a1a1a"
+        color = RESOURCE_COLORS.get(recurso, "#808890")
+        styles.loc[idx] = (
+            f"background-color: {color}; color: #ffffff; "
+            f"border-bottom: 1px solid #444; border-right: 1px solid #555"
+        )
     return styles

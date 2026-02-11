@@ -36,10 +36,10 @@ def render():
         def _highlight_high(row):
             pct = row["Uso %"]
             if pct >= 100:
-                return ["background-color: #FADBD8"] * len(row)
+                return ["background-color: #C0392B; color: #ffffff; border-bottom: 1px solid #444"] * len(row)
             elif pct >= 85:
-                return ["background-color: #FCF3CF"] * len(row)
-            return [""] * len(row)
+                return ["background-color: #D4A017; color: #ffffff; border-bottom: 1px solid #444"] * len(row)
+            return ["background-color: #2C3E50; color: #e0e0e0; border-bottom: 1px solid #444"] * len(row)
 
         styled = df.style.apply(_highlight_high, axis=1).format({"Uso %": "{:.1f}"})
         st.dataframe(styled, width="stretch", hide_index=True)
