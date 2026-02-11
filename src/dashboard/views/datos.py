@@ -7,6 +7,7 @@ Permite capturar datos por formulario interactivo o subiendo Excel con template.
 import streamlit as st
 import pandas as pd
 import re
+from datetime import date, timedelta
 
 from dashboard.data_manager import (
     load_catalog, save_catalog, import_catalog_from_existing_excel,
@@ -177,7 +178,11 @@ def _render_pedido_form():
     if modelo_clean and not fabrica_valid:
         st.warning("Debe seleccionar una fabrica para agregar al pedido")
 
-    can_add = modelo_valid and color_valid and fabrica_valid and volumen > 0
+    clave_valid = bool(clave_clean)
+    if modelo_clean and not clave_valid:
+        st.warning("Debe ingresar la clave de material (ej: SLI, TEX)")
+
+    can_add = modelo_valid and color_valid and fabrica_valid and clave_valid and volumen > 0
 
     if st.button("Agregar al Pedido", type="primary", disabled=(not can_add)):
         # Si es modelo nuevo, crearlo en el catalogo
@@ -265,6 +270,37 @@ def _render_pedido_excel():
             )
 
 
+def _detect_and_merge_duplicates(rows):
+    """Detecta filas duplicadas y ofrece boton para consolidar."""
+    if len(rows) < 2:
+        return
+
+    # Contar ocurrencias por llave (modelo, color, clave_material, fabrica)
+    counts = {}
+    for r in rows:
+        key = (r["modelo"], r["color"], r["clave_material"], r["fabrica"])
+        counts[key] = counts.get(key, 0) + 1
+
+    duplicates = {k: v for k, v in counts.items() if v > 1}
+    if not duplicates:
+        return
+
+    dup_names = [f"{k[0]} ({k[3]}): {v} filas" for k, v in duplicates.items()]
+    st.info(f"Hay filas duplicadas que se pueden consolidar: {', '.join(dup_names)}")
+
+    if st.button("Consolidar Duplicados", key="merge_duplicates"):
+        merged = {}
+        for r in rows:
+            key = (r["modelo"], r["color"], r["clave_material"], r["fabrica"])
+            if key in merged:
+                merged[key]["volumen"] += r["volumen"]
+            else:
+                merged[key] = dict(r)
+        st.session_state.pedido_rows = list(merged.values())
+        save_pedido_draft(st.session_state.pedido_rows)
+        st.rerun()
+
+
 def _render_pedido_table():
     """Tabla editable del pedido actual."""
     rows = st.session_state.pedido_rows
@@ -343,6 +379,9 @@ def _render_pedido_table():
         if matched:
             st.success(f"{len(matched)} modelos listos para optimizar")
 
+    # Detectar duplicados que se pueden consolidar
+    _detect_and_merge_duplicates(new_rows)
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Limpiar Pedido", type="secondary"):
@@ -392,12 +431,27 @@ def _render_pedido_save_load():
     col1, col2 = st.columns(2)
 
     with col1:
-        pedido_name = st.text_input(
-            "Nombre del pedido",
-            placeholder="sem_8_2025",
-            key="pedido_name_input",
-        )
-        if st.button("Guardar", disabled=(not pedido_name or not st.session_state.pedido_rows)):
+        # Selector de semana ISO
+        today = date.today()
+        current_iso = today.isocalendar()
+        current_year = current_iso[0]
+        current_week = current_iso[1]
+
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            year = st.number_input("Ano", min_value=2024, max_value=2030,
+                                    value=current_year, step=1, key="pedido_year")
+        with sc2:
+            week = st.number_input("Semana ISO", min_value=1, max_value=53,
+                                    value=current_week, step=1, key="pedido_week")
+
+        # Mostrar rango de fechas de la semana seleccionada
+        monday = date.fromisocalendar(int(year), int(week), 1)
+        friday = monday + timedelta(days=4)
+        pedido_name = f"sem_{int(week)}_{int(year)}"
+        st.caption(f"{pedido_name} | {monday.strftime('%d/%m')} - {friday.strftime('%d/%m/%Y')}")
+
+        if st.button("Guardar", disabled=(not st.session_state.pedido_rows)):
             save_pedido(pedido_name, st.session_state.pedido_rows)
             st.success(f"Pedido '{pedido_name}' guardado")
 
