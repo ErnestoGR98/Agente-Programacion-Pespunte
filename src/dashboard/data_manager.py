@@ -23,6 +23,7 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CATALOG_JSON = DATA_DIR / "catalogo.json"
 PEDIDOS_DIR = DATA_DIR / "pedidos"
 RESULTADOS_DIR = DATA_DIR / "resultados"
+OPERARIOS_JSON = DATA_DIR / "operarios.json"
 
 # Tipos de recurso validos (categorias fisicas, no cambian)
 VALID_RESOURCES = {"MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"}
@@ -291,12 +292,25 @@ def save_pedido(name: str, pedido: list):
 
 
 def load_pedido(name: str) -> list | None:
-    """Carga un pedido por nombre. Retorna None si no existe."""
+    """Carga un pedido por nombre. Migra formato viejo si es necesario."""
     filepath = PEDIDOS_DIR / f"{name}.json"
     if not filepath.exists():
         return None
     with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
+        pedido = json.load(f)
+    # Migrar formato viejo: si 'modelo' contiene "77525 NE" y 'color' es "NE",
+    # separar para que 'modelo' sea solo "77525"
+    migrated = False
+    for item in pedido:
+        modelo = item.get("modelo", "")
+        color = item.get("color", "")
+        m = re.match(r"^(\d{5})\s+([A-Z]{2})$", modelo)
+        if m and m.group(2) == color:
+            item["modelo"] = m.group(1)
+            migrated = True
+    if migrated:
+        save_pedido(name, pedido)
+    return pedido
 
 
 def list_pedidos() -> list:
@@ -385,11 +399,8 @@ def import_pedido_from_template(file_or_bytes) -> tuple:
             errors.append(f"Fila {row}: VOLUMEN '{volumen}' debe ser entero > 0")
             continue
 
-        # Combinar modelo + color para codigo completo
-        modelo_full = f"{modelo_str} {color_str}" if color_str else modelo_str
-
         pedido.append({
-            "modelo": modelo_full,
+            "modelo": modelo_str,
             "color": color_str,
             "clave_material": clave_str,
             "fabrica": fabrica_str,
@@ -420,14 +431,16 @@ def build_matched_models(pedido: list, catalog: dict) -> tuple:
         modelo_str = item["modelo"]
         color = item.get("color", "")
         clave_material = item.get("clave_material", "")
-        # Extraer numero de modelo
+        # Extraer numero de modelo (por si viene con texto extra)
         m = re.match(r"^(\d+)", modelo_str)
         model_num = m.group(1) if m else modelo_str
+        # Construir codigo de display: numero + alternativa
+        codigo_display = f"{model_num} {color}".strip() if color else model_num
 
         if model_num in catalog:
             cat = catalog[model_num]
             model = {
-                "codigo": modelo_str,
+                "codigo": codigo_display,
                 "modelo_num": model_num,
                 "color": color,
                 "clave_material": clave_material,
@@ -445,7 +458,7 @@ def build_matched_models(pedido: list, catalog: dict) -> tuple:
             matched.append(model)
         else:
             unmatched.append({
-                "codigo": modelo_str,
+                "codigo": codigo_display,
                 "modelo_num": model_num,
                 "color": color,
                 "clave_material": clave_material,
@@ -733,3 +746,83 @@ def delete_optimization_result(name: str) -> bool:
         filepath.unlink()
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Operarios: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_operarios(operarios: list):
+    """Guarda la lista completa de operarios a JSON."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(OPERARIOS_JSON, "w", encoding="utf-8") as f:
+        json.dump(operarios, f, ensure_ascii=False, indent=2)
+
+
+def load_operarios() -> list:
+    """Carga la lista de operarios desde JSON. Retorna lista vacia si no existe."""
+    if not OPERARIOS_JSON.exists():
+        return []
+    with open(OPERARIOS_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _next_operario_id(operarios: list) -> str:
+    """Genera el siguiente ID de operario (op_001, op_002, ...)."""
+    max_num = 0
+    for op in operarios:
+        oid = op.get("id", "")
+        if oid.startswith("op_"):
+            try:
+                max_num = max(max_num, int(oid[3:]))
+            except ValueError:
+                pass
+    return f"op_{max_num + 1:03d}"
+
+
+def save_operario(operario: dict) -> dict:
+    """
+    Agrega o actualiza un operario individual.
+    Si tiene 'id' y ese id existe, actualiza. Si no, agrega nuevo.
+    Retorna el operario guardado (con id asignado).
+    """
+    operarios = load_operarios()
+    if operario.get("id"):
+        for i, op in enumerate(operarios):
+            if op["id"] == operario["id"]:
+                operarios[i] = operario
+                save_operarios(operarios)
+                return operario
+    operario["id"] = _next_operario_id(operarios)
+    operarios.append(operario)
+    save_operarios(operarios)
+    return operario
+
+
+def delete_operario(operario_id: str) -> bool:
+    """Elimina un operario por ID. Retorna True si se elimino."""
+    operarios = load_operarios()
+    filtered = [op for op in operarios if op.get("id") != operario_id]
+    if len(filtered) < len(operarios):
+        save_operarios(filtered)
+        return True
+    return False
+
+
+def compute_headcount_by_resource(operarios: list, day_name: str) -> dict:
+    """
+    Computa cuantos operarios activos pueden trabajar en cada tipo de recurso
+    para un dia dado.
+
+    Returns:
+        dict {recurso: count} e.g. {"MESA": 12, "PLANA": 8, ...}
+    """
+    counts = {}
+    for op in operarios:
+        if not op.get("activo", True):
+            continue
+        if day_name not in op.get("dias_disponibles", []):
+            continue
+        for recurso in op.get("recursos_habilitados", []):
+            counts[recurso] = counts.get(recurso, 0) + 1
+    return counts

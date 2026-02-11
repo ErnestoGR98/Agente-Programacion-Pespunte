@@ -77,6 +77,7 @@ from dashboard.views.utilizacion import render as render_utilizacion
 from dashboard.views.robots import render as render_robots
 from dashboard.views.cuellos_botella import render as render_cuellos
 from dashboard.views.configuracion import render as render_config
+from dashboard.views.operarios import render as render_operarios
 
 # Inicializar estado
 init_state()
@@ -93,9 +94,10 @@ if step >= 2:
     # Todos los tabs disponibles tras optimizacion
     tab_names = [
         "Datos", "Resumen Semanal", "Programa Diario",
-        "Utilizacion HC", "Robots", "Cuellos de Botella", "Configuracion",
+        "Utilizacion HC", "Robots", "Cuellos de Botella",
+        "Operarios", "Configuracion",
     ]
-    tab_datos, tab1, tab2, tab3, tab4, tab5, tab_cfg = st.tabs(tab_names)
+    tab_datos, tab1, tab2, tab3, tab4, tab5, tab_ops, tab_cfg = st.tabs(tab_names)
     with tab1:
         render_resumen()
     with tab2:
@@ -109,8 +111,8 @@ if step >= 2:
 
 elif step == 1:
     # Datos cargados, preview disponible
-    tab_names = ["Datos", "Preview", "Configuracion"]
-    tab_datos, tab_preview, tab_cfg = st.tabs(tab_names)
+    tab_names = ["Datos", "Preview", "Operarios", "Configuracion"]
+    tab_datos, tab_preview, tab_ops, tab_cfg = st.tabs(tab_names)
     with tab_preview:
         st.subheader("Datos Cargados")
         st.info("Ajuste parametros en el panel izquierdo y presione **Optimizar**.")
@@ -137,12 +139,14 @@ elif step == 1:
                 st.text(f"  {m['codigo']} - Vol: {m['total_producir']}")
 
 else:
-    # Estado inicial: Datos + Configuracion
-    tab_names = ["Datos", "Configuracion"]
-    tab_datos, tab_cfg = st.tabs(tab_names)
+    # Estado inicial: Datos + Operarios + Configuracion
+    tab_names = ["Datos", "Operarios", "Configuracion"]
+    tab_datos, tab_ops, tab_cfg = st.tabs(tab_names)
 
 # Tabs comunes a todos los estados
 with tab_datos:
     render_datos()
+with tab_ops:
+    render_operarios()
 with tab_cfg:
     render_config()

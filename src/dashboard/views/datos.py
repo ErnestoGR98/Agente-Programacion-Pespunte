@@ -169,11 +169,6 @@ def _render_pedido_form():
     if is_new and modelo_valid and modelo_clean in catalog:
         st.info(f"El modelo {modelo_clean} ya existe en el catalogo. Se actualizaran sus datos.")
 
-    # Combinar modelo + color para el codigo completo
-    modelo_full = modelo_clean
-    if color_clean:
-        modelo_full += f" {color_clean}"
-
     fabrica_valid = fabrica != "SIN FABRICA"
     if modelo_clean and not fabrica_valid:
         st.warning("Debe seleccionar una fabrica para agregar al pedido")
@@ -188,8 +183,9 @@ def _render_pedido_form():
         # Si es modelo nuevo, crearlo en el catalogo
         if is_new and modelo_clean not in catalog:
             new_alts = [color_clean] if color_clean else []
+            codigo_full = f"{modelo_clean} {color_clean}".strip()
             new_model = {
-                "codigo_full": modelo_full,
+                "codigo_full": codigo_full,
                 "alternativas": new_alts,
                 "clave_material": clave_clean,
                 "fabrica": fabrica,
@@ -213,11 +209,11 @@ def _render_pedido_form():
                 existing["clave_material"] = clave_clean
             if fabrica:
                 existing["fabrica"] = fabrica
-            existing["codigo_full"] = modelo_full
+            existing["codigo_full"] = f"{modelo_clean} {color_clean}".strip()
             save_catalog_model(modelo_clean, existing)
 
         st.session_state.pedido_rows.append({
-            "modelo": modelo_full,
+            "modelo": modelo_clean,
             "color": color_clean,
             "clave_material": clave_clean,
             "fabrica": fabrica,

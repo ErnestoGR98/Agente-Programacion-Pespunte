@@ -45,12 +45,13 @@ def init_state():
         "weekly_summary": None,
         "daily_results": None,
         "current_result_name": None,
+        "operarios": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
-    from dashboard.data_manager import load_catalog as dm_load_catalog, load_pedido_draft
+    from dashboard.data_manager import load_catalog as dm_load_catalog, load_pedido_draft, load_operarios
 
     # Auto-cargar catalogo persistido al iniciar
     if st.session_state.catalog is None:
@@ -61,6 +62,10 @@ def init_state():
     # Auto-cargar borrador del pedido al iniciar
     if "pedido_rows" not in st.session_state:
         st.session_state.pedido_rows = load_pedido_draft()
+
+    # Auto-cargar operarios persistidos al iniciar
+    if st.session_state.operarios is None:
+        st.session_state.operarios = load_operarios()
 
 
 def _save_uploaded_file(uploaded_file):
