@@ -40,10 +40,10 @@ def build_daily_df(day_schedule, block_labels):
 
 
 def style_by_resource(df):
-    """Aplica color de fondo por fila segun el tipo de RECURSO."""
+    """Aplica color de fondo por fila segun el tipo de RECURSO, con texto oscuro."""
     styles = pd.DataFrame("", index=df.index, columns=df.columns)
     for idx, row in df.iterrows():
         recurso = row.get("RECURSO", "GENERAL")
         color = RESOURCE_COLORS.get(recurso, "#D5DBDB")
-        styles.loc[idx] = f"background-color: {color}"
+        styles.loc[idx] = f"background-color: {color}; color: #1a1a1a"
     return styles

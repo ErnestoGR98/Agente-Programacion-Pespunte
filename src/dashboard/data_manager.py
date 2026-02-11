@@ -4,6 +4,7 @@ data_manager.py - Persistencia de datos y generacion de templates Excel.
 Maneja:
   - Catalogo de operaciones: guardado/carga en JSON, importacion desde Excel
   - Pedidos semanales: guardado/carga en JSON, importacion desde Excel template
+  - Resultados de optimizacion: guardado/carga en JSON para acceso multi-equipo
   - Generacion de templates Excel vacios para que el usuario los llene
 """
 
@@ -12,6 +13,7 @@ import re
 import io
 from pathlib import Path
 from copy import deepcopy
+from datetime import datetime
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -20,6 +22,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CATALOG_JSON = DATA_DIR / "catalogo.json"
 PEDIDOS_DIR = DATA_DIR / "pedidos"
+RESULTADOS_DIR = DATA_DIR / "resultados"
 
 # Tipos de recurso validos (categorias fisicas, no cambian)
 VALID_RESOURCES = {"MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"}
@@ -634,3 +637,99 @@ def export_catalog_to_template(catalog: dict) -> bytes:
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Resultados de Optimizacion: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_optimization_results(name: str, weekly_schedule: list,
+                               weekly_summary: dict, daily_results: dict,
+                               pedido: list = None, params: dict = None):
+    """
+    Guarda resultados de optimizacion a JSON.
+
+    Args:
+        name: nombre del resultado (ej: "sem_7_2026")
+        weekly_schedule: salida de optimizer_weekly
+        weekly_summary: resumen semanal
+        daily_results: salida de optimizer_v2 (dict por dia)
+        pedido: pedido original (opcional, para referencia)
+        params: parametros usados (opcional, para referencia)
+    """
+    RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = RESULTADOS_DIR / f"{name}.json"
+
+    data = {
+        "nombre": name,
+        "fecha_optimizacion": datetime.now().isoformat(),
+        "weekly_schedule": weekly_schedule,
+        "weekly_summary": weekly_summary,
+        "daily_results": daily_results,
+    }
+    if pedido is not None:
+        data["pedido"] = pedido
+    if params is not None:
+        # Solo guardar parametros serializables (excluir objetos complejos)
+        safe_params = {
+            "min_lot_size": params.get("min_lot_size"),
+            "lot_step": params.get("lot_step"),
+            "resource_capacity": params.get("resource_capacity"),
+            "days": params.get("days"),
+        }
+        data["params"] = safe_params
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_optimization_results(name: str) -> dict | None:
+    """
+    Carga resultados de optimizacion por nombre.
+
+    Returns:
+        dict con keys: nombre, fecha_optimizacion, weekly_schedule,
+        weekly_summary, daily_results, pedido (opcional), params (opcional).
+        None si no existe.
+    """
+    filepath = RESULTADOS_DIR / f"{name}.json"
+    if not filepath.exists():
+        return None
+    with open(filepath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def list_optimization_results() -> list:
+    """
+    Lista resultados de optimizacion guardados con metadatos basicos.
+
+    Returns:
+        lista de dicts con keys: nombre, fecha_optimizacion, total_pares,
+        status, num_modelos
+    """
+    RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+    results = []
+    for f in sorted(RESULTADOS_DIR.glob("*.json"), reverse=True):
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            summary = data.get("weekly_summary", {})
+            results.append({
+                "nombre": f.stem,
+                "fecha_optimizacion": data.get("fecha_optimizacion", ""),
+                "total_pares": summary.get("total_pares", 0),
+                "status": summary.get("status", ""),
+                "tardiness": summary.get("total_tardiness", 0),
+            })
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return results
+
+
+def delete_optimization_result(name: str) -> bool:
+    """Elimina un resultado de optimizacion guardado."""
+    filepath = RESULTADOS_DIR / f"{name}.json"
+    if filepath.exists():
+        filepath.unlink()
+        return True
+    return False

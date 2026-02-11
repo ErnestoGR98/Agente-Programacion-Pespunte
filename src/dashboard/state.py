@@ -44,6 +44,7 @@ def init_state():
         "weekly_schedule": None,
         "weekly_summary": None,
         "daily_results": None,
+        "current_result_name": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -132,7 +133,7 @@ def load_data(sabana_file, catalog_file):
 def run_optimization(params):
     """
     Ejecuta la optimizacion semanal + diaria con los parametros dados.
-    Almacena resultados en session_state.
+    Almacena resultados en session_state y guarda a disco para acceso remoto.
 
     Returns:
         dict con resumen del resultado
@@ -155,12 +156,84 @@ def run_optimization(params):
 
     st.session_state.pipeline_step = 2
 
+    # Auto-guardar resultados a disco (accesible desde otras computadoras via OneDrive)
+    from dashboard.data_manager import save_optimization_results
+    # Usar semana del selector de pedido si existe, sino generar automaticamente
+    result_name = _get_result_name()
+    save_optimization_results(
+        name=result_name,
+        weekly_schedule=weekly_schedule,
+        weekly_summary=weekly_summary,
+        daily_results=daily_results,
+        pedido=st.session_state.get("pedido_rows"),
+        params=params,
+    )
+    st.session_state.current_result_name = result_name
+
     return {
         "status": weekly_summary["status"],
         "total_pares": weekly_summary["total_pares"],
         "tardiness": weekly_summary["total_tardiness"],
         "wall_time": weekly_summary["wall_time_s"],
+        "saved_as": result_name,
     }
+
+
+def _get_result_name() -> str:
+    """Obtiene nombre para resultado: del selector ISO si existe, sino semana actual."""
+    # Intentar usar semana del selector de pedido
+    year = st.session_state.get("pedido_year")
+    week = st.session_state.get("pedido_week")
+    if year and week:
+        return f"sem_{int(week)}_{int(year)}"
+    # Fallback: semana ISO actual
+    from datetime import date
+    today = date.today()
+    iso = today.isocalendar()
+    return f"sem_{iso[1]}_{iso[0]}"
+
+
+def load_saved_results(name: str) -> bool:
+    """
+    Carga resultados de optimizacion guardados al session_state.
+
+    Returns:
+        True si se cargaron correctamente, False si no existe.
+    """
+    from dashboard.data_manager import load_optimization_results, build_matched_models, load_catalog
+
+    data = load_optimization_results(name)
+    if not data:
+        return False
+
+    st.session_state.weekly_schedule = data["weekly_schedule"]
+    st.session_state.weekly_summary = data["weekly_summary"]
+    st.session_state.daily_results = data["daily_results"]
+    st.session_state.current_result_name = name
+
+    # Restaurar pedido si estaba guardado
+    if "pedido" in data and data["pedido"]:
+        st.session_state.pedido_rows = data["pedido"]
+
+    # Restaurar parametros si estaban guardados
+    if "params" in data and data["params"]:
+        if st.session_state.params:
+            st.session_state.params.update(data["params"])
+        else:
+            st.session_state.params = get_default_params()
+            st.session_state.params.update(data["params"])
+
+    # Reconstruir matched_models desde pedido + catalogo
+    if "pedido" in data and data["pedido"]:
+        catalog = load_catalog()
+        if catalog:
+            matched, unmatched = build_matched_models(data["pedido"], catalog)
+            st.session_state.matched_models = matched
+            st.session_state.unmatched_models = unmatched
+            st.session_state.catalog = catalog
+
+    st.session_state.pipeline_step = 2
+    return True
 
 
 def generate_excel_bytes():

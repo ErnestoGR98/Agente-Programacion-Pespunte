@@ -6,7 +6,7 @@ El sidebar se enfoca en parametros y acciones.
 """
 
 import streamlit as st
-from dashboard.state import load_data, run_optimization, generate_excel_bytes
+from dashboard.state import load_data, run_optimization, generate_excel_bytes, load_saved_results
 
 
 def render_sidebar():
@@ -22,9 +22,16 @@ def render_sidebar():
         elif step == 1:
             st.success("Datos cargados - Listo para optimizar")
         elif step >= 2:
-            st.success("Optimizacion completada")
+            result_name = st.session_state.get("current_result_name", "")
+            if result_name:
+                st.success(f"Optimizacion: {result_name}")
+            else:
+                st.success("Optimizacion completada")
 
         st.divider()
+
+        # Resultados guardados (siempre visible)
+        _render_saved_results()
 
         # Carga legacy (mantener por retrocompatibilidad)
         with st.expander("Carga Legacy (archivos originales)", expanded=False):
@@ -84,10 +91,39 @@ def _render_parameters():
             )
 
 
+def _render_saved_results():
+    """Seccion para cargar resultados guardados anteriormente."""
+    from dashboard.data_manager import list_optimization_results, delete_optimization_result
+
+    with st.expander("Resultados Guardados", expanded=False):
+        saved = list_optimization_results()
+        if not saved:
+            st.caption("No hay resultados guardados")
+            return
+
+        for item in saved:
+            fecha = item["fecha_optimizacion"][:10] if item["fecha_optimizacion"] else ""
+            label = f"{item['nombre']} | {item['total_pares']:,} pares | {fecha}"
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                if st.button(label, key=f"load_result_{item['nombre']}",
+                             use_container_width=True):
+                    if load_saved_results(item["nombre"]):
+                        st.success(f"Resultado '{item['nombre']}' cargado")
+                        st.rerun()
+                    else:
+                        st.error("Error al cargar resultado")
+            with col2:
+                if st.button("X", key=f"del_result_{item['nombre']}"):
+                    delete_optimization_result(item["nombre"])
+                    st.rerun()
+
+
 def _render_optimize_button():
     """Boton de optimizacion."""
     if st.button("Optimizar", type="primary", width="stretch"):
-        with st.spinner("Ejecutando CP-SAT... (1-3 minutos)"):
+        with st.spinner("Ejecutando CP-SAT... (puede tomar hasta 12 minutos)"):
             try:
                 result = run_optimization(st.session_state.params)
                 st.success(
@@ -95,6 +131,8 @@ def _render_optimize_button():
                     f"{result['total_pares']:,} pares | "
                     f"{result['wall_time']}s"
                 )
+                if result.get("saved_as"):
+                    st.info(f"Guardado como: {result['saved_as']}")
                 if result["tardiness"] > 0:
                     st.warning(f"{result['tardiness']:,} pares pendientes")
             except Exception as e:
