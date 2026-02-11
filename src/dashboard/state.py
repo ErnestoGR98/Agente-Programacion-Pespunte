@@ -46,12 +46,17 @@ def init_state():
         "daily_results": None,
         "current_result_name": None,
         "operarios": None,
+        "restricciones": None,
+        "avance": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
-    from dashboard.data_manager import load_catalog as dm_load_catalog, load_pedido_draft, load_operarios
+    from dashboard.data_manager import (
+        load_catalog as dm_load_catalog, load_pedido_draft,
+        load_operarios, load_restricciones, load_avance,
+    )
 
     # Auto-cargar catalogo persistido al iniciar
     if st.session_state.catalog is None:
@@ -66,6 +71,12 @@ def init_state():
     # Auto-cargar operarios persistidos al iniciar
     if st.session_state.operarios is None:
         st.session_state.operarios = load_operarios()
+
+    # Auto-cargar restricciones y avance al iniciar
+    if st.session_state.restricciones is None:
+        st.session_state.restricciones = load_restricciones()
+    if st.session_state.avance is None:
+        st.session_state.avance = load_avance()
 
 
 def _save_uploaded_file(uploaded_file):
@@ -147,13 +158,34 @@ def run_optimization(params):
     if not matched:
         return {"error": "No hay modelos cargados"}
 
-    # Optimizacion semanal
-    weekly_schedule, weekly_summary = optimize(matched, params)
+    # Compilar restricciones dinamicas + avance
+    from constraint_compiler import compile_constraints
+    restricciones = st.session_state.get("restricciones") or []
+    avance_data = st.session_state.get("avance") or {}
+    compiled = compile_constraints(restricciones, avance_data, matched, params["days"])
+
+    # Ajustar volumenes en copia de los modelos (no modificar originales)
+    models_for_opt = deepcopy(matched)
+    for m in models_for_opt:
+        modelo_num = m.get("modelo_num", "")
+        # Maquila: restar pares enviados afuera
+        if modelo_num in compiled.maquila:
+            m["total_producir"] = max(0, m["total_producir"] - compiled.maquila[modelo_num])
+        # Override de volumen
+        if modelo_num in compiled.volume_overrides:
+            m["total_producir"] = compiled.volume_overrides[modelo_num]
+        # Avance: restar lo ya producido
+        if modelo_num in compiled.avance:
+            already = sum(compiled.avance[modelo_num].values())
+            m["total_producir"] = max(0, m["total_producir"] - already)
+
+    # Optimizacion semanal (con restricciones)
+    weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
     st.session_state.weekly_schedule = weekly_schedule
     st.session_state.weekly_summary = weekly_summary
 
-    # Scheduling diario
-    daily_results = schedule_week(weekly_schedule, matched, params)
+    # Scheduling diario (con restricciones)
+    daily_results = schedule_week(weekly_schedule, models_for_opt, params, compiled)
     st.session_state.daily_results = daily_results
 
     # Actualizar params en state

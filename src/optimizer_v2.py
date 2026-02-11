@@ -40,7 +40,7 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
             self.StopSearch()
 
 
-def schedule_day(models_day: list, params: dict) -> dict:
+def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     """
     Genera el programa horario para un dia.
 
@@ -119,6 +119,19 @@ def schedule_day(models_day: list, params: dict) -> dict:
         tardiness[m_idx] = solver_model.NewIntVar(
             0, model["pares_dia"], f"tard_{m_idx}"
         )
+
+    # --- Restricciones de block_availability (retraso de material con hora) ---
+    day_name = params.get("day_name", "")
+    if compiled and day_name and hasattr(compiled, "block_availability"):
+        for m_idx, model in enumerate(models_day):
+            modelo_code = model.get("codigo", "")
+            key = (modelo_code, day_name)
+            if key in compiled.block_availability:
+                allowed_blocks = compiled.block_availability[key]
+                for op_idx in range(len(model["operations"])):
+                    for b in range(num_blocks):
+                        if b not in allowed_blocks:
+                            solver_model.Add(x[m_idx, op_idx, b] == 0)
 
     # --- Restricciones ---
 
@@ -297,7 +310,8 @@ def schedule_day(models_day: list, params: dict) -> dict:
     return {"schedule": schedule, "summary": summary}
 
 
-def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> dict:
+def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
+                   compiled=None) -> dict:
     """
     Genera programas horarios para todos los dias de la semana EN PARALELO.
 
@@ -361,6 +375,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> 
             "plantilla": day_cfg["plantilla"],
             "lot_step": params.get("lot_step", 50),
             "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
+            "day_name": day_name,  # para block_availability (retraso material con hora)
         }
 
         day_tasks[day_name] = (models_day, day_params)
@@ -375,7 +390,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> 
             for day_name, (models_day, day_params) in day_tasks.items():
                 total_p = sum(m["pares_dia"] for m in models_day)
                 print(f"    -> {day_name}: {len(models_day)} modelos, {total_p} pares")
-                futures[executor.submit(schedule_day, models_day, day_params)] = day_name
+                futures[executor.submit(schedule_day, models_day, day_params, compiled)] = day_name
 
             for future in as_completed(futures):
                 day_name = futures[future]

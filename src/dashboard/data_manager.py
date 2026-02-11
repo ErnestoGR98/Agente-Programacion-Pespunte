@@ -24,6 +24,8 @@ CATALOG_JSON = DATA_DIR / "catalogo.json"
 PEDIDOS_DIR = DATA_DIR / "pedidos"
 RESULTADOS_DIR = DATA_DIR / "resultados"
 OPERARIOS_JSON = DATA_DIR / "operarios.json"
+RESTRICCIONES_JSON = DATA_DIR / "restricciones.json"
+AVANCE_JSON = DATA_DIR / "avance.json"
 
 # Tipos de recurso validos (categorias fisicas, no cambian)
 VALID_RESOURCES = {"MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"}
@@ -826,3 +828,91 @@ def compute_headcount_by_resource(operarios: list, day_name: str) -> dict:
         for recurso in op.get("recursos_habilitados", []):
             counts[recurso] = counts.get(recurso, 0) + 1
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Restricciones: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_restricciones(restricciones: list):
+    """Guarda la lista completa de restricciones a JSON."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(RESTRICCIONES_JSON, "w", encoding="utf-8") as f:
+        json.dump(restricciones, f, ensure_ascii=False, indent=2)
+
+
+def load_restricciones() -> list:
+    """Carga restricciones desde JSON. Retorna lista vacia si no existe."""
+    if not RESTRICCIONES_JSON.exists():
+        return []
+    with open(RESTRICCIONES_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _next_restriccion_id(restricciones: list) -> str:
+    """Genera el siguiente ID de restriccion (r_001, r_002, ...)."""
+    max_num = 0
+    for r in restricciones:
+        rid = r.get("id", "")
+        if rid.startswith("r_"):
+            try:
+                max_num = max(max_num, int(rid[2:]))
+            except ValueError:
+                pass
+    return f"r_{max_num + 1:03d}"
+
+
+def save_restriccion(restriccion: dict) -> dict:
+    """Agrega o actualiza una restriccion individual."""
+    restricciones = load_restricciones()
+    if restriccion.get("id"):
+        for i, r in enumerate(restricciones):
+            if r["id"] == restriccion["id"]:
+                restricciones[i] = restriccion
+                save_restricciones(restricciones)
+                return restriccion
+    restriccion["id"] = _next_restriccion_id(restricciones)
+    restricciones.append(restriccion)
+    save_restricciones(restricciones)
+    return restriccion
+
+
+def delete_restriccion(restriccion_id: str) -> bool:
+    """Elimina una restriccion por ID."""
+    restricciones = load_restricciones()
+    filtered = [r for r in restricciones if r.get("id") != restriccion_id]
+    if len(filtered) < len(restricciones):
+        save_restricciones(filtered)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Avance de produccion: persistencia JSON
+# ---------------------------------------------------------------------------
+
+def save_avance(avance: dict):
+    """Guarda avance de produccion a JSON."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(AVANCE_JSON, "w", encoding="utf-8") as f:
+        json.dump(avance, f, ensure_ascii=False, indent=2)
+
+
+def load_avance() -> dict:
+    """Carga avance desde JSON. Retorna dict vacio si no existe."""
+    if not AVANCE_JSON.exists():
+        return {}
+    with open(AVANCE_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def update_avance_model(semana: str, modelo: str, dia: str, pares: int):
+    """Actualiza avance de un modelo en un dia especifico."""
+    avance = load_avance()
+    if avance.get("semana") != semana:
+        avance = {"semana": semana, "updated_at": "", "modelos": {}}
+    avance["updated_at"] = datetime.now().isoformat()
+    if modelo not in avance["modelos"]:
+        avance["modelos"][modelo] = {}
+    avance["modelos"][modelo][dia] = pares
+    save_avance(avance)

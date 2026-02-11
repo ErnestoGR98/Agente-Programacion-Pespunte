@@ -122,6 +122,21 @@ def _render_saved_results():
 
 def _render_optimize_button():
     """Boton de optimizacion."""
+    # Info de restricciones activas
+    restricciones = st.session_state.get("restricciones") or []
+    active_r = sum(1 for r in restricciones if r.get("activa", True))
+    if active_r > 0:
+        st.info(f"{active_r} restricciones activas")
+
+    # Info de avance
+    avance = st.session_state.get("avance") or {}
+    if avance.get("modelos"):
+        total_done = sum(
+            sum(d.values()) for d in avance["modelos"].values()
+        )
+        if total_done > 0:
+            st.info(f"Avance: {total_done:,} pares producidos")
+
     if st.button("Optimizar", type="primary", width="stretch"):
         with st.spinner("Ejecutando CP-SAT... (1-3 minutos)"):
             try:

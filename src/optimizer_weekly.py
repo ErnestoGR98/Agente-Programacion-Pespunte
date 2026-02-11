@@ -25,13 +25,14 @@ W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permit
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
 
 
-def optimize(models: list, params: dict) -> tuple:
+def optimize(models: list, params: dict, compiled=None) -> tuple:
     """
     Construye y resuelve el modelo CP-SAT.
 
     Args:
         models: lista de dicts con datos de modelos (del match sabana+catalogo)
         params: dict con configuracion de dias, plantilla, etc.
+        compiled: CompiledConstraints (opcional) - restricciones pre-procesadas
 
     Returns:
         (schedule, summary)
@@ -104,6 +105,10 @@ def optimize(models: list, params: dict) -> tuple:
             # x[m,d] >= effective_min * y[m,d]  (si y=1, x >= minimo)
             solver_model.Add(x[m, d] >= effective_min * y[m, d])
 
+    # 2b. Restricciones dinamicas: day availability, frozen days, secuencias
+    if compiled:
+        _apply_compiled_constraints(solver_model, x, y, models, days, compiled)
+
     # 3. Capacidad por dia con overtime flexible
     #    Tier 1 (regular): plantilla * minutes * 60 (sin costo extra)
     #    Tier 2 (overtime): plantilla_ot * minutes_ot * 60 (penalizado)
@@ -148,9 +153,14 @@ def optimize(models: list, params: dict) -> tuple:
 
     obj_terms = []
 
-    # Minimizar pares no completados (maxima prioridad)
+    # Minimizar pares no completados (maxima prioridad, con peso por modelo)
     for m in range(num_models):
-        obj_terms.append(W_TARDINESS * tardiness[m])
+        weight = W_TARDINESS
+        if compiled:
+            modelo_num = models[m].get("modelo_num", "")
+            multiplier = compiled.tardiness_weights.get(modelo_num, 1.0)
+            weight = int(W_TARDINESS * multiplier)
+        obj_terms.append(weight * tardiness[m])
 
     # Penalizar produccion en sabado
     saturday_indices = [d for d in range(num_days) if days[d]["is_saturday"]]
@@ -294,3 +304,35 @@ def _build_summary(solver, x, tardiness, day_loads, overtime_used,
         "total_pares": sum(ds["pares"] for ds in days_summary),
         "total_tardiness": sum(ms["tardiness"] for ms in models_summary),
     }
+
+
+def _apply_compiled_constraints(solver_model, x, y, models, days, compiled):
+    """Aplica restricciones dinamicas del CompiledConstraints al modelo CP-SAT."""
+    num_days = len(days)
+
+    for m, model in enumerate(models):
+        modelo_num = model.get("modelo_num", "")
+
+        # Day availability: forzar x[m,d]=0 para dias no permitidos
+        if modelo_num in compiled.day_availability:
+            allowed = compiled.day_availability[modelo_num]
+            for d in range(num_days):
+                if d not in allowed:
+                    solver_model.Add(x[m, d] == 0)
+
+        # Frozen days (avance): forzar x[m,d]=0 para dias ya producidos
+        if modelo_num in compiled.avance:
+            for day_name, pares_done in compiled.avance[modelo_num].items():
+                for d in range(num_days):
+                    if days[d]["name"] == day_name and pares_done > 0:
+                        solver_model.Add(x[m, d] == 0)
+
+    # Secuencias: modelo A debe completarse antes de que B produzca
+    for antes_idx, despues_idx in compiled.sequences:
+        total_antes = models[antes_idx]["total_producir"]
+        if total_antes <= 0:
+            continue
+        for d in range(num_days):
+            # Si B produce en dia d, A debe tener todo acumulado hasta dia d
+            cum_antes = sum(x[antes_idx, dd] for dd in range(d + 1))
+            solver_model.Add(cum_antes >= total_antes * y[despues_idx, d])
