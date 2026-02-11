@@ -21,8 +21,8 @@ def render():
 
     config = load_config()
 
-    tab_robots, tab_recursos, tab_fabricas, tab_dias = st.tabs([
-        "Robots", "Capacidad Recursos", "Fabricas", "Dias / Plantilla",
+    tab_robots, tab_recursos, tab_fabricas, tab_dias, tab_llm = st.tabs([
+        "Robots", "Capacidad Recursos", "Fabricas", "Dias / Plantilla", "LLM",
     ])
 
     with tab_robots:
@@ -36,6 +36,9 @@ def render():
 
     with tab_dias:
         _render_dias(config)
+
+    with tab_llm:
+        _render_llm(config)
 
     st.divider()
 
@@ -230,3 +233,33 @@ def _render_dias(config):
         config["days"] = new_days
         save_config(config)
         st.success(f"Guardado: {len(new_days)} dias")
+
+
+def _render_llm(config):
+    """Configuracion del asistente LLM."""
+    st.markdown("**Asistente de IA (Claude)**")
+    st.caption("Configura la API key de Anthropic para habilitar el asistente de lenguaje natural")
+
+    llm = config.get("llm", {})
+
+    api_key = st.text_input(
+        "Anthropic API Key",
+        value=llm.get("api_key", ""),
+        type="password",
+        key="config_llm_key",
+        placeholder="sk-ant-...",
+        help="Obtener en console.anthropic.com. Se guarda localmente en data/config.json",
+    )
+
+    model = st.selectbox(
+        "Modelo",
+        options=["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"],
+        index=0 if llm.get("model", "").startswith("claude-sonnet") else 1,
+        key="config_llm_model",
+        format_func=lambda m: "Sonnet 4.5 (recomendado)" if "sonnet" in m else "Haiku 4.5 (mas rapido/barato)",
+    )
+
+    if st.button("Guardar LLM", type="primary", key="save_llm"):
+        config["llm"] = {"api_key": api_key, "model": model}
+        save_config(config)
+        st.success("Configuracion LLM guardada")

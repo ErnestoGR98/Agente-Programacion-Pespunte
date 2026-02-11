@@ -79,6 +79,7 @@ from dashboard.views.cuellos_botella import render as render_cuellos
 from dashboard.views.configuracion import render as render_config
 from dashboard.views.operarios import render as render_operarios
 from dashboard.views.restricciones import render as render_restricciones
+from dashboard.views.asistente import render as render_asistente
 
 # Inicializar estado
 init_state()
@@ -96,9 +97,10 @@ if step >= 2:
     tab_names = [
         "Datos", "Restricciones", "Resumen Semanal", "Programa Diario",
         "Utilizacion HC", "Robots", "Cuellos de Botella",
-        "Operarios", "Configuracion",
+        "Asistente", "Operarios", "Configuracion",
     ]
-    tab_datos, tab_rest, tab1, tab2, tab3, tab4, tab5, tab_ops, tab_cfg = st.tabs(tab_names)
+    (tab_datos, tab_rest, tab1, tab2, tab3, tab4, tab5,
+     tab_ai, tab_ops, tab_cfg) = st.tabs(tab_names)
     with tab1:
         render_resumen()
     with tab2:
@@ -112,8 +114,8 @@ if step >= 2:
 
 elif step == 1:
     # Datos cargados, preview disponible
-    tab_names = ["Datos", "Restricciones", "Preview", "Operarios", "Configuracion"]
-    tab_datos, tab_rest, tab_preview, tab_ops, tab_cfg = st.tabs(tab_names)
+    tab_names = ["Datos", "Restricciones", "Preview", "Asistente", "Operarios", "Configuracion"]
+    tab_datos, tab_rest, tab_preview, tab_ai, tab_ops, tab_cfg = st.tabs(tab_names)
     with tab_preview:
         st.subheader("Datos Cargados")
         st.info("Ajuste parametros en el panel izquierdo y presione **Optimizar**.")
@@ -140,15 +142,17 @@ elif step == 1:
                 st.text(f"  {m['codigo']} - Vol: {m['total_producir']}")
 
 else:
-    # Estado inicial: Datos + Restricciones + Operarios + Configuracion
-    tab_names = ["Datos", "Restricciones", "Operarios", "Configuracion"]
-    tab_datos, tab_rest, tab_ops, tab_cfg = st.tabs(tab_names)
+    # Estado inicial: Datos + Restricciones + Asistente + Operarios + Configuracion
+    tab_names = ["Datos", "Restricciones", "Asistente", "Operarios", "Configuracion"]
+    tab_datos, tab_rest, tab_ai, tab_ops, tab_cfg = st.tabs(tab_names)
 
 # Tabs comunes a todos los estados
 with tab_datos:
     render_datos()
 with tab_rest:
     render_restricciones()
+with tab_ai:
+    render_asistente()
 with tab_ops:
     render_operarios()
 with tab_cfg:

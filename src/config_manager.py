@@ -17,6 +17,10 @@ CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
 def get_default_config() -> dict:
     """Retorna la configuracion por defecto (valores actuales hardcodeados)."""
     return {
+        "llm": {
+            "api_key": "",
+            "model": "claude-sonnet-4-5-20250929",
+        },
         "robots": {
             "physical": [
                 "2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6",
