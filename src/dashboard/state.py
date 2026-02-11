@@ -44,18 +44,22 @@ def init_state():
         "weekly_schedule": None,
         "weekly_summary": None,
         "daily_results": None,
-        "pedido_rows": [],        # Lista de pedido actual (formulario)
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
+    from dashboard.data_manager import load_catalog as dm_load_catalog, load_pedido_draft
+
     # Auto-cargar catalogo persistido al iniciar
-    from dashboard.data_manager import load_catalog as dm_load_catalog
     if st.session_state.catalog is None:
         saved_catalog = dm_load_catalog()
         if saved_catalog:
             st.session_state.catalog = saved_catalog
+
+    # Auto-cargar borrador del pedido al iniciar
+    if "pedido_rows" not in st.session_state:
+        st.session_state.pedido_rows = load_pedido_draft()
 
 
 def _save_uploaded_file(uploaded_file):

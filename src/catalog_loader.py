@@ -267,6 +267,7 @@ def load_catalog_v2(filepath: str) -> dict:
             "codigo_full": data["codigo_full"],
             "alternativas": data.get("alternativas", []),
             "clave_material": data.get("clave_material", ""),
+            "fabrica": "",
             "operations": unique_ops,
             "total_sec_per_pair": total_sec,
             "num_ops": len(unique_ops),

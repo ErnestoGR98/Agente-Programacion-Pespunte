@@ -13,11 +13,18 @@ from dashboard.data_manager import (
     import_catalog_from_template, export_catalog_to_template,
     save_catalog_model, delete_catalog_model,
     save_pedido, load_pedido, list_pedidos, delete_pedido,
+    save_pedido_draft, load_pedido_draft, clear_pedido_draft,
     import_pedido_from_template, build_matched_models,
     generate_template_pedido, generate_template_catalogo,
     VALID_RESOURCES,
 )
 from config_manager import get_fabricas, get_physical_robots
+
+
+def _to_upper(key):
+    """Callback: convierte a mayusculas el valor de un widget."""
+    if key in st.session_state and isinstance(st.session_state[key], str):
+        st.session_state[key] = st.session_state[key].upper()
 
 
 def render():
@@ -40,9 +47,9 @@ def _render_pedido_section():
     st.subheader("Pedido Semanal")
     st.caption("Ingrese los modelos a producir esta semana")
 
-    # Inicializar estado del pedido
+    # Inicializar estado del pedido (cargar borrador si existe)
     if "pedido_rows" not in st.session_state:
-        st.session_state.pedido_rows = []
+        st.session_state.pedido_rows = load_pedido_draft()
 
     # Dos metodos: formulario o Excel
     method = st.radio(
@@ -70,23 +77,31 @@ def _render_pedido_section():
 
 def _render_pedido_form():
     """Formulario para agregar modelos al pedido."""
-    catalog = load_catalog()
+    catalog = load_catalog() or {}
+
+    # Contador de version para forzar reset de widgets
+    if "_pedido_form_ver" not in st.session_state:
+        st.session_state._pedido_form_ver = 0
+    fv = st.session_state._pedido_form_ver
+
+    # Toggle: modelo existente o nuevo
+    is_new = st.toggle("Nuevo modelo (no existe en catalogo)", key="pedido_nuevo_toggle")
 
     cat_alternativas = []
     cat_clave = ""
+    cat_fabrica = ""
     modelo_input = ""
 
-    if catalog:
-        # Dropdown solo muestra el numero de 5 digitos
+    col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 2])
+
+    if not is_new and catalog:
+        # --- Modelo existente: dropdown ---
         modelos_nums = sorted(catalog.keys())
-
-        col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 2])
-
         with col1:
             selected_num = st.selectbox(
                 "Modelo",
                 options=[""] + modelos_nums,
-                key="pedido_modelo_select",
+                key=f"pedido_modelo_select_{fv}",
             )
 
         if selected_num:
@@ -94,53 +109,48 @@ def _render_pedido_form():
             cat_data = catalog[selected_num]
             cat_alternativas = cat_data.get("alternativas", [])
             cat_clave = cat_data.get("clave_material", "")
+            cat_fabrica = cat_data.get("fabrica", "")
 
-            # Auto-llenar clave material cuando cambia el modelo
+            # Auto-llenar clave material y fabrica cuando cambia el modelo
             prev = st.session_state.get("_prev_pedido_modelo", "")
             if prev != selected_num:
                 st.session_state["_prev_pedido_modelo"] = selected_num
-                st.session_state["pedido_clave"] = cat_clave
+                st.session_state[f"pedido_clave_{fv}"] = cat_clave
+                st.session_state[f"pedido_fabrica_{fv}"] = cat_fabrica if cat_fabrica else "SIN FABRICA"
 
         with col2:
             if cat_alternativas:
                 color = st.selectbox(
                     "Alternativa",
                     options=cat_alternativas,
-                    key="pedido_color_select",
+                    key=f"pedido_color_select_{fv}",
                 )
             else:
-                color = st.text_input("Alternativa", key="pedido_color",
-                                       placeholder="Ej: NE", max_chars=2)
-
-        with col3:
-            clave = st.text_input("Clave Material", key="pedido_clave",
-                                   placeholder="Ej: SLI")
-
-        with col4:
-            fabrica = st.selectbox("Fabrica", get_fabricas(), key="pedido_fabrica")
-
-        with col5:
-            volumen = st.number_input("Volumen (pares)",
-                                       min_value=0, max_value=50000, value=0, step=50,
-                                       key="pedido_volumen")
+                color = st.text_input("Alternativa", key=f"pedido_color_{fv}",
+                                       placeholder="Ej: NE", max_chars=2,
+                                       on_change=_to_upper, args=(f"pedido_color_{fv}",))
     else:
-        # Sin catalogo: campos manuales
-        col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1.5, 2, 2])
+        # --- Modelo nuevo: text input ---
         with col1:
-            modelo_input = st.text_input("Modelo (5 digitos)", key="pedido_modelo_input",
+            modelo_input = st.text_input("Modelo (5 digitos)", key=f"pedido_modelo_input_{fv}",
                                           placeholder="Ej: 65413", max_chars=5)
         with col2:
-            color = st.text_input("Alternativa", key="pedido_color",
-                                   placeholder="Ej: NE", max_chars=2)
-        with col3:
-            clave = st.text_input("Clave Material", key="pedido_clave",
-                                   placeholder="Ej: SLI")
-        with col4:
-            fabrica = st.selectbox("Fabrica", get_fabricas(), key="pedido_fabrica")
-        with col5:
-            volumen = st.number_input("Volumen (pares)",
-                                       min_value=0, max_value=50000, value=0, step=50,
-                                       key="pedido_volumen")
+            color = st.text_input("Alternativa", key=f"pedido_color_new_{fv}",
+                                   placeholder="Ej: NE", max_chars=2,
+                                   on_change=_to_upper, args=(f"pedido_color_new_{fv}",))
+
+    with col3:
+        clave = st.text_input("Clave Material", key=f"pedido_clave_{fv}",
+                               placeholder="Ej: SLI",
+                               on_change=_to_upper, args=(f"pedido_clave_{fv}",))
+    with col4:
+        fabricas = get_fabricas()
+        fab_options = ["SIN FABRICA"] + fabricas
+        fabrica = st.selectbox("Fabrica", fab_options, key=f"pedido_fabrica_{fv}")
+    with col5:
+        volumen = st.number_input("Volumen (pares)",
+                                   min_value=0, max_value=50000, value=0, step=50,
+                                   key=f"pedido_volumen_{fv}")
 
     # Validar formato
     modelo_clean = modelo_input.strip()
@@ -154,14 +164,53 @@ def _render_pedido_form():
     if color_clean and not color_valid:
         st.warning("La alternativa debe ser exactamente 2 letras (ej: NE)")
 
+    # Aviso si el modelo nuevo ya existe
+    if is_new and modelo_valid and modelo_clean in catalog:
+        st.info(f"El modelo {modelo_clean} ya existe en el catalogo. Se actualizaran sus datos.")
+
     # Combinar modelo + color para el codigo completo
     modelo_full = modelo_clean
     if color_clean:
         modelo_full += f" {color_clean}"
 
-    can_add = modelo_valid and color_valid and volumen > 0
+    fabrica_valid = fabrica != "SIN FABRICA"
+    if modelo_clean and not fabrica_valid:
+        st.warning("Debe seleccionar una fabrica para agregar al pedido")
+
+    can_add = modelo_valid and color_valid and fabrica_valid and volumen > 0
 
     if st.button("Agregar al Pedido", type="primary", disabled=(not can_add)):
+        # Si es modelo nuevo, crearlo en el catalogo
+        if is_new and modelo_clean not in catalog:
+            new_alts = [color_clean] if color_clean else []
+            new_model = {
+                "codigo_full": modelo_full,
+                "alternativas": new_alts,
+                "clave_material": clave_clean,
+                "fabrica": fabrica,
+                "operations": [],
+                "total_sec_per_pair": 0,
+                "num_ops": 0,
+                "resource_summary": {},
+                "robot_ops": 0,
+                "robots_used": [],
+            }
+            save_catalog_model(modelo_clean, new_model)
+            st.toast(f"Modelo {modelo_clean} creado en catalogo")
+        elif is_new and modelo_clean in catalog:
+            # Actualizar datos del modelo existente
+            existing = catalog[modelo_clean]
+            alts = existing.get("alternativas", [])
+            if color_clean and color_clean not in alts:
+                alts.append(color_clean)
+            existing["alternativas"] = alts
+            if clave_clean:
+                existing["clave_material"] = clave_clean
+            if fabrica:
+                existing["fabrica"] = fabrica
+            existing["codigo_full"] = modelo_full
+            save_catalog_model(modelo_clean, existing)
+
         st.session_state.pedido_rows.append({
             "modelo": modelo_full,
             "color": color_clean,
@@ -169,6 +218,12 @@ def _render_pedido_form():
             "fabrica": fabrica,
             "volumen": volumen,
         })
+        save_pedido_draft(st.session_state.pedido_rows)
+
+        # Incrementar version para forzar reset de todos los widgets del formulario
+        st.session_state._pedido_form_ver += 1
+        st.session_state.pop("_prev_pedido_modelo", None)
+
         st.rerun()
 
 
@@ -200,6 +255,7 @@ def _render_pedido_excel():
             st.success(f"{len(pedido)} modelos importados del Excel")
             if st.button("Usar estos datos", key="pedido_use_excel"):
                 st.session_state.pedido_rows = pedido
+                save_pedido_draft(pedido)
                 st.rerun()
             # Preview
             st.dataframe(
@@ -266,6 +322,9 @@ def _render_pedido_table():
                 "fabrica": str(row["FABRICA"]).strip(),
                 "volumen": int(row["VOLUMEN"]) if pd.notna(row["VOLUMEN"]) else 0,
             })
+    # Solo guardar borrador si hubo cambios reales
+    if new_rows != st.session_state.pedido_rows:
+        save_pedido_draft(new_rows)
     st.session_state.pedido_rows = new_rows
 
     # Resumen
@@ -288,6 +347,7 @@ def _render_pedido_table():
     with col1:
         if st.button("Limpiar Pedido", type="secondary"):
             st.session_state.pedido_rows = []
+            clear_pedido_draft()
             st.rerun()
     with col2:
         if new_rows and catalog:
@@ -342,7 +402,7 @@ def _render_pedido_save_load():
             st.success(f"Pedido '{pedido_name}' guardado")
 
     with col2:
-        saved = list_pedidos()
+        saved = [p for p in list_pedidos() if p != "_borrador"]
         if saved:
             selected_pedido = st.selectbox("Pedidos guardados", [""] + saved,
                                             key="pedido_load_select")
@@ -352,6 +412,7 @@ def _render_pedido_save_load():
                     loaded = load_pedido(selected_pedido)
                     if loaded:
                         st.session_state.pedido_rows = loaded
+                        save_pedido_draft(loaded)
                         st.success(f"Pedido '{selected_pedido}' cargado")
                         st.rerun()
             with c2:
@@ -402,6 +463,7 @@ def _render_catalogo_status(catalog):
         rows.append({
             "Num": num,
             "Modelo": data["codigo_full"],
+            "Fabrica": data.get("fabrica", ""),
             "Operaciones": data["num_ops"],
             "Sec/Par": data["total_sec_per_pair"],
             "Min/Par": round(data["total_sec_per_pair"] / 60, 1),
@@ -476,10 +538,7 @@ def _render_catalogo_edit(catalog):
     """Editar modelo existente del catalogo."""
     st.subheader("Editar Modelo Existente")
 
-    modelos = sorted([
-        f"{num} - {data['codigo_full']}"
-        for num, data in catalog.items()
-    ])
+    modelos = sorted(catalog.keys())
 
     selected = st.selectbox(
         "Seleccionar modelo",
@@ -490,12 +549,44 @@ def _render_catalogo_edit(catalog):
     if not selected:
         return
 
-    model_num = selected.split(" - ")[0].strip()
+    model_num = selected
     model_data = catalog[model_num]
 
-    st.caption(f"Modelo: {model_data['codigo_full']} | "
-               f"{model_data['num_ops']} operaciones | "
+    st.caption(f"{model_data['num_ops']} operaciones | "
                f"{model_data['total_sec_per_pair']} sec/par")
+
+    # Campos editables de alternativas, clave material y fabrica
+    ec1, ec2, ec3 = st.columns(3)
+    with ec1:
+        alts_str = ", ".join(model_data.get("alternativas", []))
+        alts_key = f"cat_alts_{model_num}"
+        edited_alts = st.text_input(
+            "Alternativas (separar por coma)",
+            value=alts_str,
+            key=alts_key,
+            placeholder="Ej: NE, GC, BL",
+            on_change=_to_upper, args=(alts_key,),
+        )
+    with ec2:
+        clave_key = f"cat_clave_{model_num}"
+        edited_clave = st.text_input(
+            "Clave Material",
+            value=model_data.get("clave_material", ""),
+            key=clave_key,
+            placeholder="Ej: SLI, TEX",
+            on_change=_to_upper, args=(clave_key,),
+        )
+    with ec3:
+        fabricas = get_fabricas()
+        current_fab = model_data.get("fabrica", "")
+        fab_options = [""] + fabricas
+        fab_idx = fab_options.index(current_fab) if current_fab in fab_options else 0
+        edited_fabrica = st.selectbox(
+            "Fabrica",
+            options=fab_options,
+            index=fab_idx,
+            key=f"cat_fab_{model_num}",
+        )
 
     # Construir DataFrame editable de operaciones
     ops_rows = []
@@ -534,9 +625,13 @@ def _render_catalogo_edit(catalog):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Guardar Cambios", key=f"save_model_{model_num}", type="primary"):
+            # Parsear alternativas editadas
+            new_alts = [a.strip().upper() for a in edited_alts.split(",") if a.strip()]
+            new_clave = edited_clave.strip().upper()
             _save_edited_model(model_num, model_data["codigo_full"], edited_ops,
-                               alternativas=model_data.get("alternativas", []),
-                               clave_material=model_data.get("clave_material", ""))
+                               alternativas=new_alts,
+                               clave_material=new_clave,
+                               fabrica=edited_fabrica)
     with col2:
         if st.button("Eliminar Modelo", key=f"delete_model_{model_num}"):
             delete_catalog_model(model_num)
@@ -545,7 +640,7 @@ def _render_catalogo_edit(catalog):
 
 
 def _save_edited_model(model_num, codigo_full, edited_df,
-                       alternativas=None, clave_material=""):
+                       alternativas=None, clave_material="", fabrica=""):
     """Guarda las operaciones editadas de un modelo."""
     operations = []
     for _, row in edited_df.iterrows():
@@ -593,6 +688,7 @@ def _save_edited_model(model_num, codigo_full, edited_df,
         "codigo_full": codigo_full,
         "alternativas": alternativas or [],
         "clave_material": clave_material or "",
+        "fabrica": fabrica or "",
         "operations": operations,
         "total_sec_per_pair": total_sec,
         "num_ops": len(operations),
@@ -613,6 +709,7 @@ def _render_catalogo_add_model(catalog):
         "Codigo del modelo",
         placeholder="Ej: 12345 NE NOMBRE",
         key="new_model_code",
+        on_change=_to_upper, args=("new_model_code",),
     )
 
     if not modelo_code:

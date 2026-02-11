@@ -148,10 +148,11 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
 
     for row in range(2, ws.max_row + 1):
         modelo = ws.cell(row=row, column=1).value
-        fraccion = ws.cell(row=row, column=2).value
-        operacion = ws.cell(row=row, column=3).value
-        recurso = ws.cell(row=row, column=4).value
-        rate = ws.cell(row=row, column=5).value
+        fabrica_val = ws.cell(row=row, column=2).value
+        fraccion = ws.cell(row=row, column=3).value
+        operacion = ws.cell(row=row, column=4).value
+        recurso = ws.cell(row=row, column=5).value
+        rate = ws.cell(row=row, column=6).value
 
         if not modelo or not fraccion:
             continue
@@ -162,6 +163,8 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
             errors.append(f"Fila {row}: MODELO '{modelo_str}' no inicia con numero")
             continue
         model_num = model_num.group(1)
+
+        fabrica_str = str(fabrica_val).strip() if fabrica_val else ""
 
         # Validar recurso
         recurso_str = str(recurso).strip().upper() if recurso else ""
@@ -179,9 +182,9 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
             errors.append(f"Fila {row}: RATE '{rate}' debe ser numerico > 0")
             continue
 
-        # Parsear robots (columnas 6-13)
+        # Parsear robots (columnas 7-14)
         robots = []
-        for col in range(6, 14):
+        for col in range(7, 15):
             val = ws.cell(row=row, column=col).value
             robot = _normalize_robot(val)
             if robot and robot not in robots:
@@ -190,7 +193,9 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
         sec_per_pair = round(3600.0 / rate_val)
 
         if model_num not in raw_ops:
-            raw_ops[model_num] = {"codigo_full": modelo_str, "ops": []}
+            raw_ops[model_num] = {"codigo_full": modelo_str, "fabrica": fabrica_str, "ops": []}
+        elif fabrica_str and not raw_ops[model_num].get("fabrica"):
+            raw_ops[model_num]["fabrica"] = fabrica_str
 
         raw_ops[model_num]["ops"].append({
             "fraccion": int(fraccion),
@@ -229,6 +234,7 @@ def import_catalog_from_template(file_or_bytes) -> tuple:
 
         catalog[model_num] = {
             "codigo_full": data["codigo_full"],
+            "fabrica": data.get("fabrica", ""),
             "operations": unique_ops,
             "total_sec_per_pair": total_sec,
             "num_ops": len(unique_ops),
@@ -305,6 +311,24 @@ def delete_pedido(name: str) -> bool:
         filepath.unlink()
         return True
     return False
+
+
+_DRAFT_NAME = "_borrador"
+
+
+def save_pedido_draft(pedido: list):
+    """Guarda el borrador actual del pedido (auto-save)."""
+    save_pedido(_DRAFT_NAME, pedido)
+
+
+def load_pedido_draft() -> list:
+    """Carga el borrador del pedido. Retorna lista vacia si no existe."""
+    return load_pedido(_DRAFT_NAME) or []
+
+
+def clear_pedido_draft():
+    """Elimina el borrador del pedido."""
+    delete_pedido(_DRAFT_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -501,11 +525,11 @@ def generate_template_catalogo() -> bytes:
     ws.title = "Catalogo"
 
     headers = [
-        "MODELO", "FRACCION", "OPERACION", "RECURSO", "RATE",
+        "MODELO", "FABRICA", "FRACCION", "OPERACION", "RECURSO", "RATE",
         "ROBOT_1", "ROBOT_2", "ROBOT_3", "ROBOT_4",
         "ROBOT_5", "ROBOT_6", "ROBOT_7", "ROBOT_8",
     ]
-    col_widths = [20, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
+    col_widths = [20, 15, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
 
     # Encabezados
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
@@ -518,11 +542,11 @@ def generate_template_catalogo() -> bytes:
 
     # Filas de ejemplo
     examples = [
-        ("65413 NE", 1, "PEGAR FELPA", "MESA", 120, "", "", "", "", "", "", "", ""),
-        ("65413 NE", 2, "COSER PUNTERA", "ROBOT", 80, "3020-M4", "3020-M6", "", "", "", "", "", ""),
-        ("65413 NE", 3, "ADORNAR COSTADOS", "PLANA", 90, "", "", "", "", "", "", "", ""),
-        ("95420 NE", 1, "PEGAR FORRO", "MESA", 110, "", "", "", "", "", "", "", ""),
-        ("95420 NE", 2, "COSER LATERAL", "ROBOT", 75, "6040-M4", "6040-M5", "", "", "", "", "", ""),
+        ("65413 NE", "FABRICA 1", 1, "PEGAR FELPA", "MESA", 120, "", "", "", "", "", "", "", ""),
+        ("65413 NE", "FABRICA 1", 2, "COSER PUNTERA", "ROBOT", 80, "3020-M4", "3020-M6", "", "", "", "", "", ""),
+        ("65413 NE", "FABRICA 1", 3, "ADORNAR COSTADOS", "PLANA", 90, "", "", "", "", "", "", "", ""),
+        ("95420 NE", "FABRICA 2", 1, "PEGAR FORRO", "MESA", 110, "", "", "", "", "", "", "", ""),
+        ("95420 NE", "FABRICA 2", 2, "COSER LATERAL", "ROBOT", 75, "6040-M4", "6040-M5", "", "", "", "", "", ""),
     ]
     for row, vals in enumerate(examples, 2):
         for col, val in enumerate(vals, 1):
@@ -540,6 +564,7 @@ def generate_template_catalogo() -> bytes:
         "",
         "Columnas:",
         "  MODELO    - Codigo del modelo. Ej: 65413 NE",
+        "  FABRICA   - Fabrica asignada. Ej: FABRICA 1, FABRICA 2, FABRICA 3",
         "  FRACCION  - Numero secuencial de la operacion (1, 2, 3...)",
         "  OPERACION - Descripcion de la operacion. Ej: PEGAR FELPA",
         "  RECURSO   - Tipo de recurso. Debe ser uno de:",
@@ -574,11 +599,11 @@ def export_catalog_to_template(catalog: dict) -> bytes:
     ws.title = "Catalogo"
 
     headers = [
-        "MODELO", "FRACCION", "OPERACION", "RECURSO", "RATE",
+        "MODELO", "FABRICA", "FRACCION", "OPERACION", "RECURSO", "RATE",
         "ROBOT_1", "ROBOT_2", "ROBOT_3", "ROBOT_4",
         "ROBOT_5", "ROBOT_6", "ROBOT_7", "ROBOT_8",
     ]
-    col_widths = [20, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
+    col_widths = [20, 15, 12, 30, 15, 10, 15, 15, 15, 15, 15, 15, 15, 15]
 
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -591,16 +616,18 @@ def export_catalog_to_template(catalog: dict) -> bytes:
     row = 2
     for model_num in sorted(catalog.keys()):
         model_data = catalog[model_num]
+        fabrica = model_data.get("fabrica", "")
         for op in model_data["operations"]:
             ws.cell(row=row, column=1, value=model_data["codigo_full"])
-            ws.cell(row=row, column=2, value=op["fraccion"])
-            ws.cell(row=row, column=3, value=op["operacion"])
-            ws.cell(row=row, column=4, value=op["recurso"])
-            ws.cell(row=row, column=5, value=op["rate"])
+            ws.cell(row=row, column=2, value=fabrica)
+            ws.cell(row=row, column=3, value=op["fraccion"])
+            ws.cell(row=row, column=4, value=op["operacion"])
+            ws.cell(row=row, column=5, value=op["recurso"])
+            ws.cell(row=row, column=6, value=op["rate"])
             for i, robot in enumerate(op.get("robots", [])[:8]):
-                ws.cell(row=row, column=6 + i, value=robot)
-            for col in range(1, 14):
-                ws.cell(row=row, column=col).border = _THIN_BORDER
+                ws.cell(row=row, column=7 + i, value=robot)
+            for c in range(1, 15):
+                ws.cell(row=row, column=c).border = _THIN_BORDER
             row += 1
 
     buf = io.BytesIO()
