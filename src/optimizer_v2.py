@@ -18,12 +18,26 @@ Restricciones:
   6. Rate limit: 1 persona por robot, 1 persona por operacion manual
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ortools.sat.python import cp_model
 
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
 W_EARLY_START = 50        # preferir iniciar operaciones lo antes posible
 W_RESOURCE_BALANCE = 1    # balancear uso de recursos entre bloques
+
+
+class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
+    """Detiene el solver cuando encuentra solucion con 0 tardiness."""
+
+    def __init__(self, tardiness_vars):
+        super().__init__()
+        self._tardiness_vars = tardiness_vars
+
+    def on_solution_callback(self):
+        total_tard = sum(self.Value(t) for t in self._tardiness_vars)
+        if total_tard == 0:
+            self.StopSearch()
 
 
 def schedule_day(models_day: list, params: dict) -> dict:
@@ -254,9 +268,21 @@ def schedule_day(models_day: list, params: dict) -> dict:
 
     # --- Resolver ---
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 120
-    solver.parameters.num_workers = 8
-    status = solver.Solve(solver_model)
+
+    # Timeout dinamico segun complejidad del dia
+    total_pares = sum(m["pares_dia"] for m in models_day)
+    total_ops = sum(len(m["operations"]) for m in models_day)
+    # Base 20s + escala con pares y operaciones, tope 90s
+    timeout = min(90, max(20, 10 + total_pares // 100 + total_ops))
+    solver.parameters.max_time_in_seconds = timeout
+
+    # Workers: reducir si se ejecuta en paralelo (evitar contention)
+    num_workers = params.get("num_workers", 4)
+    solver.parameters.num_workers = num_workers
+
+    # Callback de parada temprana: si tardiness=0, dejar de buscar
+    callback = _EarlyStopCallback(list(tardiness.values()))
+    status = solver.Solve(solver_model, callback)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print(f"  ADVERTENCIA: No se encontro solucion para el dia. Estado: {solver.StatusName(status)}")
@@ -273,7 +299,10 @@ def schedule_day(models_day: list, params: dict) -> dict:
 
 def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> dict:
     """
-    Genera programas horarios para todos los dias de la semana.
+    Genera programas horarios para todos los dias de la semana EN PARALELO.
+
+    Cada dia se resuelve en un thread separado. CP-SAT libera el GIL durante
+    la resolucion, por lo que ThreadPoolExecutor funciona bien.
 
     Args:
         weekly_schedule: salida de optimizer_weekly (lista de {Dia, Modelo, Pares, ...})
@@ -298,7 +327,10 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> 
             by_day[dia] = []
         by_day[dia].append(entry)
 
+    # Preparar tareas para cada dia
+    day_tasks = {}  # day_name -> (models_day, day_params)
     results = {}
+
     for day_cfg in days:
         day_name = day_cfg["name"]
         entries = by_day.get(day_name, [])
@@ -322,18 +354,39 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict) -> 
                 "operations": model_data["operations"],
             })
 
-        # Parametros para este dia
+        # Parametros para este dia (workers reducidos para paralelismo)
         day_params = {
             "time_blocks": params["time_blocks"],
             "resource_capacity": params["resource_capacity"],
             "plantilla": day_cfg["plantilla"],
             "lot_step": params.get("lot_step", 50),
+            "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
         }
 
-        print(f"    Scheduling {day_name}: {len(models_day)} modelos, "
-              f"{sum(m['pares_dia'] for m in models_day)} pares...")
+        day_tasks[day_name] = (models_day, day_params)
 
-        results[day_name] = schedule_day(models_day, day_params)
+    # Ejecutar dias en paralelo
+    if day_tasks:
+        active_days = len(day_tasks)
+        print(f"  Scheduling {active_days} dias en paralelo...")
+
+        with ThreadPoolExecutor(max_workers=active_days) as executor:
+            futures = {}
+            for day_name, (models_day, day_params) in day_tasks.items():
+                total_p = sum(m["pares_dia"] for m in models_day)
+                print(f"    -> {day_name}: {len(models_day)} modelos, {total_p} pares")
+                futures[executor.submit(schedule_day, models_day, day_params)] = day_name
+
+            for future in as_completed(futures):
+                day_name = futures[future]
+                try:
+                    results[day_name] = future.result()
+                    s = results[day_name]["summary"]
+                    print(f"    <- {day_name}: {s['total_pares']} pares, "
+                          f"tardiness={s['total_tardiness']}, status={s['status']}")
+                except Exception as e:
+                    print(f"    ERROR {day_name}: {e}")
+                    results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
 
     return results
 

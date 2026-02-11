@@ -123,7 +123,7 @@ def _render_saved_results():
 def _render_optimize_button():
     """Boton de optimizacion."""
     if st.button("Optimizar", type="primary", width="stretch"):
-        with st.spinner("Ejecutando CP-SAT... (puede tomar hasta 12 minutos)"):
+        with st.spinner("Ejecutando CP-SAT... (1-3 minutos)"):
             try:
                 result = run_optimization(st.session_state.params)
                 st.success(
