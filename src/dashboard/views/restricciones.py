@@ -15,18 +15,32 @@ from dashboard.data_manager import (
     load_restricciones, save_restricciones, save_restriccion, delete_restriccion,
     load_avance, save_avance, load_catalog,
 )
-from config_manager import load_config
+from config_manager import load_config, get_physical_robots
 
 
-# Tipos de restriccion disponibles con descripcion
-CONSTRAINT_TYPES = {
-    "PRIORIDAD": "Prioridad del modelo (afecta orden de produccion)",
+# Tipos de restriccion organizados por categoria
+CONSTRAINT_TYPES_FRECUENTES = {
+    "PRIORIDAD": "Prioridad del modelo (afecta orden)",
+    "RETRASO_MATERIAL": "Material no disponible hasta cierto dia/hora",
     "MAQUILA": "Enviar pares a produccion externa",
-    "RETRASO_MATERIAL": "Material no disponible hasta cierto dia",
-    "FIJAR_DIA": "Permitir o excluir dias especificos para un modelo",
-    "SECUENCIA": "Un modelo debe completarse antes que otro inicie",
-    "AJUSTE_VOLUMEN": "Modificar el volumen a producir",
+    "ROBOT_NO_DISPONIBLE": "Robot descompuesto o en mantenimiento",
+    "AUSENCIA_OPERARIO": "Operario ausente (reduce capacidad)",
+    "CAPACIDAD_DIA": "Dia con capacidad reducida (junta, medio dia)",
 }
+CONSTRAINT_TYPES_MENOS_FRECUENTES = {
+    "FIJAR_DIA": "Permitir o excluir dias para un modelo",
+    "FECHA_LIMITE": "Modelo debe terminarse antes de cierto dia",
+    "SECUENCIA": "Un modelo debe completarse antes que otro",
+    "AGRUPAR_MODELOS": "Dos modelos deben producirse el mismo dia",
+    "AJUSTE_VOLUMEN": "Modificar el volumen a producir",
+    "LOTE_MINIMO_CUSTOM": "Lote minimo diferente para un modelo",
+}
+# Combinado para lookups
+CONSTRAINT_TYPES = {**CONSTRAINT_TYPES_FRECUENTES, **CONSTRAINT_TYPES_MENOS_FRECUENTES}
+
+# Tipos que no requieren un modelo especifico (aplican a la linea)
+GLOBAL_TYPES = {"SECUENCIA", "ROBOT_NO_DISPONIBLE", "AUSENCIA_OPERARIO",
+                "CAPACIDAD_DIA", "AGRUPAR_MODELOS"}
 
 
 def _get_day_names() -> list:
@@ -106,18 +120,36 @@ def _render_add_form(restricciones):
         st.session_state._rest_form_ver = 0
     fv = st.session_state._rest_form_ver
 
+    # Selector de categoria + tipo
+    categoria = st.radio(
+        "Categoria",
+        ["Operativas", "Planificacion"],
+        horizontal=True,
+        key=f"rest_cat_{fv}",
+        help="**Operativas**: restricciones del dia a dia. **Planificacion**: reglas de negocio menos frecuentes.",
+    )
+    if categoria == "Operativas":
+        type_options = list(CONSTRAINT_TYPES_FRECUENTES.keys())
+        type_descs = CONSTRAINT_TYPES_FRECUENTES
+    else:
+        type_options = list(CONSTRAINT_TYPES_MENOS_FRECUENTES.keys())
+        type_descs = CONSTRAINT_TYPES_MENOS_FRECUENTES
+
     col1, col2 = st.columns(2)
     with col1:
         tipo = st.selectbox(
             "Tipo de Restriccion",
-            options=list(CONSTRAINT_TYPES.keys()),
-            format_func=lambda t: f"{t} - {CONSTRAINT_TYPES[t]}",
-            key=f"rest_tipo_{fv}",
+            options=type_options,
+            format_func=lambda t: f"{t} - {type_descs[t]}",
+            key=f"rest_tipo_{categoria}_{fv}",
         )
     with col2:
         modelos = _get_modelo_options()
-        if tipo == "SECUENCIA":
-            st.caption("La secuencia usa dos modelos (ver campos abajo)")
+        if tipo in GLOBAL_TYPES:
+            if tipo in ("SECUENCIA", "AGRUPAR_MODELOS"):
+                st.caption("Seleccione dos modelos en los campos de abajo")
+            else:
+                st.caption("Aplica a toda la linea (no requiere modelo)")
             modelo = "*"
         else:
             modelo = st.selectbox(
@@ -133,9 +165,13 @@ def _render_add_form(restricciones):
                          placeholder="Ej: Cliente VIP, material retrasado...")
 
     can_add = bool(tipo)
-    if tipo != "SECUENCIA" and not modelo:
+    if tipo not in GLOBAL_TYPES and not modelo:
         can_add = False
     if tipo == "SECUENCIA" and (not params.get("modelo_antes") or not params.get("modelo_despues")):
+        can_add = False
+    if tipo == "AGRUPAR_MODELOS" and (not params.get("modelo_a") or not params.get("modelo_b")):
+        can_add = False
+    if tipo == "ROBOT_NO_DISPONIBLE" and not params.get("robot"):
         can_add = False
 
     if st.button("Agregar Restriccion", type="primary", disabled=(not can_add)):
@@ -248,6 +284,102 @@ def _render_parametros_form(tipo, fv, modelos):
                 placeholder="Ej: Pedido reducido por cliente",
             )
 
+    # --- Nuevos tipos ---
+
+    elif tipo == "ROBOT_NO_DISPONIBLE":
+        robots = get_physical_robots()
+        day_names = _get_day_names()
+        col1, col2 = st.columns(2)
+        with col1:
+            params["robot"] = st.selectbox(
+                "Robot",
+                options=robots,
+                key=f"rp_robot_{fv}",
+            ) if robots else ""
+        with col2:
+            params["dias"] = st.multiselect(
+                "Dias (vacio = toda la semana)",
+                options=day_names,
+                key=f"rp_robot_dias_{fv}",
+            )
+        params["motivo"] = st.text_input(
+            "Motivo", key=f"rp_robot_motivo_{fv}",
+            placeholder="Ej: En mantenimiento, descompuesto",
+        )
+
+    elif tipo == "AUSENCIA_OPERARIO":
+        day_names = _get_day_names()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            params["operario"] = st.text_input(
+                "Nombre Operario", key=f"rp_operario_{fv}",
+                placeholder="Ej: Juan Lopez",
+            )
+        with col2:
+            params["dia"] = st.selectbox(
+                "Dia de Ausencia",
+                options=day_names,
+                key=f"rp_ausencia_dia_{fv}",
+            )
+        with col3:
+            params["cantidad"] = st.number_input(
+                "Personas ausentes", min_value=1, max_value=10, value=1,
+                key=f"rp_ausencia_cant_{fv}",
+            )
+
+    elif tipo == "CAPACIDAD_DIA":
+        day_names = _get_day_names()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            params["dia"] = st.selectbox(
+                "Dia",
+                options=day_names,
+                key=f"rp_cap_dia_{fv}",
+            )
+        with col2:
+            params["nueva_plantilla"] = st.number_input(
+                "Plantilla Efectiva", min_value=1, max_value=50, value=10,
+                key=f"rp_cap_plantilla_{fv}",
+                help="Numero de personas disponibles ese dia",
+            )
+        with col3:
+            params["motivo"] = st.text_input(
+                "Motivo", key=f"rp_cap_motivo_{fv}",
+                placeholder="Ej: Junta, medio dia, capacitacion",
+            )
+
+    elif tipo == "FECHA_LIMITE":
+        day_names = _get_day_names()
+        params["dia_limite"] = st.selectbox(
+            "Debe Completarse Antes De",
+            options=day_names,
+            index=len(day_names) - 2 if len(day_names) > 1 else 0,
+            key=f"rp_deadline_{fv}",
+            help="El modelo DEBE estar terminado para este dia. Penaliza fuertemente si no se cumple.",
+        )
+
+    elif tipo == "AGRUPAR_MODELOS":
+        col1, col2 = st.columns(2)
+        with col1:
+            params["modelo_a"] = st.selectbox(
+                "Modelo A",
+                options=modelos,
+                key=f"rp_grupo_a_{fv}",
+            ) if modelos else ""
+        with col2:
+            params["modelo_b"] = st.selectbox(
+                "Modelo B",
+                options=modelos,
+                key=f"rp_grupo_b_{fv}",
+            ) if modelos else ""
+
+    elif tipo == "LOTE_MINIMO_CUSTOM":
+        params["lote_minimo"] = st.number_input(
+            "Lote Minimo (pares)", min_value=10, max_value=500, value=50, step=10,
+            key=f"rp_lote_min_{fv}",
+            help="Override del lote minimo (default: 100). Util para pedidos urgentes pequenos.",
+        )
+
     return params
 
 
@@ -335,6 +467,28 @@ def _format_detail(r):
     elif tipo == "AJUSTE_VOLUMEN":
         motivo = p.get("motivo", "")
         return f"Vol: {p.get('nuevo_volumen', 0)}" + (f" ({motivo})" if motivo else "")
+    elif tipo == "ROBOT_NO_DISPONIBLE":
+        robot = p.get("robot", "?")
+        dias = p.get("dias", [])
+        motivo = p.get("motivo", "")
+        dias_str = ", ".join(dias) if dias else "toda la semana"
+        return f"{robot} - {dias_str}" + (f" ({motivo})" if motivo else "")
+    elif tipo == "AUSENCIA_OPERARIO":
+        operario = p.get("operario", "?")
+        dia = p.get("dia", "?")
+        cant = p.get("cantidad", 1)
+        return f"{operario} - {dia}" + (f" ({cant} personas)" if cant > 1 else "")
+    elif tipo == "CAPACIDAD_DIA":
+        dia = p.get("dia", "?")
+        plantilla = p.get("nueva_plantilla", 0)
+        motivo = p.get("motivo", "")
+        return f"{dia}: {plantilla} personas" + (f" ({motivo})" if motivo else "")
+    elif tipo == "FECHA_LIMITE":
+        return f"Completar antes de {p.get('dia_limite', '?')}"
+    elif tipo == "AGRUPAR_MODELOS":
+        return f"{p.get('modelo_a', '?')} + {p.get('modelo_b', '?')} mismo dia"
+    elif tipo == "LOTE_MINIMO_CUSTOM":
+        return f"Min: {p.get('lote_minimo', 50)} pares"
     return str(p)
 
 
@@ -358,6 +512,12 @@ def _render_impact_preview(restricciones):
             "FIJAR_DIA": "📅",
             "SECUENCIA": "🔗",
             "AJUSTE_VOLUMEN": "📊",
+            "ROBOT_NO_DISPONIBLE": "🤖",
+            "AUSENCIA_OPERARIO": "👤",
+            "CAPACIDAD_DIA": "📉",
+            "FECHA_LIMITE": "⏰",
+            "AGRUPAR_MODELOS": "🔀",
+            "LOTE_MINIMO_CUSTOM": "📏",
         }.get(tipo, "📌")
         st.markdown(f"{icon} **{modelo}** ({tipo}): {detalle}")
 

@@ -120,9 +120,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             0, model["pares_dia"], f"tard_{m_idx}"
         )
 
-    # --- Restricciones de block_availability (retraso de material con hora) ---
+    # --- Restricciones compiladas (block_availability + disabled_robots) ---
     day_name = params.get("day_name", "")
-    if compiled and day_name and hasattr(compiled, "block_availability"):
+
+    # Block availability: retraso de material con hora especifica
+    if compiled and day_name and compiled.block_availability:
         for m_idx, model in enumerate(models_day):
             modelo_code = model.get("codigo", "")
             key = (modelo_code, day_name)
@@ -132,6 +134,20 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     for b in range(num_blocks):
                         if b not in allowed_blocks:
                             solver_model.Add(x[m_idx, op_idx, b] == 0)
+
+    # Disabled robots: forzar y[m, op, robot, b] == 0 para robots no disponibles
+    if compiled and day_name and compiled.disabled_robots:
+        for robot_name, day_blocks in compiled.disabled_robots.items():
+            if day_name in day_blocks:
+                blocked_blocks = day_blocks[day_name]
+                for m_idx, op_idx in robot_ops_idx:
+                    op = models_day[m_idx]["operations"][op_idx]
+                    if robot_name in op.get("robots", []):
+                        for b in range(num_blocks):
+                            if b in blocked_blocks:
+                                key = (m_idx, op_idx, robot_name, b)
+                                if key in y:
+                                    solver_model.Add(y[key] == 0)
 
     # --- Restricciones ---
 
@@ -369,13 +385,21 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             })
 
         # Parametros para este dia (workers reducidos para paralelismo)
+        plantilla = day_cfg["plantilla"]
+        # Ajustes de plantilla desde restricciones (AUSENCIA_OPERARIO, CAPACIDAD_DIA)
+        if compiled:
+            if day_name in compiled.plantilla_overrides:
+                plantilla = compiled.plantilla_overrides[day_name]
+            elif day_name in compiled.plantilla_adjustments:
+                plantilla = max(1, plantilla + compiled.plantilla_adjustments[day_name])
+
         day_params = {
             "time_blocks": params["time_blocks"],
             "resource_capacity": params["resource_capacity"],
-            "plantilla": day_cfg["plantilla"],
+            "plantilla": plantilla,
             "lot_step": params.get("lot_step", 50),
             "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
-            "day_name": day_name,  # para block_availability (retraso material con hora)
+            "day_name": day_name,  # para block_availability y disabled_robots
         }
 
         day_tasks[day_name] = (models_day, day_params)

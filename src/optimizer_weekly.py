@@ -97,7 +97,12 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
     # 2. Lote minimo: si se produce, al menos min_lot pares (redondeado a multiplo de step)
     for m, model in enumerate(models):
-        effective_min = min(min_lot, model["total_producir"])
+        # Override de lote minimo por modelo (LOTE_MINIMO_CUSTOM)
+        modelo_num = model.get("modelo_num", "")
+        model_min = min_lot
+        if compiled and modelo_num in compiled.lot_min_overrides:
+            model_min = compiled.lot_min_overrides[modelo_num]
+        effective_min = min(model_min, model["total_producir"])
         effective_min = (effective_min // step) * step  # redondear al multiplo de step
         for d in range(num_days):
             # x[m,d] <= total_producir * y[m,d]  (si y=0, x=0)
@@ -336,3 +341,8 @@ def _apply_compiled_constraints(solver_model, x, y, models, days, compiled):
             # Si B produce en dia d, A debe tener todo acumulado hasta dia d
             cum_antes = sum(x[antes_idx, dd] for dd in range(d + 1))
             solver_model.Add(cum_antes >= total_antes * y[despues_idx, d])
+
+    # Agrupacion: modelos A y B deben producirse en los mismos dias
+    for idx_a, idx_b in compiled.model_groups:
+        for d in range(num_days):
+            solver_model.Add(y[idx_a, d] == y[idx_b, d])

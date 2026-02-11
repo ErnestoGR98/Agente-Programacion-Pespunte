@@ -179,6 +179,17 @@ def run_optimization(params):
             already = sum(compiled.avance[modelo_num].values())
             m["total_producir"] = max(0, m["total_producir"] - already)
 
+    # Ajustar plantilla por dia segun restricciones (AUSENCIA/CAPACIDAD)
+    # Deepcopy para no modificar session_state
+    params = deepcopy(params)
+    if compiled:
+        for day_cfg in params["days"]:
+            dn = day_cfg["name"]
+            if dn in compiled.plantilla_overrides:
+                day_cfg["plantilla"] = compiled.plantilla_overrides[dn]
+            elif dn in compiled.plantilla_adjustments:
+                day_cfg["plantilla"] = max(1, day_cfg["plantilla"] + compiled.plantilla_adjustments[dn])
+
     # Optimizacion semanal (con restricciones)
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
     st.session_state.weekly_schedule = weekly_schedule

@@ -72,6 +72,24 @@ class CompiledConstraints:
     # Solo se usa cuando hay hora especifica (ej: material llega a las 10am)
     block_availability: dict = field(default_factory=dict)
 
+    # {robot_name: {day_name: set_de_block_indices}} - robots deshabilitados
+    disabled_robots: dict = field(default_factory=dict)
+
+    # {day_name: int} - ajuste acumulado a plantilla (negativo = ausencias)
+    plantilla_adjustments: dict = field(default_factory=dict)
+
+    # {day_name: int} - override absoluto de plantilla
+    plantilla_overrides: dict = field(default_factory=dict)
+
+    # {modelo_num: int} - indice del dia limite (deadline)
+    deadlines: dict = field(default_factory=dict)
+
+    # [(idx_modelo_a, idx_modelo_b)] - modelos que deben producirse juntos
+    model_groups: list = field(default_factory=list)
+
+    # {modelo_num: int} - override de lote minimo por modelo
+    lot_min_overrides: dict = field(default_factory=dict)
+
     # Warnings generados durante compilacion
     warnings: list = field(default_factory=list)
 
@@ -212,6 +230,91 @@ def _handle_ajuste_volumen(cc, modelo, params, day_names, day_index,
     cc.volume_overrides[modelo] = nuevo
 
 
+# --- Frecuentes (operativas) ---
+
+def _handle_robot_no_disponible(cc, modelo, params, day_names, day_index,
+                                 model_nums, model_idx_by_num):
+    robot = params.get("robot", "")
+    if not robot:
+        cc.warnings.append("ROBOT_NO_DISPONIBLE: no se especifico robot")
+        return
+    dias = params.get("dias", list(day_names))
+    all_blocks = set(range(len(_BLOCK_START_TIMES)))
+    for dia in dias:
+        if dia in day_index:
+            if robot not in cc.disabled_robots:
+                cc.disabled_robots[robot] = {}
+            cc.disabled_robots[robot][dia] = all_blocks
+
+
+def _handle_ausencia_operario(cc, modelo, params, day_names, day_index,
+                               model_nums, model_idx_by_num):
+    dia = params.get("dia", "")
+    if dia not in day_index:
+        cc.warnings.append(f"AUSENCIA_OPERARIO: dia '{dia}' no valido")
+        return
+    cantidad = params.get("cantidad", 1)
+    cc.plantilla_adjustments[dia] = cc.plantilla_adjustments.get(dia, 0) - cantidad
+
+
+def _handle_capacidad_dia(cc, modelo, params, day_names, day_index,
+                           model_nums, model_idx_by_num):
+    dia = params.get("dia", "")
+    if dia not in day_index:
+        cc.warnings.append(f"CAPACIDAD_DIA: dia '{dia}' no valido")
+        return
+    nueva_plantilla = params.get("nueva_plantilla", 0)
+    if nueva_plantilla > 0:
+        cc.plantilla_overrides[dia] = nueva_plantilla
+
+
+# --- Menos frecuentes (negocio) ---
+
+def _handle_fecha_limite(cc, modelo, params, day_names, day_index,
+                          model_nums, model_idx_by_num):
+    if modelo not in model_nums:
+        cc.warnings.append(f"FECHA_LIMITE: modelo '{modelo}' no esta en el pedido")
+        return
+    dia_limite = params.get("dia_limite", "")
+    if dia_limite not in day_index:
+        cc.warnings.append(f"FECHA_LIMITE: dia '{dia_limite}' no valido")
+        return
+    deadline_idx = day_index[dia_limite]
+    # Restringir a dias hasta el deadline (inclusive)
+    allowed = set(range(0, deadline_idx + 1))
+    if modelo in cc.day_availability:
+        cc.day_availability[modelo] &= allowed
+    else:
+        cc.day_availability[modelo] = allowed
+    cc.deadlines[modelo] = deadline_idx
+    # Aumentar peso de tardiness para que el deadline sea casi-duro
+    cc.tardiness_weights[modelo] = max(
+        cc.tardiness_weights.get(modelo, 1.0), 10.0
+    )
+
+
+def _handle_agrupar_modelos(cc, modelo, params, day_names, day_index,
+                             model_nums, model_idx_by_num):
+    modelo_a = params.get("modelo_a", "")
+    modelo_b = params.get("modelo_b", "")
+    if modelo_a not in model_idx_by_num:
+        cc.warnings.append(f"AGRUPAR_MODELOS: modelo '{modelo_a}' no esta en el pedido")
+        return
+    if modelo_b not in model_idx_by_num:
+        cc.warnings.append(f"AGRUPAR_MODELOS: modelo '{modelo_b}' no esta en el pedido")
+        return
+    cc.model_groups.append((model_idx_by_num[modelo_a], model_idx_by_num[modelo_b]))
+
+
+def _handle_lote_minimo(cc, modelo, params, day_names, day_index,
+                         model_nums, model_idx_by_num):
+    if modelo not in model_nums:
+        cc.warnings.append(f"LOTE_MINIMO_CUSTOM: modelo '{modelo}' no esta en el pedido")
+        return
+    nuevo_min = params.get("lote_minimo", 50)
+    cc.lot_min_overrides[modelo] = nuevo_min
+
+
 # ---------------------------------------------------------------------------
 # Avance
 # ---------------------------------------------------------------------------
@@ -237,10 +340,18 @@ def _apply_avance(cc, avance_data, model_nums, day_names, day_index):
 # ---------------------------------------------------------------------------
 
 _HANDLERS = {
+    # Frecuentes
     "PRIORIDAD": _handle_prioridad,
-    "MAQUILA": _handle_maquila,
     "RETRASO_MATERIAL": _handle_retraso_material,
+    "MAQUILA": _handle_maquila,
+    "ROBOT_NO_DISPONIBLE": _handle_robot_no_disponible,
+    "AUSENCIA_OPERARIO": _handle_ausencia_operario,
+    "CAPACIDAD_DIA": _handle_capacidad_dia,
+    # Menos frecuentes
     "FIJAR_DIA": _handle_fijar_dia,
+    "FECHA_LIMITE": _handle_fecha_limite,
     "SECUENCIA": _handle_secuencia,
+    "AGRUPAR_MODELOS": _handle_agrupar_modelos,
     "AJUSTE_VOLUMEN": _handle_ajuste_volumen,
+    "LOTE_MINIMO_CUSTOM": _handle_lote_minimo,
 }
