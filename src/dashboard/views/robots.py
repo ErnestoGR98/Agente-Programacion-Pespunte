@@ -16,7 +16,7 @@ def render():
     st.subheader("Utilizacion de Robots (Semanal)")
     fig = build_robot_utilization_chart(daily_results)
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("No hay datos de robots.")
         return
@@ -60,7 +60,7 @@ def render():
     day_data = daily_results[selected_day]
     fig_timeline = _build_robot_timeline(day_data, selected_day)
     if fig_timeline:
-        st.plotly_chart(fig_timeline, use_container_width=True)
+        st.plotly_chart(fig_timeline, width="stretch")
     else:
         st.info("No hay operaciones de robot en este dia.")
 

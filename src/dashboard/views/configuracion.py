@@ -60,7 +60,7 @@ def _render_robots(config):
     df_robots = pd.DataFrame({"ROBOT": robots})
     edited = st.data_editor(
         df_robots,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="dynamic",
         height=min(400, 35 * (len(df_robots) + 2) + 38),
@@ -82,7 +82,7 @@ def _render_robots(config):
 
     edited_aliases = st.data_editor(
         df_aliases,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="dynamic",
         height=min(250, 35 * (len(df_aliases) + 2) + 38),
@@ -157,7 +157,7 @@ def _render_fabricas(config):
 
     edited = st.data_editor(
         df_fab,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="dynamic",
         height=min(250, 35 * (len(df_fab) + 2) + 38),
@@ -198,7 +198,7 @@ def _render_dias(config):
 
     edited = st.data_editor(
         df_days,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         num_rows="dynamic",
         height=min(350, 35 * (len(df_days) + 2) + 38),

@@ -42,7 +42,7 @@ def render():
             return [""] * len(row)
 
         styled = df.style.apply(_highlight_high, axis=1).format({"Uso %": "{:.1f}"})
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.dataframe(styled, width="stretch", hide_index=True)
     else:
         st.info("No hay datos de restricciones.")
 
@@ -64,7 +64,7 @@ def render():
                 "Num Ops": m["num_ops"],
             })
         df_models = pd.DataFrame(rows).sort_values("HC-Horas", ascending=False)
-        st.dataframe(df_models, use_container_width=True, hide_index=True)
+        st.dataframe(df_models, width="stretch", hide_index=True)
 
         # Mini grafica
         st.bar_chart(df_models.set_index("Modelo")["HC-Horas"])

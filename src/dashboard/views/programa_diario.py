@@ -79,7 +79,7 @@ def render():
         if col in df_show.columns:
             styled = styled.format(precision=0, subset=[col])
 
-    st.dataframe(styled, use_container_width=True, height=500, hide_index=True)
+    st.dataframe(styled, width="stretch", height=500, hide_index=True)
 
     # --- Filas resumen ---
     st.divider()
@@ -101,4 +101,4 @@ def render():
     summary_rows.append(row_hc)
 
     df_summary = pd.DataFrame(summary_rows)
-    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+    st.dataframe(df_summary, width="stretch", hide_index=True)

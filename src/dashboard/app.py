@@ -118,7 +118,7 @@ elif step == 1:
                     "Operaciones": m["num_ops"],
                     "Min/Par": round(m["total_sec_per_pair"] / 60, 1),
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
         unmatched = st.session_state.unmatched_models
         if unmatched:

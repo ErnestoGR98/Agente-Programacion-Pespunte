@@ -315,7 +315,7 @@ def import_pedido_from_template(file_or_bytes) -> tuple:
     """
     Importa pedido semanal desde template Excel.
 
-    Template: MODELO | FABRICA | VOLUMEN
+    Template: MODELO | ALTERNATIVA | CLAVE MATERIAL | FABRICA | VOLUMEN
 
     Returns:
         (pedido_list, errors_list)
@@ -331,8 +331,10 @@ def import_pedido_from_template(file_or_bytes) -> tuple:
 
     for row in range(2, ws.max_row + 1):
         modelo = ws.cell(row=row, column=1).value
-        fabrica = ws.cell(row=row, column=2).value
-        volumen = ws.cell(row=row, column=3).value
+        color = ws.cell(row=row, column=2).value
+        clave = ws.cell(row=row, column=3).value
+        fabrica = ws.cell(row=row, column=4).value
+        volumen = ws.cell(row=row, column=5).value
 
         if not modelo:
             continue
@@ -340,6 +342,9 @@ def import_pedido_from_template(file_or_bytes) -> tuple:
         modelo_str = str(modelo).strip()
         if not modelo_str:
             continue
+
+        color_str = str(color).strip() if color else ""
+        clave_str = str(clave).strip() if clave else ""
 
         # Validar fabrica
         fabrica_str = str(fabrica).strip() if fabrica else "FABRICA 1"
@@ -353,8 +358,13 @@ def import_pedido_from_template(file_or_bytes) -> tuple:
             errors.append(f"Fila {row}: VOLUMEN '{volumen}' debe ser entero > 0")
             continue
 
+        # Combinar modelo + color para codigo completo
+        modelo_full = f"{modelo_str} {color_str}" if color_str else modelo_str
+
         pedido.append({
-            "modelo": modelo_str,
+            "modelo": modelo_full,
+            "color": color_str,
+            "clave_material": clave_str,
             "fabrica": fabrica_str,
             "volumen": vol,
         })
@@ -381,6 +391,8 @@ def build_matched_models(pedido: list, catalog: dict) -> tuple:
 
     for item in pedido:
         modelo_str = item["modelo"]
+        color = item.get("color", "")
+        clave_material = item.get("clave_material", "")
         # Extraer numero de modelo
         m = re.match(r"^(\d+)", modelo_str)
         model_num = m.group(1) if m else modelo_str
@@ -390,6 +402,8 @@ def build_matched_models(pedido: list, catalog: dict) -> tuple:
             model = {
                 "codigo": modelo_str,
                 "modelo_num": model_num,
+                "color": color,
+                "clave_material": clave_material,
                 "suela": "",
                 "volumen_declarado": item["volumen"],
                 "total_producir": item["volumen"],
@@ -406,6 +420,8 @@ def build_matched_models(pedido: list, catalog: dict) -> tuple:
             unmatched.append({
                 "codigo": modelo_str,
                 "modelo_num": model_num,
+                "color": color,
+                "clave_material": clave_material,
                 "total_producir": item["volumen"],
                 "fabrica": item["fabrica"],
             })
@@ -423,8 +439,8 @@ def generate_template_pedido() -> bytes:
     ws = wb.active
     ws.title = "Pedido Semanal"
 
-    headers = ["MODELO", "FABRICA", "VOLUMEN"]
-    col_widths = [20, 15, 12]
+    headers = ["MODELO", "ALTERNATIVA", "CLAVE MATERIAL", "FABRICA", "VOLUMEN"]
+    col_widths = [15, 12, 16, 15, 12]
 
     # Encabezados
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
@@ -437,15 +453,17 @@ def generate_template_pedido() -> bytes:
 
     # Filas de ejemplo
     examples = [
-        ("65413 NE", "FABRICA 1", 1700),
-        ("95420 NE", "FABRICA 2", 800),
-        ("91721 NE", "FABRICA 1", 450),
+        ("65413", "NE", "SLI", "FABRICA 1", 1700),
+        ("95420", "BL", "SLI", "FABRICA 2", 800),
+        ("91721", "CA", "SLI", "FABRICA 1", 450),
     ]
-    for row, (modelo, fab, vol) in enumerate(examples, 2):
+    for row, (modelo, color, clave, fab, vol) in enumerate(examples, 2):
         ws.cell(row=row, column=1, value=modelo).font = Font(italic=True, color="999999")
-        ws.cell(row=row, column=2, value=fab).font = Font(italic=True, color="999999")
-        ws.cell(row=row, column=3, value=vol).font = Font(italic=True, color="999999")
-        for col in range(1, 4):
+        ws.cell(row=row, column=2, value=color).font = Font(italic=True, color="999999")
+        ws.cell(row=row, column=3, value=clave).font = Font(italic=True, color="999999")
+        ws.cell(row=row, column=4, value=fab).font = Font(italic=True, color="999999")
+        ws.cell(row=row, column=5, value=vol).font = Font(italic=True, color="999999")
+        for col in range(1, 6):
             ws.cell(row=row, column=col).border = _THIN_BORDER
 
     # Instrucciones

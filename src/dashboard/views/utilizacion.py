@@ -19,7 +19,7 @@ def render():
     st.subheader("Mapa de Calor Semanal")
     fig_heat = build_heatmap(daily_results)
     if fig_heat:
-        st.plotly_chart(fig_heat, use_container_width=True)
+        st.plotly_chart(fig_heat, width="stretch")
     else:
         st.info("No hay datos para el heatmap.")
 
@@ -38,11 +38,11 @@ def render():
     day_data = daily_results[selected_day]
 
     fig_hc = build_hc_block_chart(day_data, selected_day)
-    st.plotly_chart(fig_hc, use_container_width=True)
+    st.plotly_chart(fig_hc, width="stretch")
 
     st.divider()
 
     # --- Carga por recurso ---
     st.subheader("Carga por Tipo de Recurso")
     fig_res = build_resource_load_chart(day_data, params)
-    st.plotly_chart(fig_res, use_container_width=True)
+    st.plotly_chart(fig_res, width="stretch")

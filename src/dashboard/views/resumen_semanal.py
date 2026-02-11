@@ -41,14 +41,14 @@ def render():
         day_order = [d["dia"] for d in summary["days"]]
         cols = [c for c in day_order if c in pivot.columns] + ["TOTAL"]
         pivot = pivot[[c for c in cols if c in pivot.columns]]
-        st.dataframe(pivot, use_container_width=True)
+        st.dataframe(pivot, width="stretch")
 
     st.divider()
 
     # --- Grafica de balance HC ---
     st.subheader("Balance de Headcount")
     fig = build_balance_chart(summary)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.divider()
 
@@ -73,6 +73,6 @@ def render():
                 "Completado %", min_value=0, max_value=100, format="%.1f%%",
             ),
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )

@@ -45,7 +45,7 @@ def _render_file_upload():
 
     if st.button("Cargar (Legacy)", type="secondary",
                  disabled=(not sabana or not catalog),
-                 use_container_width=True):
+                 width="stretch"):
         with st.spinner("Cargando archivos..."):
             try:
                 result = load_data(sabana, catalog)
@@ -86,7 +86,7 @@ def _render_parameters():
 
 def _render_optimize_button():
     """Boton de optimizacion."""
-    if st.button("Optimizar", type="primary", use_container_width=True):
+    if st.button("Optimizar", type="primary", width="stretch"):
         with st.spinner("Ejecutando CP-SAT... (1-3 minutos)"):
             try:
                 result = run_optimization(st.session_state.params)
@@ -111,7 +111,7 @@ def _render_export():
             data=excel_bytes,
             file_name="programacion_optimizada.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
     except Exception as e:
         st.error(f"Error al generar Excel: {e}")

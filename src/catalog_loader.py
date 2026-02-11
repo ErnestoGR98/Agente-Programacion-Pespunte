@@ -58,6 +58,34 @@ ETAPA_TO_RESOURCE = {
 }
 
 
+def _parse_alternativas_clave(codigo_full):
+    """Extrae alternativas y clave de material del codigo completo.
+    Ej: '65413 NE/GC SLI' -> (['NE', 'GC'], 'SLI')
+        '61748 KR SLI'     -> (['KR'], 'SLI')
+        '62101 BZ/NE SLI'  -> (['BZ', 'NE'], 'SLI')
+    """
+    parts = codigo_full.strip().split()
+    if len(parts) <= 1:
+        return [], ""
+
+    alternativas = []
+    clave = ""
+
+    for p in parts[1:]:
+        if "/" in p:
+            # Token con slash = alternativas separadas
+            alternativas = [a.strip() for a in p.split("/") if a.strip()]
+        elif re.match(r"^[A-Z]{2}$", p):
+            # 2 letras = alternativa
+            alternativas.append(p)
+        elif re.match(r"^[A-Z]{3,}$", p):
+            # 3+ letras = clave de material
+            clave = p
+        # Ignorar tokens que no matchean (numeros, mixtos, etc.)
+
+    return alternativas, clave
+
+
 def normalize_resource(resource_val, etapa_val=None):
     """Normaliza un valor de recurso a un tipo canonico."""
     if resource_val:
@@ -172,8 +200,12 @@ def load_catalog_v2(filepath: str) -> dict:
             if match:
                 current_model_num = match.group(1)
                 if current_model_num not in raw_ops:
+                    # Parsear alternativas y clave material del codigo
+                    alts, clave_mat = _parse_alternativas_clave(modelo_str)
                     raw_ops[current_model_num] = {
                         "codigo_full": modelo_str,
+                        "alternativas": alts,
+                        "clave_material": clave_mat,
                         "ops": [],
                     }
 
@@ -233,6 +265,8 @@ def load_catalog_v2(filepath: str) -> dict:
 
         catalog[model_num] = {
             "codigo_full": data["codigo_full"],
+            "alternativas": data.get("alternativas", []),
+            "clave_material": data.get("clave_material", ""),
             "operations": unique_ops,
             "total_sec_per_pair": total_sec,
             "num_ops": len(unique_ops),
