@@ -1,0 +1,172 @@
+[
+  {
+    "id": "op_001",
+    "nombre": "ARACELI",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA", "POSTE-LINEA", "PLANA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_002",
+    "nombre": "CARLOS",
+    "fabrica": "",
+    "recursos_habilitados": ["ROBOT", "MESA"],
+    "robots_habilitados": ["2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6", "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049"],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_003",
+    "nombre": "SERGIO",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA", "PLANA-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_004",
+    "nombre": "PEDRO",
+    "fabrica": "",
+    "recursos_habilitados": ["PLANA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_005",
+    "nombre": "JACQUI",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_006",
+    "nombre": "FABIOLA",
+    "fabrica": "",
+    "recursos_habilitados": ["POSTE-LINEA", "MESA-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_007",
+    "nombre": "VICTOR",
+    "fabrica": "",
+    "recursos_habilitados": ["POSTE-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_008",
+    "nombre": "ALVARO",
+    "fabrica": "",
+    "recursos_habilitados": ["POSTE-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_009",
+    "nombre": "NAYELI",
+    "fabrica": "",
+    "recursos_habilitados": ["ROBOT", "MESA"],
+    "robots_habilitados": ["2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6", "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049"],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_010",
+    "nombre": "ESTELA",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_011",
+    "nombre": "BETSY",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_012",
+    "nombre": "KEVIN",
+    "fabrica": "",
+    "recursos_habilitados": ["ROBOT", "MESA"],
+    "robots_habilitados": ["2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6", "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049"],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_013",
+    "nombre": "HUGO",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_014",
+    "nombre": "DIANA",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA-LINEA", "MESA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_015",
+    "nombre": "ROBERTO",
+    "fabrica": "",
+    "recursos_habilitados": ["PLANA-LINEA", "MESA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_016",
+    "nombre": "MARIANA",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA-LINEA", "PLANA-LINEA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  },
+  {
+    "id": "op_017",
+    "nombre": "LUIS",
+    "fabrica": "",
+    "recursos_habilitados": ["MESA", "PLANA"],
+    "robots_habilitados": [],
+    "eficiencia": 1.0,
+    "dias_disponibles": ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+    "activo": true
+  }
+]

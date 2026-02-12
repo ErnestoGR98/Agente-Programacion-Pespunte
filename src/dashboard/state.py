@@ -8,6 +8,7 @@ funciones para cargar datos, optimizar, y exportar desde Streamlit.
 import sys
 import os
 import io
+import importlib
 import tempfile
 from pathlib import Path
 from copy import deepcopy
@@ -23,8 +24,20 @@ from loader import load_sabana, match_models
 from catalog_loader import load_catalog_v2
 from fuzzy_match import build_operator_registry
 from rules import get_default_params
+
+# Recargar modulos core para que cambios se reflejen sin reiniciar Streamlit
+import optimizer_weekly
+importlib.reload(optimizer_weekly)
 from optimizer_weekly import optimize
+
+import optimizer_v2
+importlib.reload(optimizer_v2)
 from optimizer_v2 import schedule_week
+
+import operator_assignment
+importlib.reload(operator_assignment)
+from operator_assignment import assign_operators_week
+
 from exporter import export_schedule
 
 
@@ -197,6 +210,19 @@ def run_optimization(params):
 
     # Scheduling diario (con restricciones)
     daily_results = schedule_week(weekly_schedule, models_for_opt, params, compiled)
+
+    # Asignacion de operarios en cascada (post-proceso)
+    operarios = st.session_state.get("operarios") or []
+    if operarios:
+        op_assignments = assign_operators_week(
+            daily_results, operarios, params["time_blocks"]
+        )
+        for day, data in op_assignments.items():
+            if day in daily_results:
+                daily_results[day]["assignments"] = data["assignments"]
+                daily_results[day]["operator_timelines"] = data["operator_timelines"]
+                daily_results[day]["unassigned_ops"] = data["unassigned"]
+
     st.session_state.daily_results = daily_results
 
     # Actualizar params en state

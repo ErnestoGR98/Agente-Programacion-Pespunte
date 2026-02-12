@@ -26,10 +26,14 @@ def render():
     st.divider()
 
     # --- HC por bloque (por dia seleccionado) ---
+    day_order = [d["name"] for d in params["days"]] if params else []
     active_days = [
-        day for day, data in daily_results.items()
-        if data["summary"]["total_pares"] > 0
+        day for day in day_order
+        if day in daily_results and daily_results[day]["summary"]["total_pares"] > 0
     ]
+    for day, data in daily_results.items():
+        if day not in active_days and data["summary"]["total_pares"] > 0:
+            active_days.append(day)
     if not active_days:
         return
 

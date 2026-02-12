@@ -11,11 +11,16 @@ Variables de decision:
 
 Restricciones:
   1. Completar pares asignados al dia para cada modelo
-  2. Precedencia: fraccion N no acumula mas que fraccion N-1
+  2. Precedencia: fraccion N no acumula mas que fraccion N-1 (con lag de 1 bloque MESA->PLANA/ROBOT)
   3. Capacidad de recurso por bloque (MESA, PLANA, etc.)
   4. Headcount total por bloque <= plantilla
   5. Capacidad de robot individual por bloque (cada robot fisico = 1 maquina)
   6. Rate limit: 1 persona por robot, 1 persona por operacion manual
+  7. Contiguidad: una vez detenida, una operacion no puede reiniciar
+
+Objetivo:
+  tardiness(100k) > uniformity(100) > early_start(50) > balance(1)
+  Uniformity: penaliza bloques activos que producen menos que el rate/hora
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +28,7 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
+W_UNIFORMITY = 100        # penalizar bloques activos que producen menos que el rate
 W_EARLY_START = 50        # preferir iniciar operaciones lo antes posible
 W_RESOURCE_BALANCE = 1    # balancear uso de recursos entre bloques
 
@@ -203,18 +209,36 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             )
 
     # 3. Precedencia entre fracciones (acumulada)
-    #    cum_x[m, op, b] = sum_{b'<=b} x[m, op, b']
     #    cum_x[m, op_prev, b] >= cum_x[m, op, b]
+    #    Con lag de 1 bloque cuando MESA alimenta a PLANA/ROBOT:
+    #    MESA es trabajo preliminar, su output debe estar listo ANTES de que
+    #    la siguiente operacion lo consuma. En ese caso:
+    #    cum_prev(b-1) >= cum_curr(b) (1 bloque de buffer)
+    PRELIMINARY_RESOURCES = {"MESA", "MESA-LINEA"}
     for m_idx, model in enumerate(models_day):
         ops = model["operations"]
         if len(ops) <= 1:
             continue
         for op_idx in range(1, len(ops)):
+            prev_recurso = ops[op_idx - 1].get("recurso", "")
+            curr_recurso = ops[op_idx].get("recurso", "")
+            # MESA alimenta no-MESA: requiere buffer de 1 bloque
+            needs_lag = (prev_recurso in PRELIMINARY_RESOURCES
+                         and curr_recurso not in PRELIMINARY_RESOURCES)
             for b in range(num_blocks):
-                # Acumulado hasta bloque b
-                cum_prev = sum(x[m_idx, op_idx - 1, bb] for bb in range(b + 1))
                 cum_curr = sum(x[m_idx, op_idx, bb] for bb in range(b + 1))
-                solver_model.Add(cum_prev >= cum_curr)
+                if needs_lag:
+                    if b == 0:
+                        # Bloque 0: no-MESA no puede producir (MESA aun no tiene output)
+                        solver_model.Add(cum_curr == 0)
+                    else:
+                        # cum_prev hasta b-1 >= cum_curr hasta b
+                        cum_prev = sum(x[m_idx, op_idx - 1, bb] for bb in range(b))
+                        solver_model.Add(cum_prev >= cum_curr)
+                else:
+                    # Precedencia estandar (mismo bloque)
+                    cum_prev = sum(x[m_idx, op_idx - 1, bb] for bb in range(b + 1))
+                    solver_model.Add(cum_prev >= cum_curr)
 
     # 4. Capacidad de recurso por bloque (recursos NO-robot)
     #    Para cada tipo de recurso R (excepto ROBOT) y bloque b:
@@ -279,12 +303,57 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             if robot_load:
                 solver_model.Add(sum(robot_load) <= block_sec)
 
+    # 7. Contiguidad de operaciones: una vez que una operacion se detiene,
+    #    no puede reiniciar. Evita que operarios salten entre tareas.
+    #    stopped[b] = 1 si la operacion estaba activa y ya no lo esta.
+    #    Una vez stopped, no puede volver a activarse.
+    for m_idx, model in enumerate(models_day):
+        for op_idx in range(len(model["operations"])):
+            stopped = {}
+            for b in range(num_blocks):
+                stopped[b] = solver_model.NewBoolVar(
+                    f"stop_{m_idx}_{op_idx}_{b}"
+                )
+            solver_model.Add(stopped[0] == 0)
+            for b in range(1, num_blocks):
+                # Transicion activo->inactivo marca stopped
+                solver_model.Add(
+                    stopped[b] >= active[m_idx, op_idx, b - 1]
+                    - active[m_idx, op_idx, b]
+                )
+                # Una vez stopped, permanece stopped
+                solver_model.Add(stopped[b] >= stopped[b - 1])
+                # No puede reactivarse despues de stopped
+                solver_model.Add(
+                    active[m_idx, op_idx, b] + stopped[b - 1] <= 1
+                )
+
     # --- Funcion Objetivo ---
     obj_terms = []
 
     # Minimizar tardiness
     for m_idx in range(len(models_day)):
         obj_terms.append(W_TARDINESS * tardiness[m_idx])
+
+    # Penalizar bloques activos que producen menos que el rate
+    # Si rate=100/hr y bloque=60min, target=100 pares. Si solo produce 20,
+    # shortfall=80 y se penaliza. Esto fuerza bloques llenos al rate.
+    # Para ops con robots: target = rate de 1 robot (si usa N robots, x > target -> 0 penalty)
+    for m_idx, model in enumerate(models_day):
+        for op_idx, op in enumerate(model["operations"]):
+            for b in range(num_blocks):
+                block_min = time_blocks[b]["minutes"]
+                target = int(op["rate"] * block_min / 60)
+                if target <= 0:
+                    continue
+                shortfall = solver_model.NewIntVar(
+                    0, target, f"sf_{m_idx}_{op_idx}_{b}"
+                )
+                solver_model.Add(
+                    shortfall >= target * active[m_idx, op_idx, b]
+                    - x[m_idx, op_idx, b]
+                )
+                obj_terms.append(W_UNIFORMITY * shortfall)
 
     # Preferir iniciar operaciones temprano (penalizar bloques tardios)
     for m_idx, model in enumerate(models_day):
@@ -427,7 +496,10 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                     print(f"    ERROR {day_name}: {e}")
                     results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
 
-    return results
+    # Reordenar por el orden logico de la semana (params["days"])
+    day_order = [d["name"] for d in days]
+    ordered = {d: results[d] for d in day_order if d in results}
+    return ordered
 
 
 def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
@@ -483,6 +555,7 @@ def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
                 "block_pares": block_pares,
                 "total_pares": total_pares,
                 "robots_used": robots_used,
+                "robots_eligible": op.get("robots", []),
             })
 
     # Ordenar por modelo, fraccion

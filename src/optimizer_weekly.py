@@ -18,11 +18,12 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo multi-criterio
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
-W_SATURDAY = 50         # por par producido en sabado (penalizar horas extra)
-W_BALANCE = 1           # por unidad de desbalance entre dias
+W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
 W_CHANGEOVER = 10_000   # por cambio de modelo (forzar lotes grandes, menos modelos por dia)
 W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
+W_SATURDAY = 50         # por par producido en sabado (penalizar horas extra)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
+W_BALANCE = 1           # por unidad de desbalance entre dias
 
 
 def optimize(models: list, params: dict, compiled=None) -> tuple:
@@ -87,6 +88,23 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # Variables auxiliares para balanceo: carga por dia en segundos
     max_load = solver_model.NewIntVar(0, 10_000_000, "max_load")
     min_load = solver_model.NewIntVar(0, 10_000_000, "min_load")
+
+    # Variables de consolidacion: span = ultimo_dia - primer_dia de produccion
+    # Un span bajo = modelo concentrado en dias consecutivos -> ensamble tiene buffer
+    first_day = {}
+    last_day = {}
+    span = {}
+    for m in range(num_models):
+        first_day[m] = solver_model.NewIntVar(0, num_days - 1, f"fd_{m}")
+        last_day[m] = solver_model.NewIntVar(0, num_days - 1, f"ld_{m}")
+        span[m] = solver_model.NewIntVar(0, num_days - 1, f"sp_{m}")
+        for d in range(num_days):
+            # Si se produce en dia d, primer dia no puede ser despues de d
+            solver_model.Add(first_day[m] <= d).OnlyEnforceIf(y[m, d])
+            # Si se produce en dia d, ultimo dia no puede ser antes de d
+            solver_model.Add(last_day[m] >= d).OnlyEnforceIf(y[m, d])
+        # span >= last - first (minimizacion lo empuja al valor exacto)
+        solver_model.Add(span[m] >= last_day[m] - first_day[m])
 
     # --- Restricciones ---
 
@@ -174,6 +192,11 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             sec_per_pair = models[m]["total_sec_per_pair"]
             obj_terms.append(W_SATURDAY * x[m, d] * sec_per_pair)
 
+    # Penalizar dispersion de modelos (consolidar en dias consecutivos)
+    # Pespunte alimenta ensamble: modelos desperdigados = ensamble sin buffer
+    for m in range(num_models):
+        obj_terms.append(W_SPAN * span[m])
+
     # Penalizar cambios de modelo (menos modelos distintos por dia = mejor)
     for d in range(num_days):
         for m in range(num_models):
@@ -208,7 +231,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # --- Extraer solucion ---
 
     schedule = _extract_schedule(solver, x, models, days)
-    summary = _build_summary(solver, x, tardiness, day_loads, overtime_used,
+    summary = _build_summary(solver, x, tardiness, span, day_loads, overtime_used,
                              regular_caps, overtime_caps, models, days, status)
 
     return schedule, summary
@@ -250,7 +273,7 @@ def _extract_schedule(solver, x, models, days):
     return schedule
 
 
-def _build_summary(solver, x, tardiness, day_loads, overtime_used,
+def _build_summary(solver, x, tardiness, span, day_loads, overtime_used,
                     regular_caps, overtime_caps, models, days, status):
     """Construye resumen de metricas."""
     num_days = len(days)
@@ -291,6 +314,12 @@ def _build_summary(solver, x, tardiness, day_loads, overtime_used,
     for m, model in enumerate(models):
         produced = sum(solver.Value(x[m, d]) for d in range(num_days))
         tard = solver.Value(tardiness[m])
+        sp = solver.Value(span[m]) if m in span else 0
+        # Dias activos para este modelo
+        active_days = [
+            days[d]["name"] for d in range(num_days)
+            if solver.Value(x[m, d]) > 0
+        ]
         models_summary.append({
             "codigo": model["codigo"],
             "fabrica": model["fabrica"],
@@ -298,6 +327,8 @@ def _build_summary(solver, x, tardiness, day_loads, overtime_used,
             "producido": produced,
             "tardiness": tard,
             "pct_completado": round(produced / model["total_producir"] * 100, 1),
+            "span_dias": sp,
+            "dias_produccion": active_days,
         })
 
     return {

@@ -37,6 +37,9 @@ def export_schedule(schedule: list, summary: dict, output_path: str,
             for day_name, day_data in daily_results.items():
                 if day_data["schedule"]:
                     _write_daily_program(day_name, day_data, writer)
+                # Hoja de cascada por operario (Iteracion 3)
+                if day_data.get("operator_timelines"):
+                    _write_cascade_sheet(day_name, day_data, writer)
 
     print(f"  Archivo exportado: {output_path}")
 
@@ -163,42 +166,60 @@ def _write_detalle(summary: dict, writer: pd.ExcelWriter):
 
 def _write_daily_program(day_name: str, day_data: dict, writer: pd.ExcelWriter):
     """Hoja de programa hora por hora para un dia (formato PROGRAMA SEM XX DIA)."""
-    schedule = day_data["schedule"]
     summary = day_data["summary"]
     block_labels = summary["block_labels"]
 
-    if not schedule:
+    # Usar assignments si existen, sino schedule original
+    has_ops = "assignments" in day_data and day_data["assignments"]
+    source = day_data["assignments"] if has_ops else day_data["schedule"]
+
+    if not source:
         return
 
     sheet_name = f"PROG_{day_name.upper()[:3]}"
 
     # Construir filas del dataframe
     rows = []
-    for entry in schedule:
+    for entry in source:
         row = {
             "MODELO": entry["modelo"],
-            "FRACC": entry["fraccion"],
-            "OPERACION": entry["operacion"],
-            "RECURSO": entry["recurso"],
-            "RATE": entry["rate"],
-            "HC": entry["hc"],
+            "FRACC": entry.get("fraccion", ""),
+            "OPERACION": entry.get("operacion", ""),
+            "RECURSO": entry.get("recurso", ""),
         }
+        # Agregar OPERARIO si hay asignaciones
+        if has_ops:
+            row["OPERARIO"] = entry.get("operario", "")
+        row["RATE"] = entry.get("rate", 0)
+        row["HC"] = entry.get("hc", 0)
         # Agregar columnas de bloques horarios
+        block_pares = entry.get("block_pares", [])
         for b_idx, label in enumerate(block_labels):
-            row[label] = entry["block_pares"][b_idx] if b_idx < len(entry["block_pares"]) else 0
-        row["TOTAL"] = entry["total_pares"]
+            row[label] = block_pares[b_idx] if b_idx < len(block_pares) else 0
+        row["TOTAL"] = entry.get("total_pares", 0)
+        if has_ops:
+            robot = entry.get("robot_asignado", "")
+            if not robot and entry.get("robots_used"):
+                robot = ", ".join(entry["robots_used"])
+            row["ROBOT"] = robot
+            row["PENDIENTE"] = entry.get("pendiente", 0)
         rows.append(row)
 
     df = pd.DataFrame(rows)
     df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-    # Agregar fila de TOTAL PARES por bloque
+    # Calcular offset de columnas (cambia segun si tiene OPERARIO)
     ws = writer.sheets[sheet_name]
-    total_row = len(df) + 2  # +1 header, +1 data rows
+    # Encontrar la columna donde empiezan los bloques
+    header_cols = list(df.columns)
+    block_start_col = header_cols.index(block_labels[0]) + 1 if block_labels[0] in header_cols else 7
+    total_cols = len(header_cols)
 
+    # Agregar fila de TOTAL PARES por bloque
+    total_row = len(df) + 2
     ws.cell(row=total_row, column=1, value="TOTAL PARES")
     for b_idx, label in enumerate(block_labels):
-        col = 7 + b_idx  # columnas de bloques empiezan en col 7
+        col = block_start_col + b_idx
         total_val = summary["block_pares"][b_idx] if b_idx < len(summary["block_pares"]) else 0
         ws.cell(row=total_row, column=col, value=total_val)
 
@@ -206,13 +227,13 @@ def _write_daily_program(day_name: str, day_data: dict, writer: pd.ExcelWriter):
     hc_row = total_row + 1
     ws.cell(row=hc_row, column=1, value="HC TOTAL")
     for b_idx, label in enumerate(block_labels):
-        col = 7 + b_idx
+        col = block_start_col + b_idx
         hc_val = summary["block_hc"][b_idx] if b_idx < len(summary["block_hc"]) else 0
         ws.cell(row=hc_row, column=col, value=hc_val)
 
     ws.cell(row=hc_row + 1, column=1, value=f"PLANTILLA: {summary['plantilla']}")
 
-    # Formateo: colores por recurso
+    # Formateo: colores solo en celdas de bloques con actividad
     thin_border = Border(
         left=Side(style="thin"),
         right=Side(style="thin"),
@@ -220,21 +241,40 @@ def _write_daily_program(day_name: str, day_data: dict, writer: pd.ExcelWriter):
         bottom=Side(style="thin"),
     )
 
+    recurso_col = header_cols.index("RECURSO") + 1 if "RECURSO" in header_cols else 4
+    # Rango de columnas de bloques horarios + TOTAL
+    total_col = header_cols.index("TOTAL") + 1 if "TOTAL" in header_cols else None
+    block_col_set = set()
+    for label in block_labels:
+        if label in header_cols:
+            block_col_set.add(header_cols.index(label) + 1)
+    if total_col:
+        block_col_set.add(total_col)
+
     for row_idx in range(2, len(df) + 2):
-        recurso_cell = ws.cell(row=row_idx, column=4)  # columna D = RECURSO
+        recurso_cell = ws.cell(row=row_idx, column=recurso_col)
         recurso = str(recurso_cell.value or "")
         color = RESOURCE_COLORS.get(recurso, RESOURCE_COLORS.get("GENERAL", "D5DBDB"))
-        fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        res_fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
-        for col in range(1, 7 + len(block_labels) + 1):
+        for col in range(1, total_cols + 1):
             cell = ws.cell(row=row_idx, column=col)
-            cell.fill = fill
             cell.border = thin_border
+            if col in block_col_set:
+                # Solo colorear si tiene valor > 0
+                val = cell.value
+                if val and isinstance(val, (int, float)) and val > 0:
+                    cell.fill = res_fill
+                    cell.font = Font(color="FFFFFF", bold=True)
+            elif col == recurso_col:
+                # Celda RECURSO coloreada como indicador
+                cell.fill = res_fill
+                cell.font = Font(color="FFFFFF", bold=True)
 
     # Header en negrita
     header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
-    for col in range(1, 7 + len(block_labels) + 1):
+    for col in range(1, total_cols + 1):
         cell = ws.cell(row=1, column=col)
         cell.fill = header_fill
         cell.font = header_font
@@ -243,6 +283,85 @@ def _write_daily_program(day_name: str, day_data: dict, writer: pd.ExcelWriter):
     # Totales en negrita
     bold_font = Font(bold=True)
     for row_idx in [total_row, hc_row]:
-        for col in range(1, 7 + len(block_labels) + 1):
+        for col in range(1, total_cols + 1):
             cell = ws.cell(row=row_idx, column=col)
             cell.font = bold_font
+
+
+def _write_cascade_sheet(day_name: str, day_data: dict, writer: pd.ExcelWriter):
+    """Hoja de cascada: timeline por operario (una fila por persona)."""
+    timelines = day_data.get("operator_timelines", {})
+    summary = day_data["summary"]
+    block_labels = summary["block_labels"]
+
+    if not timelines:
+        return
+
+    sheet_name = f"CASC_{day_name.upper()[:3]}"
+
+    rows = []
+    for op_name in sorted(timelines.keys()):
+        row = {"OPERARIO": op_name}
+        for b_idx, label in enumerate(block_labels):
+            entry = next((e for e in timelines[op_name] if e["block"] == b_idx), None)
+            if entry:
+                robot_str = f" [{entry['robot']}]" if entry.get("robot") else ""
+                row[label] = f"{entry['modelo']} {entry['operacion'][:20]} ({entry['pares']}p){robot_str}"
+            else:
+                row[label] = ""
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    # Formateo
+    ws = writer.sheets[sheet_name]
+    total_cols = len(df.columns)
+
+    # Colores por modelo (para visualizar cascada)
+    model_colors_hex = [
+        "2E4057", "4A6F8C", "6B4E3D", "3E6B48",
+        "5C3566", "8B6914", "2B5B84", "704214",
+    ]
+    model_list = []
+    for _, row_data in df.iterrows():
+        for label in block_labels:
+            val = str(row_data.get(label, ""))
+            if val:
+                mc = val.split()[0] if val else ""
+                if mc and mc not in model_list:
+                    model_list.append(mc)
+    model_color_map = {m: model_colors_hex[i % len(model_colors_hex)] for i, m in enumerate(model_list)}
+
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+    white_font = Font(color="FFFFFF", size=9)
+
+    for row_idx in range(2, len(df) + 2):
+        for col_idx in range(2, total_cols + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            val = str(cell.value or "")
+            if val:
+                mc = val.split()[0] if val else ""
+                color = model_color_map.get(mc, "2C3E50")
+            else:
+                color = "0E1117"
+            cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            cell.font = white_font
+            cell.border = thin_border
+
+    # Header
+    header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col in range(1, total_cols + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    # Columna OPERARIO en negrita
+    bold_font = Font(bold=True)
+    for row_idx in range(2, len(df) + 2):
+        ws.cell(row=row_idx, column=1).font = bold_font

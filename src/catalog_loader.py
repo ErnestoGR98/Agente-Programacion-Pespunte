@@ -225,6 +225,10 @@ def load_catalog_v2(filepath: str) -> dict:
             # Parsear robots asignados de columnas 8-15
             robots = _parse_robots_from_row(ws, row)
 
+            # Si tiene robots asignados, el recurso debe ser ROBOT
+            if robots and recurso != "ROBOT":
+                recurso = "ROBOT"
+
             raw_ops[current_model_num]["ops"].append({
                 "fraccion": int(fraccion),
                 "operacion": str(operacion).strip() if operacion else f"OP {etapa or 'AUTO'}",
