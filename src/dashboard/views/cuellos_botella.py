@@ -4,6 +4,7 @@ cuellos_botella.py - Tab 5: Analisis de cuellos de botella y alertas.
 
 import streamlit as st
 import pandas as pd
+from dashboard.components.tables import json_copy_btn
 
 
 def render():
@@ -43,6 +44,7 @@ def render():
 
         styled = df.style.apply(_highlight_high, axis=1).format({"Uso %": "{:.1f}"})
         st.dataframe(styled, width="stretch", hide_index=True)
+        json_copy_btn(df, "bottleneck_constraints")
     else:
         st.info("No hay datos de restricciones.")
 
@@ -65,6 +67,7 @@ def render():
             })
         df_models = pd.DataFrame(rows).sort_values("HC-Horas", ascending=False)
         st.dataframe(df_models, width="stretch", hide_index=True)
+        json_copy_btn(df_models, "bottleneck_models")
 
         # Mini grafica
         st.bar_chart(df_models.set_index("Modelo")["HC-Horas"])

@@ -11,6 +11,7 @@ al re-optimizar.
 import streamlit as st
 import pandas as pd
 
+from dashboard.components.tables import json_copy_btn
 from dashboard.data_manager import (
     load_restricciones, save_restricciones, save_restriccion, delete_restriccion,
     load_avance, save_avance, load_catalog,
@@ -419,6 +420,8 @@ def _render_table(restricciones):
         },
     )
 
+    json_copy_btn(df, "restricciones_table")
+
     # Sincronizar toggle de activa
     changed = False
     for i, (_, row) in enumerate(edited.iterrows()):
@@ -592,6 +595,8 @@ def _render_avance_tab():
         key="avance_editor",
         column_config=col_config,
     )
+
+    json_copy_btn(df, "avance_table")
 
     # Boton guardar
     if st.button("Guardar Avance", type="primary"):

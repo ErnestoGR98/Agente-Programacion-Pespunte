@@ -9,6 +9,7 @@ import pandas as pd
 import re
 from datetime import date, timedelta
 
+from dashboard.components.tables import json_copy_btn
 from dashboard.data_manager import (
     load_catalog, save_catalog, import_catalog_from_existing_excel,
     import_catalog_from_template, export_catalog_to_template,
@@ -259,11 +260,9 @@ def _render_pedido_excel():
                 save_pedido_draft(pedido)
                 st.rerun()
             # Preview
-            st.dataframe(
-                pd.DataFrame(pedido),
-                width="stretch",
-                hide_index=True,
-            )
+            df_preview = pd.DataFrame(pedido)
+            st.dataframe(df_preview, width="stretch", hide_index=True)
+            json_copy_btn(df_preview, "pedido_preview")
 
 
 def _detect_and_merge_duplicates(rows):
@@ -339,6 +338,8 @@ def _render_pedido_table():
             ),
         },
     )
+
+    json_copy_btn(df, "pedido_table")
 
     # Sincronizar cambios del editor
     new_rows = []
@@ -520,7 +521,9 @@ def _render_catalogo_status(catalog):
             "Robots": ", ".join(data.get("robots_used", [])),
         })
     with st.expander(f"Ver {len(catalog)} modelos del catalogo", expanded=False):
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        df_cat = pd.DataFrame(rows)
+        st.dataframe(df_cat, width="stretch", hide_index=True)
+        json_copy_btn(df_cat, "catalog_list")
 
     # Boton de exportar
     col1, col2 = st.columns(2)
@@ -671,6 +674,8 @@ def _render_catalogo_edit(catalog):
                                                      help="Separar por coma: 3020-M4, 6040-M5"),
         },
     )
+
+    json_copy_btn(df_ops, f"catalog_ops_{model_num}")
 
     col1, col2 = st.columns(2)
     with col1:

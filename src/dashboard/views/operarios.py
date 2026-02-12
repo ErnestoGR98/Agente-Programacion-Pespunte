@@ -8,6 +8,7 @@ definir dias disponibles y eficiencia individual.
 import streamlit as st
 import pandas as pd
 
+from dashboard.components.tables import json_copy_btn
 from dashboard.data_manager import (
     load_operarios, save_operarios, save_operario, delete_operario,
     compute_headcount_by_resource,
@@ -224,6 +225,8 @@ def _render_table(operarios):
         },
     )
 
+    json_copy_btn(df, "operarios_table")
+
     # Sincronizar cambios en activo
     changed = False
     for i, (_, row) in enumerate(edited.iterrows()):
@@ -390,6 +393,7 @@ def _render_headcount_validation(operarios):
 
     df = pd.DataFrame(rows)
     st.dataframe(df, width="stretch", hide_index=True)
+    json_copy_btn(df, "hc_validation")
 
     for w in warnings:
         st.warning(w)

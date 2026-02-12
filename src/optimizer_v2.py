@@ -11,12 +11,11 @@ Variables de decision:
 
 Restricciones:
   1. Completar pares asignados al dia para cada modelo
-  2. Precedencia: fraccion N no acumula mas que fraccion N-1 (con lag de 1 bloque MESA->PLANA/ROBOT)
-  3. Capacidad de recurso por bloque (MESA, PLANA, etc.)
-  4. Headcount total por bloque <= plantilla
-  5. Capacidad de robot individual por bloque (cada robot fisico = 1 maquina)
-  6. Rate limit: 1 persona por robot, 1 persona por operacion manual
-  7. Contiguidad: una vez detenida, una operacion no puede reiniciar
+  2. Capacidad de recurso por bloque (MESA, PLANA, etc.)
+  3. Headcount total por bloque <= plantilla
+  4. Capacidad de robot individual por bloque (cada robot fisico = 1 maquina)
+  5. Rate limit: 1 persona por robot, 1 persona por operacion manual
+  6. Contiguidad: una vez detenida, una operacion no puede reiniciar
 
 Objetivo:
   tardiness(100k) > uniformity(100) > early_start(50) > balance(1)
@@ -220,39 +219,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 sum(y[m_idx, op_idx, r, b] for r in robots) == x[m_idx, op_idx, b]
             )
 
-    # 3. Precedencia entre fracciones (acumulada)
-    #    cum_x[m, op_prev, b] >= cum_x[m, op, b]
-    #    Con lag de 1 bloque cuando MESA alimenta a PLANA/ROBOT:
-    #    MESA es trabajo preliminar, su output debe estar listo ANTES de que
-    #    la siguiente operacion lo consuma. En ese caso:
-    #    cum_prev(b-1) >= cum_curr(b) (1 bloque de buffer)
-    PRELIMINARY_RESOURCES = {"MESA", "MESA-LINEA"}
-    for m_idx, model in enumerate(models_day):
-        ops = model["operations"]
-        if len(ops) <= 1:
-            continue
-        for op_idx in range(1, len(ops)):
-            prev_recurso = ops[op_idx - 1].get("recurso", "")
-            curr_recurso = ops[op_idx].get("recurso", "")
-            # MESA alimenta no-MESA: requiere buffer de 1 bloque
-            needs_lag = (prev_recurso in PRELIMINARY_RESOURCES
-                         and curr_recurso not in PRELIMINARY_RESOURCES)
-            for b in range(num_blocks):
-                cum_curr = sum(x[m_idx, op_idx, bb] for bb in range(b + 1))
-                if needs_lag:
-                    if b == 0:
-                        # Bloque 0: no-MESA no puede producir (MESA aun no tiene output)
-                        solver_model.Add(cum_curr == 0)
-                    else:
-                        # cum_prev hasta b-1 >= cum_curr hasta b
-                        cum_prev = sum(x[m_idx, op_idx - 1, bb] for bb in range(b))
-                        solver_model.Add(cum_prev >= cum_curr)
-                else:
-                    # Precedencia estandar (mismo bloque)
-                    cum_prev = sum(x[m_idx, op_idx - 1, bb] for bb in range(b + 1))
-                    solver_model.Add(cum_prev >= cum_curr)
-
-    # 4. Capacidad de recurso por bloque (recursos NO-robot)
+    # 3. Capacidad de recurso por bloque (recursos NO-robot)
     #    Para cada tipo de recurso R (excepto ROBOT) y bloque b:
     #    sum de (tiempo de trabajo) <= capacidad_R * minutos_bloque * 60
     for b in range(num_blocks):
@@ -280,7 +247,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             max_capacity_sec = cap * block_sec
             solver_model.Add(sum(loads) <= max_capacity_sec)
 
-    # 5. Headcount total por bloque <= plantilla
+    # 4. Headcount total por bloque <= plantilla
     for b in range(num_blocks):
         block_sec = time_blocks[b]["minutes"] * 60
         # HC por operacion = pares * sec_per_pair / block_sec
@@ -293,7 +260,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
         if total_load:
             solver_model.Add(sum(total_load) <= plantilla * block_sec)
 
-    # 6. Capacidad de robot individual por bloque
+    # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 fraccion a la vez
     #    Para robot r y bloque b: sum_{m,op} y[m,op,r,b] * sec_per_pair <= block_sec
     all_robots_in_day = set()
@@ -315,7 +282,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             if robot_load:
                 solver_model.Add(sum(robot_load) <= block_sec)
 
-    # 7. Contiguidad de operaciones: una vez que una operacion se detiene,
+    # 6. Contiguidad de operaciones: una vez que una operacion se detiene,
     #    no puede reiniciar. Evita que operarios salten entre tareas.
     #    stopped[b] = 1 si la operacion estaba activa y ya no lo esta.
     #    Una vez stopped, no puede volver a activarse.

@@ -5,6 +5,7 @@ resumen_semanal.py - Tab 1: Vista general de la semana.
 import streamlit as st
 import pandas as pd
 from dashboard.components.charts import build_balance_chart
+from dashboard.components.tables import json_copy_btn
 
 
 def render():
@@ -42,6 +43,7 @@ def render():
         cols = [c for c in day_order if c in pivot.columns] + ["TOTAL"]
         pivot = pivot[[c for c in cols if c in pivot.columns]]
         st.dataframe(pivot, width="stretch")
+        json_copy_btn(pivot.reset_index(), "weekly_pivot")
 
     st.divider()
 
@@ -76,3 +78,4 @@ def render():
         width="stretch",
         hide_index=True,
     )
+    json_copy_btn(df_models, "weekly_models")

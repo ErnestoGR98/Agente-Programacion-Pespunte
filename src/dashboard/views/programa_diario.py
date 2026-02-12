@@ -11,7 +11,7 @@ import pandas as pd
 from dashboard.components.tables import (
     build_daily_df, build_daily_df_with_operators,
     build_cascade_df, style_by_resource, style_cascade_by_model,
-    RESOURCE_COLORS,
+    generate_daily_pdf, generate_week_pdf, RESOURCE_COLORS, json_copy_btn,
 )
 
 
@@ -34,9 +34,23 @@ def render():
         st.info("No hay dias con produccion programada.")
         return
 
-    # --- Selector de dia ---
-    selected_day = st.selectbox("Seleccionar Dia", active_days)
+    # --- Selector de dia (con modelos programados) ---
+    def _day_label(day_name):
+        schedule = daily_results[day_name].get("schedule", [])
+        modelos = sorted({e["modelo"] for e in schedule})
+        return f"{day_name}  ({len(modelos)} modelos: {', '.join(modelos)})"
+
+    col_sel, col_pdf_week = st.columns([5, 1])
+    with col_sel:
+        selected_day = st.selectbox(
+            "Seleccionar Dia", active_days, format_func=_day_label,
+        )
+    with col_pdf_week:
+        st.markdown("<br>", unsafe_allow_html=True)
+        _render_week_pdf_download(daily_results, active_days)
+
     day_data = daily_results[selected_day]
+    st.session_state._pdf_day = selected_day
     summary = day_data["summary"]
 
     # --- KPIs del dia ---
@@ -124,6 +138,7 @@ def render():
 
     df_summary = pd.DataFrame(summary_rows)
     st.dataframe(df_summary, width="stretch", hide_index=True)
+    json_copy_btn(df_summary, "day_summary")
 
 
 def _render_operation_view(day_data, block_labels, has_assignments):
@@ -175,6 +190,58 @@ def _render_operation_view(day_data, block_labels, has_assignments):
 
     st.dataframe(styled, width="stretch", height=500, hide_index=True)
 
+    # --- Botones: JSON + PDF ---
+    col_j, col_p, _ = st.columns([1, 1, 6])
+    with col_j:
+        json_copy_btn(df_show, "day_ops")
+    with col_p:
+        _render_pdf_download(df_show, block_labels)
+
+
+def _get_week_label():
+    """Obtiene label de semana desde session_state."""
+    year = st.session_state.get("pedido_year", "")
+    week = st.session_state.get("pedido_week", "")
+    result_name = st.session_state.get("current_result_name", "")
+    if year and week:
+        return f"Semana {int(week)}, {int(year)}"
+    elif result_name:
+        return result_name.replace("_", " ").title()
+    return ""
+
+
+def _render_pdf_download(df, block_labels):
+    """Boton de descarga PDF del programa diario (un dia)."""
+    day_name = st.session_state.get("_pdf_day", "")
+    week_label = _get_week_label()
+
+    try:
+        pdf_bytes = generate_daily_pdf(day_name, week_label, df, block_labels)
+        safe_day = day_name.replace(" ", "_") if day_name else "dia"
+        st.download_button(
+            "PDF Dia",
+            data=pdf_bytes,
+            file_name=f"programa_{safe_day}.pdf",
+            mime="application/pdf",
+        )
+    except Exception as e:
+        st.error(f"Error PDF: {e}")
+
+
+def _render_week_pdf_download(daily_results, active_days):
+    """Boton de descarga PDF con todos los dias de la semana."""
+    week_label = _get_week_label()
+    try:
+        pdf_bytes = generate_week_pdf(daily_results, active_days, week_label)
+        st.download_button(
+            "PDF Semana",
+            data=pdf_bytes,
+            file_name="programa_semana.pdf",
+            mime="application/pdf",
+        )
+    except Exception as e:
+        st.error(f"Error PDF: {e}")
+
 
 def _render_cascade_view(day_data, block_labels):
     """Vista cascada: fila por operario, columna por bloque."""
@@ -198,6 +265,7 @@ def _render_cascade_view(day_data, block_labels):
     )
 
     st.dataframe(styled, width="stretch", height=600, hide_index=True)
+    json_copy_btn(df, "cascade")
 
     # Detalle de operaciones sin asignar
     unassigned = day_data.get("unassigned_ops", [])

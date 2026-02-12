@@ -11,6 +11,7 @@ Permite editar desde el dashboard:
 import streamlit as st
 import pandas as pd
 
+from dashboard.components.tables import json_copy_btn
 from config_manager import load_config, save_config, get_default_config
 
 
@@ -73,6 +74,8 @@ def _render_robots(config):
         },
     )
 
+    json_copy_btn(df_robots, "config_robots")
+
     st.markdown("**Aliases de Robots**")
     st.caption("Variantes de nombres que aparecen en el catalogo Excel")
 
@@ -95,6 +98,8 @@ def _render_robots(config):
             "NOMBRE_REAL": st.column_config.TextColumn("Nombre real del robot", width="medium"),
         },
     )
+
+    json_copy_btn(df_aliases, "config_aliases")
 
     if st.button("Guardar Robots", type="primary", key="save_robots"):
         new_robots = [
@@ -170,6 +175,8 @@ def _render_fabricas(config):
         },
     )
 
+    json_copy_btn(df_fab, "config_fabricas")
+
     if st.button("Guardar Fabricas", type="primary", key="save_fabricas"):
         new_fabricas = [
             str(f).strip()
@@ -215,6 +222,8 @@ def _render_dias(config):
             "SABADO": st.column_config.CheckboxColumn("Sabado?", width="small"),
         },
     )
+
+    json_copy_btn(df_days, "config_days")
 
     if st.button("Guardar Dias", type="primary", key="save_days"):
         new_days = []

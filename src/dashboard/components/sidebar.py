@@ -5,6 +5,7 @@ La carga de datos ahora se hace desde la pagina principal (datos.py).
 El sidebar se enfoca en parametros y acciones.
 """
 
+import json
 import streamlit as st
 from dashboard.state import load_data, run_optimization, generate_excel_bytes, load_saved_results
 
@@ -168,3 +169,24 @@ def _render_export():
         )
     except Exception as e:
         st.error(f"Error al generar Excel: {e}")
+
+    # Exportar resultados como JSON
+    try:
+        data = {}
+        if st.session_state.weekly_schedule:
+            data["weekly_schedule"] = st.session_state.weekly_schedule
+        if st.session_state.weekly_summary:
+            data["weekly_summary"] = st.session_state.weekly_summary
+        if st.session_state.daily_results:
+            data["daily_results"] = st.session_state.daily_results
+        if data:
+            json_bytes = json.dumps(data, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            st.download_button(
+                "Descargar JSON",
+                data=json_bytes,
+                file_name="programacion_optimizada.json",
+                mime="application/json",
+                width="stretch",
+            )
+    except Exception:
+        pass
