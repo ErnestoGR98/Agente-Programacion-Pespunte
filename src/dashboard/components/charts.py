@@ -9,11 +9,12 @@ from dashboard.components.tables import RESOURCE_COLORS
 
 
 def build_balance_chart(weekly_summary):
-    """Grafica de barras: HC Necesario vs HC Disponible por dia."""
+    """Grafica de barras: HC Necesario vs HC Disponible por dia, con Peak HC."""
     days_data = weekly_summary["days"]
     dias = [d["dia"] for d in days_data]
     hc_nec = [d["hc_necesario"] for d in days_data]
     hc_disp = [d["hc_disponible"] for d in days_data]
+    peak_hc = [d.get("peak_hc", 0) for d in days_data]
 
     colors_nec = [
         "#E74C3C" if n > d else "#27AE60"
@@ -29,6 +30,18 @@ def build_balance_chart(weekly_summary):
         name="HC Disponible", x=dias, y=hc_disp,
         marker_color="#3498DB", opacity=0.4,
     ))
+
+    # Peak HC: total operaciones concurrentes (indicador de presion sobre la plantilla)
+    if any(p > 0 for p in peak_hc):
+        fig.add_trace(go.Scatter(
+            name="Ops Concurrentes",
+            x=dias, y=peak_hc,
+            mode="markers+text",
+            marker=dict(symbol="diamond", size=12, color="#8E44AD"),
+            text=[str(p) for p in peak_hc],
+            textposition="top center",
+            textfont=dict(size=10, color="#8E44AD"),
+        ))
 
     # Anotaciones de utilizacion
     for d in days_data:

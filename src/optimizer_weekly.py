@@ -20,6 +20,7 @@ from ortools.sat.python import cp_model
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
 W_CHANGEOVER = 10_000   # por cambio de modelo (forzar lotes grandes, menos modelos por dia)
+W_HC_PEAK = 8_000       # por operacion concurrente que exceda plantilla (evitar sobrecargar HC)
 W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
 W_SATURDAY = 50         # por par producido en sabado (penalizar horas extra)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
@@ -166,7 +167,32 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         overtime_used[d] = solver_model.NewIntVar(0, overtime_cap, f"ot_{d}")
         solver_model.Add(overtime_used[d] >= day_load - regular_cap)
 
-    # 4. Balanceo: rastrear carga maxima y minima entre dias normales
+    # 4. Throughput maximo por modelo/dia: la operacion mas lenta (cuello de botella)
+    #    limita cuantos pares pueden completarse en un dia, independientemente de
+    #    la capacidad total. Sin esto el solver asigna mas pares de los que el
+    #    programa diario puede realmente producir.
+    for m, model in enumerate(models):
+        ops = model.get("operations", [])
+        if ops:
+            bottleneck_rate = min(op["rate"] for op in ops if op.get("rate", 0) > 0)
+        else:
+            # Fallback: estimar rate promedio desde total_sec_per_pair y num_ops
+            n_ops = model.get("num_ops", 1)
+            avg_sec = model["total_sec_per_pair"] / max(n_ops, 1)
+            bottleneck_rate = 3600 / avg_sec if avg_sec > 0 else 100
+
+        for d in range(num_days):
+            day_minutes = days[d]["minutes"]
+            ot_minutes = days[d].get("minutes_ot", 0)
+            total_minutes = day_minutes + ot_minutes
+            # Max pares = bottleneck_rate * horas totales, redondeado a multiplo de step
+            max_throughput = int(bottleneck_rate * total_minutes / 60)
+            max_throughput = (max_throughput // step) * step
+            max_throughput = min(max_throughput, model["total_producir"])
+            if max_throughput > 0:
+                solver_model.Add(x[m, d] <= max_throughput)
+
+    # 5. Balanceo: rastrear carga maxima y minima entre dias normales
     normal_day_indices = [d for d in range(num_days) if not days[d]["is_saturday"]]
     for d in normal_day_indices:
         solver_model.Add(max_load >= day_loads[d])
@@ -206,6 +232,24 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         obj_terms.append(W_OVERTIME * overtime_used[d])
 
+    # Penalizar exceso de operaciones concurrentes sobre la plantilla del dia
+    # Cada modelo activo contribuye num_ops operaciones simultaneas (1 operario c/u)
+    # Si sum(y[m,d]*num_ops) > plantilla, el exceso se penaliza
+    # Esto evita dias donde muchos modelos de alta demanda de HC colapsan la agenda diaria
+    for d in range(num_days):
+        total_ops_day = []
+        max_possible = 0
+        for m in range(num_models):
+            n_ops = models[m].get("num_ops", 1)
+            total_ops_day.append(y[m, d] * n_ops)
+            max_possible += n_ops
+        plantilla_d = days[d]["plantilla"]
+        hc_excess = solver_model.NewIntVar(
+            0, max(0, max_possible - plantilla_d), f"hcx_{d}"
+        )
+        solver_model.Add(hc_excess >= sum(total_ops_day) - plantilla_d)
+        obj_terms.append(W_HC_PEAK * hc_excess)
+
     # Penalizar lotes no multiplo de 100 (preferir centenas cerradas)
     for d in range(num_days):
         for m in range(num_models):
@@ -231,7 +275,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # --- Extraer solucion ---
 
     schedule = _extract_schedule(solver, x, models, days)
-    summary = _build_summary(solver, x, tardiness, span, day_loads, overtime_used,
+    summary = _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
                              regular_caps, overtime_caps, models, days, status)
 
     return schedule, summary
@@ -273,7 +317,7 @@ def _extract_schedule(solver, x, models, days):
     return schedule
 
 
-def _build_summary(solver, x, tardiness, span, day_loads, overtime_used,
+def _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
                     regular_caps, overtime_caps, models, days, status):
     """Construye resumen de metricas."""
     num_days = len(days)
@@ -298,11 +342,18 @@ def _build_summary(solver, x, tardiness, span, day_loads, overtime_used,
         hours_day = day_cfg["minutes"] / 60.0
         hc_needed = hours_work / hours_day
 
+        # Peak HC: total operaciones concurrentes si todos los modelos activos se traslapan
+        peak_hc = sum(
+            models[m].get("num_ops", 1) for m in range(num_models)
+            if solver.Value(y[m, d]) > 0
+        )
+
         days_summary.append({
             "dia": day_cfg["name"],
             "pares": total_pares,
             "hc_necesario": round(hc_needed, 1),
             "hc_disponible": day_cfg["plantilla"],
+            "peak_hc": peak_hc,
             "diferencia": round(day_cfg["plantilla"] - hc_needed, 1),
             "utilizacion_pct": round(utilization, 1),
             "overtime_hrs": round(ot_hours, 1),

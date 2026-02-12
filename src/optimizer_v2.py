@@ -34,16 +34,28 @@ W_RESOURCE_BALANCE = 1    # balancear uso de recursos entre bloques
 
 
 class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
-    """Detiene el solver cuando encuentra solucion con 0 tardiness."""
+    """Detiene el solver despues de optimizar objetivos secundarios.
+
+    Al encontrar 0 tardiness, sigue buscando al menos `grace_seconds`
+    para mejorar uniformidad, early_start y otros objetivos suaves.
+    Sin esto, la primera solucion sin tardiness gana aunque tenga
+    huecos enormes en el programa.
+    """
+
+    GRACE_SECONDS = 5.0  # tiempo adicional tras 0-tardiness
 
     def __init__(self, tardiness_vars):
         super().__init__()
         self._tardiness_vars = tardiness_vars
+        self._first_zero_time = None
 
     def on_solution_callback(self):
         total_tard = sum(self.Value(t) for t in self._tardiness_vars)
         if total_tard == 0:
-            self.StopSearch()
+            if self._first_zero_time is None:
+                self._first_zero_time = self.WallTime()
+            elif self.WallTime() - self._first_zero_time >= self.GRACE_SECONDS:
+                self.StopSearch()
 
 
 def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
