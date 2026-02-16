@@ -154,10 +154,16 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage):
             if robot is None:
                 continue
 
-        # Scoring
+        # Scoring: priorizar operarios que ya trabajaron para evitar huecos
         score = 0
         if op_st["prev_end_block"] == start_block - 1:
-            score += 100  # recien liberado = cascada
+            score += 200  # cascada perfecta: recien liberado, sin hueco
+        elif op_st["prev_end_block"] >= 0:
+            # Ya trabajo pero tiene gap: priorizar para cerrar el hueco
+            gap = start_block - op_st["prev_end_block"] - 1
+            score += 150 - gap * 10  # menor gap = mayor puntaje
+        elif start_block > 0:
+            score -= 50   # fresco entrando tarde: penalizar (crea idle al inicio)
         if op_st["prev_modelo"] == task["modelo"]:
             score += 50   # continuidad de modelo
         score += int(op_st["eficiencia"] * 10)

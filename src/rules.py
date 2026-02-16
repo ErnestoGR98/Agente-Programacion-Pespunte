@@ -18,16 +18,17 @@ from config_manager import load_config
 # Bloques horarios del dia (columnas 27-36 en programa diario)
 # Esto es el horario fisico de la fabrica - no cambia
 TIME_BLOCKS = [
-    {"id": 0, "label": "8-9",     "minutes": 60},
-    {"id": 1, "label": "9-10",    "minutes": 60},
-    {"id": 2, "label": "10-11",   "minutes": 60},
-    {"id": 3, "label": "11-12",   "minutes": 60},
-    {"id": 4, "label": "12-1:10", "minutes": 70},
-    {"id": 5, "label": "1:50-3",  "minutes": 70},
-    {"id": 6, "label": "3-4",     "minutes": 60},
-    {"id": 7, "label": "4-5",     "minutes": 60},
-    {"id": 8, "label": "5-6",     "minutes": 60},
-    {"id": 9, "label": "6-7",     "minutes": 60},
+    {"id": 0,  "label": "8-9",    "minutes": 60},
+    {"id": 1,  "label": "9-10",   "minutes": 60},
+    {"id": 2,  "label": "10-11",  "minutes": 60},
+    {"id": 3,  "label": "11-12",  "minutes": 60},
+    {"id": 4,  "label": "12-1",   "minutes": 60},
+    {"id": 5,  "label": "1-2",    "minutes": 60},
+    {"id": 6,  "label": "COMIDA", "minutes": 0},   # 2:00-3:00 (visual, 0 cap)
+    {"id": 7,  "label": "3-4",    "minutes": 60},
+    {"id": 8,  "label": "4-5",    "minutes": 60},
+    {"id": 9,  "label": "5-6",    "minutes": 60},
+    {"id": 10, "label": "6-7",    "minutes": 60},
 ]
 
 # Tipos de recurso canonicos (categorias fisicas fijas)

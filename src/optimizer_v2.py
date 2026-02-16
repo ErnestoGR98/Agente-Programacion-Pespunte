@@ -18,8 +18,10 @@ Restricciones:
   6. Contiguidad: una vez detenida, una operacion no puede reiniciar
 
 Objetivo:
-  tardiness(100k) > uniformity(100) > early_start(50) > balance(1)
-  Uniformity: penaliza bloques activos que producen menos que el rate/hora
+  tardiness(100k) > uniformity_robot(500) > balance(1 * peak_load_sec)
+  Uniformidad manual: DURA - bloques activos no finales producen al rate exacto
+  Uniformidad robot: SUAVE - penalty por producir menos del rate (evita infeasibilidad)
+  Balance: minimiza el pico de HC para distribuir trabajo en todos los bloques
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,9 +29,8 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
-W_UNIFORMITY = 100        # penalizar bloques activos que producen menos que el rate
-W_EARLY_START = 50        # preferir iniciar operaciones lo antes posible
-W_RESOURCE_BALANCE = 1    # balancear uso de recursos entre bloques
+W_UNIFORMITY = 500        # soft uniformity para ops robot (por par de shortfall)
+W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
 class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
@@ -282,30 +283,73 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             if robot_load:
                 solver_model.Add(sum(robot_load) <= block_sec)
 
-    # 6. Contiguidad de operaciones: una vez que una operacion se detiene,
-    #    no puede reiniciar. Evita que operarios salten entre tareas.
-    #    stopped[b] = 1 si la operacion estaba activa y ya no lo esta.
-    #    Una vez stopped, no puede volver a activarse.
+    # Bloques productivos (excluir bloques con 0 minutos, e.g. COMIDA)
+    real_blocks = [b for b in range(num_blocks) if time_blocks[b]["minutes"] > 0]
+
+    # Forzar x=0 y active=0 en bloques no productivos (COMIDA)
+    for b in range(num_blocks):
+        if time_blocks[b]["minutes"] == 0:
+            for m_idx, model in enumerate(models_day):
+                for op_idx in range(len(model["operations"])):
+                    solver_model.Add(x[m_idx, op_idx, b] == 0)
+                    solver_model.Add(active[m_idx, op_idx, b] == 0)
+
+    # 6. Contiguidad de operaciones (salta bloques no productivos):
+    #    Una vez detenida, no puede reiniciar. COMIDA no rompe contiguidad.
     for m_idx, model in enumerate(models_day):
         for op_idx in range(len(model["operations"])):
             stopped = {}
-            for b in range(num_blocks):
+            for rb_idx, b in enumerate(real_blocks):
                 stopped[b] = solver_model.NewBoolVar(
                     f"stop_{m_idx}_{op_idx}_{b}"
                 )
-            solver_model.Add(stopped[0] == 0)
-            for b in range(1, num_blocks):
-                # Transicion activo->inactivo marca stopped
+            solver_model.Add(stopped[real_blocks[0]] == 0)
+            for rb_idx in range(1, len(real_blocks)):
+                b = real_blocks[rb_idx]
+                prev_b = real_blocks[rb_idx - 1]
                 solver_model.Add(
-                    stopped[b] >= active[m_idx, op_idx, b - 1]
+                    stopped[b] >= active[m_idx, op_idx, prev_b]
                     - active[m_idx, op_idx, b]
                 )
-                # Una vez stopped, permanece stopped
-                solver_model.Add(stopped[b] >= stopped[b - 1])
-                # No puede reactivarse despues de stopped
+                solver_model.Add(stopped[b] >= stopped[prev_b])
                 solver_model.Add(
-                    active[m_idx, op_idx, b] + stopped[b - 1] <= 1
+                    active[m_idx, op_idx, b] + stopped[prev_b] <= 1
                 )
+
+    # 7. Uniformidad de produccion (salta COMIDA):
+    #    a) Ops manuales: DURA - x >= target (con x <= target da x == target)
+    #    b) Ops robot: SUAVE - penalty por shortfall bajo target (evita infeasibilidad)
+    robot_shortfall_terms = []
+    for m_idx, model in enumerate(models_day):
+        for op_idx, op in enumerate(model["operations"]):
+            is_robot = bool(op.get("robots", []))
+            for rb_idx in range(len(real_blocks) - 1):
+                b = real_blocks[rb_idx]
+                next_b = real_blocks[rb_idx + 1]
+                block_min = time_blocks[b]["minutes"]
+                target = int(op["rate"] * block_min / 60)
+                if target <= 0:
+                    continue
+                if not is_robot:
+                    # Manual: hard constraint (x >= target)
+                    solver_model.Add(
+                        x[m_idx, op_idx, b] >= target
+                    ).OnlyEnforceIf([
+                        active[m_idx, op_idx, b],
+                        active[m_idx, op_idx, next_b]
+                    ])
+                else:
+                    # Robot: soft constraint (penalty for shortfall)
+                    shortfall = solver_model.NewIntVar(
+                        0, target, f"uf_{m_idx}_{op_idx}_{b}"
+                    )
+                    solver_model.Add(
+                        x[m_idx, op_idx, b] + shortfall >= target
+                    ).OnlyEnforceIf([
+                        active[m_idx, op_idx, b],
+                        active[m_idx, op_idx, next_b]
+                    ])
+                    robot_shortfall_terms.append(shortfall)
 
     # --- Funcion Objetivo ---
     obj_terms = []
@@ -314,32 +358,22 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     for m_idx in range(len(models_day)):
         obj_terms.append(W_TARDINESS * tardiness[m_idx])
 
-    # Penalizar bloques activos que producen menos que el rate
-    # Si rate=100/hr y bloque=60min, target=100 pares. Si solo produce 20,
-    # shortfall=80 y se penaliza. Esto fuerza bloques llenos al rate.
-    # Para ops con robots: target = rate de 1 robot (si usa N robots, x > target -> 0 penalty)
-    for m_idx, model in enumerate(models_day):
-        for op_idx, op in enumerate(model["operations"]):
-            for b in range(num_blocks):
-                block_min = time_blocks[b]["minutes"]
-                target = int(op["rate"] * block_min / 60)
-                if target <= 0:
-                    continue
-                shortfall = solver_model.NewIntVar(
-                    0, target, f"sf_{m_idx}_{op_idx}_{b}"
-                )
-                solver_model.Add(
-                    shortfall >= target * active[m_idx, op_idx, b]
-                    - x[m_idx, op_idx, b]
-                )
-                obj_terms.append(W_UNIFORMITY * shortfall)
+    # Soft uniformity para ops robot
+    for sf in robot_shortfall_terms:
+        obj_terms.append(W_UNIFORMITY * sf)
 
-    # Preferir iniciar operaciones temprano (penalizar bloques tardios)
-    for m_idx, model in enumerate(models_day):
-        for op_idx in range(len(model["operations"])):
-            for b in range(num_blocks):
-                # Penalizacion crece con el indice del bloque
-                obj_terms.append(W_EARLY_START * b * active[m_idx, op_idx, b])
+    # Balance: minimizar el pico de carga (HC) para distribuir trabajo
+    # en todos los bloques del dia. Si peak es bajo, el trabajo se reparte.
+    max_block_capacity = plantilla * max(tb["minutes"] for tb in time_blocks) * 60
+    peak_load = solver_model.NewIntVar(0, max_block_capacity, "peak_load")
+    for b in range(num_blocks):
+        load_terms = []
+        for m_idx, model in enumerate(models_day):
+            for op_idx, op in enumerate(model["operations"]):
+                load_terms.append(x[m_idx, op_idx, b] * op["sec_per_pair"])
+        if load_terms:
+            solver_model.Add(peak_load >= sum(load_terms))
+    obj_terms.append(W_BALANCE * peak_load)
 
     solver_model.Minimize(sum(obj_terms))
 

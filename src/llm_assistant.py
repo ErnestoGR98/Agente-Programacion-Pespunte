@@ -31,7 +31,7 @@ CONCEPTOS CLAVE:
 - Tardiness: pares que no se alcanzaron a producir
 - Overtime: horas extra (sabado o extension de jornada)
 - Robot: maquina de costura automatica (8 fisicas, capacidad 1 por bloque)
-- Bloque: periodo de 1 hora (8-9, 9-10, ..., 6-7) con pausa comida 1:10-1:50
+- Bloque: periodo de 1 hora (8-9, 9-10, ..., 6-7) con pausa comida 2:00-3:00
 - Maquila: enviar produccion a un taller externo
 - Avance: pares ya producidos (dias congelados al re-optimizar)
 """

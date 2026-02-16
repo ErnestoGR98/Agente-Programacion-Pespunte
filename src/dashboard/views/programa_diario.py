@@ -160,7 +160,26 @@ def _render_operation_view(day_data, block_labels, has_assignments):
     mask = df["MODELO"].isin(sel_modelos) & df["RECURSO"].isin(sel_recursos)
     df_filtered = df[mask].reset_index(drop=True)
 
-    st.subheader("Programa de Operaciones")
+    col_title, col_sort = st.columns([5, 1])
+    with col_title:
+        st.subheader("Programa de Operaciones")
+    with col_sort:
+        cascada = st.toggle("Cascada", value=False, help="Ordenar por inicio de actividad")
+
+    if cascada and len(block_labels) > 0:
+        # Ordenar por primer bloque activo (cascada visual)
+        def _first_active(row):
+            for i, bl in enumerate(block_labels):
+                if bl in row.index:
+                    try:
+                        if float(row[bl]) > 0:
+                            return i
+                    except (ValueError, TypeError):
+                        pass
+            return len(block_labels)
+        df_filtered = df_filtered.assign(
+            _sort_key=df_filtered.apply(_first_active, axis=1)
+        ).sort_values(["_sort_key", "MODELO", "FRACC"]).drop(columns="_sort_key").reset_index(drop=True)
 
     # Columnas a mostrar
     if has_assignments:
