@@ -658,25 +658,90 @@ def export_catalog_to_template(catalog: dict) -> bytes:
 # Resultados de Optimizacion: persistencia JSON
 # ---------------------------------------------------------------------------
 
+def _next_version(base_name: str) -> int:
+    """Calcula la siguiente version disponible para un base_name."""
+    RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+    max_v = 0
+    for f in RESULTADOS_DIR.glob(f"{base_name}_v*.json"):
+        stem = f.stem  # ej: sem_8_2026_v3
+        suffix = stem[len(base_name):]  # ej: _v3
+        if suffix.startswith("_v"):
+            try:
+                v = int(suffix[2:])
+                max_v = max(max_v, v)
+            except ValueError:
+                pass
+    return max_v + 1
+
+
+def _migrate_legacy_result(base_name: str):
+    """Si existe archivo sin version (legacy), renombrarlo a _v1."""
+    legacy = RESULTADOS_DIR / f"{base_name}.json"
+    if legacy.exists():
+        target = RESULTADOS_DIR / f"{base_name}_v1.json"
+        if not target.exists():
+            legacy.rename(target)
+            # Actualizar contenido con campos de version
+            try:
+                with open(target, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                data["nombre"] = f"{base_name}_v1"
+                data["base_name"] = base_name
+                data["version"] = 1
+                data.setdefault("nota", "")
+                with open(target, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, ensure_ascii=False, indent=2)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+
+def _parse_version_name(filename_stem: str) -> tuple:
+    """Extrae (base_name, version) de un nombre de archivo.
+
+    Returns:
+        (base_name, version) o (filename_stem, 0) si no tiene version.
+    """
+    import re
+    m = re.match(r"^(.+)_v(\d+)$", filename_stem)
+    if m:
+        return m.group(1), int(m.group(2))
+    return filename_stem, 0
+
+
 def save_optimization_results(name: str, weekly_schedule: list,
                                weekly_summary: dict, daily_results: dict,
-                               pedido: list = None, params: dict = None):
+                               pedido: list = None, params: dict = None,
+                               nota: str = "") -> str:
     """
-    Guarda resultados de optimizacion a JSON.
+    Guarda resultados de optimizacion a JSON con versionado automatico.
 
     Args:
-        name: nombre del resultado (ej: "sem_7_2026")
+        name: nombre base del resultado (ej: "sem_7_2026")
         weekly_schedule: salida de optimizer_weekly
         weekly_summary: resumen semanal
         daily_results: salida de optimizer_v2 (dict por dia)
         pedido: pedido original (opcional, para referencia)
         params: parametros usados (opcional, para referencia)
+        nota: comentario opcional sobre esta version
+
+    Returns:
+        nombre completo con version (ej: "sem_7_2026_v2")
     """
     RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
-    filepath = RESULTADOS_DIR / f"{name}.json"
+
+    # Migrar archivo legacy si existe
+    _migrate_legacy_result(name)
+
+    # Calcular siguiente version
+    version = _next_version(name)
+    full_name = f"{name}_v{version}"
+    filepath = RESULTADOS_DIR / f"{full_name}.json"
 
     data = {
-        "nombre": name,
+        "nombre": full_name,
+        "base_name": name,
+        "version": version,
+        "nota": nota,
         "fecha_optimizacion": datetime.now().isoformat(),
         "weekly_schedule": weekly_schedule,
         "weekly_summary": weekly_summary,
@@ -696,6 +761,8 @@ def save_optimization_results(name: str, weekly_schedule: list,
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return full_name
 
 
 def load_optimization_results(name: str) -> dict | None:
@@ -718,19 +785,38 @@ def list_optimization_results() -> list:
     """
     Lista resultados de optimizacion guardados con metadatos basicos.
 
+    Migra automaticamente archivos legacy (sin _vN) a formato versionado.
+
     Returns:
-        lista de dicts con keys: nombre, fecha_optimizacion, total_pares,
-        status, num_modelos
+        lista de dicts con keys: nombre, base_name, version, nota,
+        fecha_optimizacion, total_pares, status, tardiness.
+        Ordenados por base_name desc, luego version desc.
     """
     RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Migrar archivos legacy antes de listar
+    for f in RESULTADOS_DIR.glob("*.json"):
+        base, ver = _parse_version_name(f.stem)
+        if ver == 0:
+            _migrate_legacy_result(f.stem)
+
     results = []
-    for f in sorted(RESULTADOS_DIR.glob("*.json"), reverse=True):
+    for f in RESULTADOS_DIR.glob("*.json"):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             summary = data.get("weekly_summary", {})
+            base_name, version = _parse_version_name(f.stem)
+            # Si el JSON ya tiene version, usarla
+            if data.get("version"):
+                version = data["version"]
+            if data.get("base_name"):
+                base_name = data["base_name"]
             results.append({
                 "nombre": f.stem,
+                "base_name": base_name,
+                "version": version,
+                "nota": data.get("nota", ""),
                 "fecha_optimizacion": data.get("fecha_optimizacion", ""),
                 "total_pares": summary.get("total_pares", 0),
                 "status": summary.get("status", ""),
@@ -738,7 +824,16 @@ def list_optimization_results() -> list:
             })
         except (json.JSONDecodeError, KeyError):
             continue
+
+    # Ordenar: base_name desc, version desc
+    results.sort(key=lambda r: (r["base_name"], r["version"]), reverse=True)
     return results
+
+
+def list_versions(base_name: str) -> list:
+    """Lista versiones de una semana especifica, ordenadas por version desc."""
+    all_results = list_optimization_results()
+    return [r for r in all_results if r["base_name"] == base_name]
 
 
 def delete_optimization_result(name: str) -> bool:

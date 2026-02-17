@@ -93,8 +93,9 @@ def _render_parameters():
 
 
 def _render_saved_results():
-    """Seccion para cargar resultados guardados anteriormente."""
+    """Seccion para cargar resultados guardados con versionado."""
     from dashboard.data_manager import list_optimization_results, delete_optimization_result
+    from collections import OrderedDict
 
     with st.expander("Resultados Guardados", expanded=False):
         saved = list_optimization_results()
@@ -102,23 +103,48 @@ def _render_saved_results():
             st.caption("No hay resultados guardados")
             return
 
+        # Agrupar por base_name (ya vienen ordenados por base_name desc, version desc)
+        groups = OrderedDict()
         for item in saved:
-            fecha = item["fecha_optimizacion"][:10] if item["fecha_optimizacion"] else ""
-            label = f"{item['nombre']} | {item['total_pares']:,} pares | {fecha}"
+            bn = item["base_name"]
+            if bn not in groups:
+                groups[bn] = []
+            groups[bn].append(item)
 
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                if st.button(label, key=f"load_result_{item['nombre']}",
-                             use_container_width=True):
-                    if load_saved_results(item["nombre"]):
-                        st.success(f"Resultado '{item['nombre']}' cargado")
+        current = st.session_state.get("current_result_name", "")
+
+        for base_name, versions in groups.items():
+            # Header de semana con total de versiones
+            sem_label = base_name.replace("sem_", "Sem ").replace("_", " / ")
+            st.markdown(f"**{sem_label}** ({len(versions)} ver.)")
+
+            for item in versions:
+                ver = item["version"]
+                fecha = item["fecha_optimizacion"][5:16].replace("T", " ") if item["fecha_optimizacion"] else ""
+                nota = item.get("nota", "")
+                is_current = item["nombre"] == current
+
+                # Indicador de version actual
+                marker = "● " if is_current else "  "
+                pares_str = f"{item['total_pares']:,}p"
+                nota_str = f" - {nota}" if nota else ""
+                label = f"{marker}v{ver} | {pares_str} | {fecha}{nota_str}"
+
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    if st.button(label, key=f"load_result_{item['nombre']}",
+                                 use_container_width=True,
+                                 disabled=is_current):
+                        if load_saved_results(item["nombre"]):
+                            st.rerun()
+                        else:
+                            st.error("Error al cargar resultado")
+                with col2:
+                    if st.button("X", key=f"del_result_{item['nombre']}"):
+                        delete_optimization_result(item["nombre"])
                         st.rerun()
-                    else:
-                        st.error("Error al cargar resultado")
-            with col2:
-                if st.button("X", key=f"del_result_{item['nombre']}"):
-                    delete_optimization_result(item["nombre"])
-                    st.rerun()
+
+            st.divider()
 
 
 def _render_optimize_button():
@@ -137,6 +163,9 @@ def _render_optimize_button():
         )
         if total_done > 0:
             st.info(f"Avance: {total_done:,} pares producidos")
+
+    st.text_input("Nota de version (opcional)", key="optimization_note",
+                   placeholder="Ej: Ajuste por retraso material")
 
     if st.button("Optimizar", type="primary", width="stretch"):
         with st.spinner("Ejecutando CP-SAT... (1-3 minutos)"):

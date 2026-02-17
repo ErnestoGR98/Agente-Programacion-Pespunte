@@ -230,26 +230,29 @@ def run_optimization(params):
 
     st.session_state.pipeline_step = 2
 
-    # Auto-guardar resultados a disco (accesible desde otras computadoras via OneDrive)
+    # Auto-guardar resultados a disco con versionado automatico
     from dashboard.data_manager import save_optimization_results
-    # Usar semana del selector de pedido si existe, sino generar automaticamente
-    result_name = _get_result_name()
-    save_optimization_results(
-        name=result_name,
+    base_name = _get_result_name()
+    nota = st.session_state.get("optimization_note", "")
+    full_name = save_optimization_results(
+        name=base_name,
         weekly_schedule=weekly_schedule,
         weekly_summary=weekly_summary,
         daily_results=daily_results,
         pedido=st.session_state.get("pedido_rows"),
         params=params,
+        nota=nota,
     )
-    st.session_state.current_result_name = result_name
+    st.session_state.current_result_name = full_name
+    # Limpiar nota despues de guardar
+    st.session_state.pop("optimization_note", None)
 
     return {
         "status": weekly_summary["status"],
         "total_pares": weekly_summary["total_pares"],
         "tardiness": weekly_summary["total_tardiness"],
         "wall_time": weekly_summary["wall_time_s"],
-        "saved_as": result_name,
+        "saved_as": full_name,
     }
 
 
