@@ -10,8 +10,10 @@ import streamlit as st
 import pandas as pd
 from dashboard.components.tables import (
     build_daily_df, build_daily_df_with_operators,
-    build_cascade_df, style_by_resource, style_cascade_by_model,
-    generate_daily_pdf, generate_week_pdf, RESOURCE_COLORS, json_copy_btn,
+    build_cascade_df, style_by_stage, style_cascade_by_stage,
+    generate_daily_pdf, generate_daily_cascade_pdf,
+    generate_week_pdf, generate_week_cascade_pdf,
+    STAGE_COLORS, json_copy_btn,
 )
 
 
@@ -40,14 +42,9 @@ def render():
         modelos = sorted({e["modelo"] for e in schedule})
         return f"{day_name}  ({len(modelos)} modelos: {', '.join(modelos)})"
 
-    col_sel, col_pdf_week = st.columns([5, 1])
-    with col_sel:
-        selected_day = st.selectbox(
-            "Seleccionar Dia", active_days, format_func=_day_label,
-        )
-    with col_pdf_week:
-        st.markdown("<br>", unsafe_allow_html=True)
-        _render_week_pdf_download(daily_results, active_days)
+    selected_day = st.selectbox(
+        "Seleccionar Dia", active_days, format_func=_day_label,
+    )
 
     day_data = daily_results[selected_day]
     st.session_state._pdf_day = selected_day
@@ -81,6 +78,7 @@ def render():
             "Vista",
             ["Por Operacion", "Por Operario (Cascada)"],
             horizontal=True,
+            key="view_mode_radio",
         )
     else:
         view_mode = "Por Operacion"
@@ -109,13 +107,14 @@ def render():
         _render_cascade_view(day_data, block_labels)
 
     # --- Leyenda de colores ---
-    with st.expander("Leyenda de colores por recurso"):
-        cols = st.columns(len(RESOURCE_COLORS))
-        for i, (recurso, color) in enumerate(RESOURCE_COLORS.items()):
+    with st.expander("Leyenda de colores por etapa"):
+        _stage_labels = {"PRELIMINAR": "PRELIMINAR", "ROBOT": "ROBOT", "POST": "POST"}
+        cols = st.columns(len(STAGE_COLORS))
+        for i, (stage, color) in enumerate(STAGE_COLORS.items()):
             cols[i].markdown(
                 f'<div style="background-color:{color}; color:#fff; '
                 f'padding:6px 10px; border-radius:4px; text-align:center; '
-                f'font-size:0.85em; font-weight:bold">{recurso}</div>',
+                f'font-size:0.85em; font-weight:bold">{_stage_labels.get(stage, stage)}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -194,9 +193,10 @@ def _render_operation_view(day_data, block_labels, has_assignments):
         if "ROBOTS" in df_filtered.columns and df_filtered["ROBOTS"].any():
             show_cols.append("ROBOTS")
 
+    etapas = df_filtered["ETAPA"] if "ETAPA" in df_filtered.columns else None
     df_show = df_filtered[[c for c in show_cols if c in df_filtered.columns]]
     styled = df_show.style.apply(
-        lambda _: style_by_resource(df_show, block_labels), axis=None
+        lambda _: style_by_stage(df_show, block_labels, etapas), axis=None
     ).format(precision=1, subset=["HC"])
 
     # Formatear columnas numericas sin decimales
@@ -209,12 +209,16 @@ def _render_operation_view(day_data, block_labels, has_assignments):
 
     st.dataframe(styled, width="stretch", height=500, hide_index=True)
 
-    # --- Botones: JSON + PDF ---
-    col_j, col_p, _ = st.columns([1, 1, 6])
+    # --- Botones: JSON + PDF dia + PDF semana ---
+    col_j, col_p, col_pw, _ = st.columns([1, 1, 1, 5])
     with col_j:
         json_copy_btn(df_show, "day_ops")
     with col_p:
-        _render_pdf_download(df_show, block_labels)
+        _render_pdf_download(df_show, block_labels, etapas)
+    with col_pw:
+        daily_results = st.session_state.daily_results
+        active_days = _get_active_days(daily_results)
+        _render_week_ops_pdf(daily_results, active_days)
 
 
 def _get_week_label():
@@ -229,13 +233,13 @@ def _get_week_label():
     return ""
 
 
-def _render_pdf_download(df, block_labels):
+def _render_pdf_download(df, block_labels, etapas=None):
     """Boton de descarga PDF del programa diario (un dia)."""
     day_name = st.session_state.get("_pdf_day", "")
     week_label = _get_week_label()
 
     try:
-        pdf_bytes = generate_daily_pdf(day_name, week_label, df, block_labels)
+        pdf_bytes = generate_daily_pdf(day_name, week_label, df, block_labels, etapas)
         safe_day = day_name.replace(" ", "_") if day_name else "dia"
         st.download_button(
             "PDF Dia",
@@ -247,16 +251,69 @@ def _render_pdf_download(df, block_labels):
         st.error(f"Error PDF: {e}")
 
 
-def _render_week_pdf_download(daily_results, active_days):
-    """Boton de descarga PDF con todos los dias de la semana."""
+def _get_active_days(daily_results):
+    """Obtiene lista de dias activos (con produccion) en orden."""
+    day_order = [d["name"] for d in st.session_state.params["days"]] if st.session_state.params else []
+    active = [
+        d for d in day_order
+        if d in daily_results and daily_results[d]["summary"]["total_pares"] > 0
+    ]
+    for d, data in daily_results.items():
+        if d not in active and data["summary"]["total_pares"] > 0:
+            active.append(d)
+    return active
+
+
+def _render_week_ops_pdf(daily_results, active_days):
+    """Boton PDF Semana para vista por operacion (con orden cascada)."""
     week_label = _get_week_label()
     try:
         pdf_bytes = generate_week_pdf(daily_results, active_days, week_label)
+    except Exception as e:
+        st.error(f"Error PDF: {e}")
+        return
+
+    st.download_button(
+        "PDF Semana",
+        data=pdf_bytes,
+        file_name="programa_semana.pdf",
+        mime="application/pdf",
+        key="pdf_week_ops_download",
+    )
+
+
+def _render_week_cascade_pdf(daily_results, active_days):
+    """Boton PDF Semana para vista cascada (por operario)."""
+    week_label = _get_week_label()
+    try:
+        pdf_bytes = generate_week_cascade_pdf(daily_results, active_days, week_label)
+    except Exception as e:
+        st.error(f"Error PDF: {e}")
+        return
+
+    st.download_button(
+        "PDF Semana",
+        data=pdf_bytes,
+        file_name="cascada_semana.pdf",
+        mime="application/pdf",
+        key="pdf_week_cascade_download",
+    )
+
+
+def _render_cascade_pdf_download(day_data):
+    """Boton de descarga PDF de la cascada por operario (un dia)."""
+    day_name = st.session_state.get("_pdf_day", "")
+    week_label = _get_week_label()
+
+    try:
+        pdf_bytes = generate_daily_cascade_pdf(day_name, week_label, day_data)
+        safe_day = day_name.replace(" ", "_") if day_name else "dia"
         st.download_button(
-            "PDF Semana",
+            "PDF Dia",
             data=pdf_bytes,
-            file_name="programa_semana.pdf",
+            file_name=f"cascada_{safe_day}.pdf",
             mime="application/pdf",
+            key="pdf_cascade_day_download",
         )
     except Exception as e:
         st.error(f"Error PDF: {e}")
@@ -273,18 +330,28 @@ def _render_cascade_view(day_data, block_labels):
     st.caption("Cada fila muestra que hace cada operario en cada bloque horario. "
                "Los cambios de modelo/color indican cascada entre modelos.")
 
-    df = build_cascade_df(timelines, block_labels)
+    df, stage_matrix = build_cascade_df(timelines, block_labels)
 
     if df.empty:
         st.info("Sin asignaciones de operarios.")
         return
 
     styled = df.style.apply(
-        lambda _: style_cascade_by_model(df, block_labels), axis=None
+        lambda _: style_cascade_by_stage(df, block_labels, stage_matrix), axis=None
     )
 
     st.dataframe(styled, width="stretch", height=600, hide_index=True)
-    json_copy_btn(df, "cascade")
+
+    # --- Botones: JSON + PDF dia + PDF semana ---
+    col_j, col_p, col_pw, _ = st.columns([1, 1, 1, 5])
+    with col_j:
+        json_copy_btn(df, "cascade")
+    with col_p:
+        _render_cascade_pdf_download(day_data)
+    with col_pw:
+        daily_results = st.session_state.daily_results
+        active_days = _get_active_days(daily_results)
+        _render_week_cascade_pdf(daily_results, active_days)
 
     # Detalle de operaciones sin asignar
     unassigned = day_data.get("unassigned_ops", [])

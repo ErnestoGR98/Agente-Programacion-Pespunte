@@ -58,6 +58,32 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
                 self.StopSearch()
 
 
+def _mark_bottleneck_ops(models_day):
+    """Detecta operaciones cuello de botella y marca con hc_multiplier=2.
+
+    Criterio: rate < mediana_del_modelo * 0.75  (solo ops manuales).
+    Esto permite que el solver asigne 2x produccion por bloque y que
+    operator_assignment ponga 2 operarios trabajando en simultaneo.
+    """
+    for model in models_day:
+        ops = model.get("operations", [])
+        if not ops:
+            continue
+        rates = [op["rate"] for op in ops if op["rate"] > 0]
+        if not rates:
+            continue
+        sorted_rates = sorted(rates)
+        median_rate = sorted_rates[len(sorted_rates) // 2]
+        threshold = median_rate * 0.75
+
+        for op in ops:
+            is_robot = bool(op.get("robots", []))
+            if not is_robot and op["rate"] < threshold:
+                op["hc_multiplier"] = 2
+            else:
+                op["hc_multiplier"] = 1
+
+
 def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     """
     Genera el programa horario para un dia.
@@ -84,6 +110,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
+
+    # Detectar cuellos de botella (marca ops con hc_multiplier=2)
+    _mark_bottleneck_ops(models_day)
 
     # Construir indices
     all_ops = []  # (m_idx, op_idx, model, op)
@@ -196,19 +225,20 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 max_pares_1person = int(op["rate"] * block_min / 60)
 
                 if has_robots:
-                    # Para operaciones con robots: rate limit per robot
-                    # y total x puede ser hasta len(robots) * rate
-                    max_pares_all_robots = max_pares_1person * len(robots)
-                    if max_pares_all_robots < pares_dia:
-                        solver_model.Add(x[m_idx, op_idx, b] <= max_pares_all_robots)
+                    # Para operaciones con robots: 1 robot a la vez por operacion
+                    # (lista robots = compatibles/elegibles, NO paralelos)
+                    if max_pares_1person < pares_dia:
+                        solver_model.Add(x[m_idx, op_idx, b] <= max_pares_1person)
                     # Rate limit individual por robot
                     for r in robots:
                         if max_pares_1person < pares_dia:
                             solver_model.Add(y[m_idx, op_idx, r, b] <= max_pares_1person)
                 else:
-                    # Para operaciones manuales: 1 persona max por operacion
-                    if max_pares_1person < pares_dia:
-                        solver_model.Add(x[m_idx, op_idx, b] <= max_pares_1person)
+                    # Para operaciones manuales: hc_multiplier personas
+                    hc_mult = op.get("hc_multiplier", 1)
+                    max_pares_block = max_pares_1person * hc_mult
+                    if max_pares_block < pares_dia:
+                        solver_model.Add(x[m_idx, op_idx, b] <= max_pares_block)
 
     # 2b. Linking y con x para operaciones con robots
     #     sum_r y[m, op, r, b] = x[m, op, b]
@@ -327,11 +357,12 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 b = real_blocks[rb_idx]
                 next_b = real_blocks[rb_idx + 1]
                 block_min = time_blocks[b]["minutes"]
-                target = int(op["rate"] * block_min / 60)
+                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
+                target = int(op["rate"] * block_min / 60 * hc_mult)
                 if target <= 0:
                     continue
                 if not is_robot:
-                    # Manual: hard constraint (x >= target)
+                    # Manual: hard constraint (x >= target * hc_mult)
                     solver_model.Add(
                         x[m_idx, op_idx, b] >= target
                     ).OnlyEnforceIf([
@@ -569,6 +600,7 @@ def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
                 "total_pares": total_pares,
                 "robots_used": robots_used,
                 "robots_eligible": op.get("robots", []),
+                "hc_multiplier": op.get("hc_multiplier", 1),
             })
 
     # Ordenar por modelo, fraccion
