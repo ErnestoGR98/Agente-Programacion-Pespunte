@@ -695,7 +695,7 @@ def _migrate_legacy_result(base_name: str):
                 pass
 
 
-def _parse_version_name(filename_stem: str) -> tuple:
+def parse_version_name(filename_stem: str) -> tuple:
     """Extrae (base_name, version) de un nombre de archivo.
 
     Returns:
@@ -796,7 +796,7 @@ def list_optimization_results() -> list:
 
     # Migrar archivos legacy antes de listar
     for f in RESULTADOS_DIR.glob("*.json"):
-        base, ver = _parse_version_name(f.stem)
+        base, ver = parse_version_name(f.stem)
         if ver == 0:
             _migrate_legacy_result(f.stem)
 
@@ -806,7 +806,7 @@ def list_optimization_results() -> list:
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             summary = data.get("weekly_summary", {})
-            base_name, version = _parse_version_name(f.stem)
+            base_name, version = parse_version_name(f.stem)
             # Si el JSON ya tiene version, usarla
             if data.get("version"):
                 version = data["version"]

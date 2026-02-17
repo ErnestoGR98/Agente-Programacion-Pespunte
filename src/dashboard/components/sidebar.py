@@ -29,6 +29,10 @@ def render_sidebar():
             else:
                 st.success("Optimizacion completada")
 
+        # Alerta de avance pendiente
+        if step >= 2:
+            _render_avance_alert()
+
         st.divider()
 
         # Resultados guardados (siempre visible)
@@ -44,6 +48,48 @@ def render_sidebar():
 
         if st.session_state.pipeline_step >= 2:
             _render_export()
+
+
+_DAY_WEEKDAY = {
+    "Lunes": 0, "Martes": 1, "Miercoles": 2, "Miércoles": 2,
+    "Jueves": 3, "Viernes": 4, "Sabado": 5, "Sábado": 5,
+}
+
+
+def _render_avance_alert():
+    """Muestra alerta si hay dias pasados sin avance registrado."""
+    from datetime import date
+
+    params = st.session_state.get("params")
+    if not params or not params.get("days"):
+        return
+
+    avance = st.session_state.get("avance") or {}
+    avance_modelos = avance.get("modelos", {})
+    today_weekday = date.today().weekday()  # 0=Monday
+
+    # Dias planificados que ya pasaron (o son hoy)
+    day_names = [d["name"] for d in params["days"]]
+    past_days = [
+        d for d in day_names
+        if _DAY_WEEKDAY.get(d, 99) <= today_weekday
+    ]
+
+    if not past_days:
+        return
+
+    # Dias sin ningun avance registrado
+    missing = []
+    for day in past_days:
+        has_avance = any(
+            day_data.get(day, 0) > 0
+            for day_data in avance_modelos.values()
+        )
+        if not has_avance:
+            missing.append(day)
+
+    if missing:
+        st.warning(f"Avance pendiente: {', '.join(missing)}")
 
 
 def _render_file_upload():
