@@ -196,6 +196,36 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                                 if key in y:
                                     solver_model.Add(y[key] == 0)
 
+    # Precedencia entre operaciones: produccion acumulativa con buffer
+    if compiled and compiled.operation_precedences:
+        # Lookup: (m_idx, fraccion) -> op_idx
+        frac_to_op = {}
+        for m_idx, model in enumerate(models_day):
+            for op_idx, op in enumerate(model["operations"]):
+                frac_to_op[(m_idx, op["fraccion"])] = op_idx
+
+        for (modelo_code, frac_orig, frac_dest, buffer) in compiled.operation_precedences:
+            # Encontrar m_idx para este modelo
+            target_m = None
+            for m_idx, model in enumerate(models_day):
+                code = model.get("codigo", "")
+                if code == modelo_code or code.startswith(str(modelo_code)):
+                    target_m = m_idx
+                    break
+            if target_m is None:
+                continue
+
+            op_o = frac_to_op.get((target_m, frac_orig))
+            op_d = frac_to_op.get((target_m, frac_dest))
+            if op_o is None or op_d is None:
+                continue
+
+            # Para cada bloque: cumul_origen >= buffer + cumul_destino
+            for b in range(num_blocks):
+                cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
+                cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
+                solver_model.Add(cum_orig >= buffer + cum_dest)
+
     # --- Restricciones ---
 
     # 1. Completar pares del dia para cada operacion de cada modelo

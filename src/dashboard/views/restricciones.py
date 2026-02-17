@@ -35,6 +35,7 @@ CONSTRAINT_TYPES_MENOS_FRECUENTES = {
     "AGRUPAR_MODELOS": "Dos modelos deben producirse el mismo dia",
     "AJUSTE_VOLUMEN": "Modificar el volumen a producir",
     "LOTE_MINIMO_CUSTOM": "Lote minimo diferente para un modelo",
+    "PRECEDENCIA_OPERACION": "Precedencia entre fracciones (buffer de pares)",
 }
 # Combinado para lookups
 CONSTRAINT_TYPES = {**CONSTRAINT_TYPES_FRECUENTES, **CONSTRAINT_TYPES_MENOS_FRECUENTES}
@@ -174,6 +175,10 @@ def _render_add_form(restricciones):
         can_add = False
     if tipo == "ROBOT_NO_DISPONIBLE" and not params.get("robot"):
         can_add = False
+    if tipo == "PRECEDENCIA_OPERACION":
+        if params.get("fraccion_origen") == params.get("fraccion_destino"):
+            can_add = False
+            st.warning("Fraccion origen y destino deben ser diferentes.")
 
     if st.button("Agregar Restriccion", type="primary", disabled=(not can_add)):
         from datetime import datetime
@@ -381,6 +386,56 @@ def _render_parametros_form(tipo, fv, modelos):
             help="Override del lote minimo (default: 100). Util para pedidos urgentes pequenos.",
         )
 
+    elif tipo == "PRECEDENCIA_OPERACION":
+        # Cargar fracciones del catalogo para el modelo seleccionado
+        catalog = load_catalog() or {}
+        modelo_sel = st.session_state.get(f"rest_modelo_{fv}", "")
+        frac_options = []
+        if modelo_sel and modelo_sel in catalog:
+            ops = catalog[modelo_sel].get("operations", [])
+            frac_options = [
+                (op["fraccion"], f"Fr.{op['fraccion']} - {op.get('operacion', '')[:30]} ({op.get('recurso', '')})")
+                for op in ops
+            ]
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if frac_options:
+                frac_vals = [f[0] for f in frac_options]
+                frac_labels = {f[0]: f[1] for f in frac_options}
+                params["fraccion_origen"] = st.selectbox(
+                    "Fraccion Origen (produce primero)",
+                    options=frac_vals,
+                    format_func=lambda v: frac_labels.get(v, str(v)),
+                    key=f"rp_frac_orig_{fv}",
+                )
+            else:
+                params["fraccion_origen"] = st.number_input(
+                    "Fraccion Origen", min_value=1, max_value=50, value=1,
+                    key=f"rp_frac_orig_{fv}",
+                )
+        with col2:
+            if frac_options:
+                params["fraccion_destino"] = st.selectbox(
+                    "Fraccion Destino (espera buffer)",
+                    options=frac_vals,
+                    index=min(1, len(frac_vals) - 1),
+                    format_func=lambda v: frac_labels.get(v, str(v)),
+                    key=f"rp_frac_dest_{fv}",
+                )
+            else:
+                params["fraccion_destino"] = st.number_input(
+                    "Fraccion Destino", min_value=1, max_value=50, value=2,
+                    key=f"rp_frac_dest_{fv}",
+                )
+        with col3:
+            params["buffer_pares"] = st.number_input(
+                "Buffer (pares)", min_value=0, max_value=1000, value=50, step=10,
+                key=f"rp_buffer_{fv}",
+                help="Pares que origen debe llevar de ventaja. "
+                     "0-10 = casi simultaneo, 100+ = secuencial con desfase.",
+            )
+
     return params
 
 
@@ -492,6 +547,12 @@ def _format_detail(r):
         return f"{p.get('modelo_a', '?')} + {p.get('modelo_b', '?')} mismo dia"
     elif tipo == "LOTE_MINIMO_CUSTOM":
         return f"Min: {p.get('lote_minimo', 50)} pares"
+    elif tipo == "PRECEDENCIA_OPERACION":
+        orig = p.get("fraccion_origen", "?")
+        dest = p.get("fraccion_destino", "?")
+        buf = p.get("buffer_pares", 0)
+        label = "simultaneo" if buf <= 10 else f"buffer: {buf}p"
+        return f"Fr.{orig} \u2192 Fr.{dest} ({label})"
     return str(p)
 
 
@@ -521,6 +582,7 @@ def _render_impact_preview(restricciones):
             "FECHA_LIMITE": "⏰",
             "AGRUPAR_MODELOS": "🔀",
             "LOTE_MINIMO_CUSTOM": "📏",
+            "PRECEDENCIA_OPERACION": "⛓",
         }.get(tipo, "📌")
         st.markdown(f"{icon} **{modelo}** ({tipo}): {detalle}")
 

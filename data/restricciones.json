@@ -1,0 +1,28 @@
+[
+  {
+    "id": "r_001",
+    "tipo": "PRECEDENCIA_OPERACION",
+    "modelo": "65568",
+    "parametros": {
+      "fraccion_origen": 4,
+      "fraccion_destino": 5,
+      "buffer_pares": 3
+    },
+    "activa": true,
+    "nota": "PRUEBA: Armado talon (Fr.4) alimenta PRE robot (Fr.5), casi simultaneo",
+    "created_at": "2026-02-17T17:00:00"
+  },
+  {
+    "id": "r_002",
+    "tipo": "PRECEDENCIA_OPERACION",
+    "modelo": "65568",
+    "parametros": {
+      "fraccion_origen": 6,
+      "fraccion_destino": 7,
+      "buffer_pares": 100
+    },
+    "activa": true,
+    "nota": "PRUEBA: Espreado flor (Fr.6) debe llevar 100p antes de coser flor (Fr.7)",
+    "created_at": "2026-02-17T17:00:00"
+  }
+]
