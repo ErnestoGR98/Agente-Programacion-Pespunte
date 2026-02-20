@@ -3,18 +3,12 @@
 import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
+import { DaySelector } from '@/components/shared/DaySelector'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import { BLOCK_LABELS, CHART_COLORS, HEATMAP_COLORS } from '@/types'
 import type { DailyResult } from '@/types'
-
-const BLOCK_LABELS = [
-  '8-9', '9-10', '10-11', '11-12', '12-1:10',
-  '1:50-2', '2-3', '3-4', '4-5', '5-6',
-]
 
 export default function UtilizacionPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -48,12 +42,7 @@ export default function UtilizacionPage() {
       {/* Day selector */}
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium">Dia:</span>
-        <Select value={day} onValueChange={setSelectedDay}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {dayNames.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
       </div>
 
       {/* HC per block chart */}
@@ -93,11 +82,11 @@ function WeeklyHeatmap({
   }, [dailyResults, dayNames])
 
   function getColor(pct: number): string {
-    if (pct === 0) return '#F3F4F6'
-    if (pct < 50) return '#BBF7D0'
-    if (pct < 80) return '#FDE68A'
-    if (pct < 100) return '#FDBA74'
-    return '#FCA5A5'
+    if (pct === 0) return HEATMAP_COLORS.empty
+    if (pct < 50) return HEATMAP_COLORS.low
+    if (pct < 80) return HEATMAP_COLORS.medium
+    if (pct < 100) return HEATMAP_COLORS.high
+    return HEATMAP_COLORS.critical
   }
 
   return (
@@ -167,7 +156,7 @@ function HcBlockChart({ dayData, dayName }: { dayData: DailyResult; dayName: str
   }, [schedule])
 
   const models = [...new Set(schedule.map((s) => s.modelo))]
-  const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316']
+  const colors = CHART_COLORS
 
   return (
     <Card>

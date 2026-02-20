@@ -343,3 +343,28 @@ export const RESOURCE_COLORS: Record<string, string> = {
   MAQUILA: '#6B7280',
   GENERAL: '#94A3B8',
 }
+
+// --- Constantes compartidas ---
+
+export const BLOCK_LABELS = [
+  '8-9', '9-10', '10-11', '11-12', '12-1:10',
+  '1:50-2', '2-3', '3-4', '4-5', '5-6',
+] as const
+
+export const DEFAULT_CAPACITIES: Record<string, number> = {
+  MESA: 15, ROBOT: 8, PLANA: 8, 'POSTE-LINEA': 6,
+  'MESA-LINEA': 10, 'PLANA-LINEA': 8, GENERAL: 10,
+}
+
+export const CHART_COLORS = [
+  '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
+  '#8B5CF6', '#EC4899', '#14B8A6', '#F97316',
+] as const
+
+export const HEATMAP_COLORS = {
+  empty: '#F3F4F6',
+  low: '#BBF7D0',
+  medium: '#FDE68A',
+  high: '#FDBA74',
+  critical: '#FCA5A5',
+} as const

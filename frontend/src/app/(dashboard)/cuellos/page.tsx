@@ -12,16 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
-
-const BLOCK_LABELS = [
-  '8-9', '9-10', '10-11', '11-12', '12-1:10',
-  '1:50-2', '2-3', '3-4', '4-5', '5-6',
-]
-
-const DEFAULT_CAPACITIES: Record<string, number> = {
-  MESA: 15, ROBOT: 8, PLANA: 8, 'POSTE-LINEA': 6,
-  'MESA-LINEA': 10, 'PLANA-LINEA': 8, GENERAL: 10,
-}
+import { BLOCK_LABELS, DEFAULT_CAPACITIES, CHART_COLORS } from '@/types'
 
 interface Alert {
   level: 'error' | 'warning'
@@ -304,7 +295,7 @@ export default function CuellosPage() {
                 <XAxis type="number" />
                 <YAxis dataKey="modelo" type="category" width={80} tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar dataKey="hc_horas" fill="#3B82F6" name="HC-Horas" />
+                <Bar dataKey="hc_horas" fill={CHART_COLORS[0]} name="HC-Horas" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

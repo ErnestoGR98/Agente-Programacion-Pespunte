@@ -10,7 +10,7 @@ import tempfile
 import requests
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
-from dashboard.data_manager import (
+from excel_parsers import (
     _parse_catalogo_sheet,
     _parse_pedido_sheet,
 )

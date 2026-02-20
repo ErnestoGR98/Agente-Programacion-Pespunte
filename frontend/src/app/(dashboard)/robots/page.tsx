@@ -4,18 +4,12 @@ import { useState, useMemo } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
+import { DaySelector } from '@/components/shared/DaySelector'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
+import { BLOCK_LABELS, RESOURCE_COLORS } from '@/types'
 import type { DailyResult } from '@/types'
-
-const BLOCK_LABELS = [
-  '8-9', '9-10', '10-11', '11-12', '12-1:10',
-  '1:50-2', '2-3', '3-4', '4-5', '5-6',
-]
 
 interface RobotUsage {
   nombre: string
@@ -98,7 +92,7 @@ export default function RobotsPage() {
                 <XAxis type="number" domain={[0, 'dataMax']} />
                 <YAxis dataKey="nombre" type="category" width={100} tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar dataKey="totalPares" fill="#10B981" name="Pares" />
+                <Bar dataKey="totalPares" fill={RESOURCE_COLORS.ROBOT} name="Pares" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -130,12 +124,7 @@ export default function RobotsPage() {
       {/* Day timeline */}
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium">Timeline diario:</span>
-        <Select value={day} onValueChange={setSelectedDay}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {dayNames.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
       </div>
 
       {day && <RobotTimeline dayData={result.daily_results[day]} />}
@@ -187,8 +176,8 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
                       key={`${robot}-${bi}`}
                       className="flex items-center justify-center rounded text-[9px] font-medium h-7"
                       style={{
-                        backgroundColor: val > 0 ? '#10B98130' : '#F3F4F6',
-                        color: val > 0 ? '#10B981' : undefined,
+                        backgroundColor: val > 0 ? `${RESOURCE_COLORS.ROBOT}30` : '#F3F4F6',
+                        color: val > 0 ? RESOURCE_COLORS.ROBOT : undefined,
                       }}
                       title={val > 0 ? `${op?.modelo} - ${val} pares` : ''}
                     >

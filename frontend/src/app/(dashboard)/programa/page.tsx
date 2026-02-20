@@ -5,10 +5,8 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import { STAGE_COLORS } from '@/types'
+import { DaySelector } from '@/components/shared/DaySelector'
+import { STAGE_COLORS, BLOCK_LABELS } from '@/types'
 import type { DailyResult } from '@/types'
 
 export default function ProgramaPage() {
@@ -38,16 +36,7 @@ export default function ProgramaPage() {
           <h1 className="text-2xl font-bold">Programa Diario</h1>
           <p className="text-sm text-muted-foreground">{result.nombre}</p>
         </div>
-        <Select value={day} onValueChange={setSelectedDay}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Dia..." />
-          </SelectTrigger>
-          <SelectContent>
-            {dayNames.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
       </div>
 
       {dayData && <DayView dayName={day} data={dayData} />}
@@ -66,13 +55,8 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
 
   // Detect block labels from first schedule entry with blocks
   const blockLabels = useMemo(() => {
-    const labels = [
-      '8-9', '9-10', '10-11', '11-12', '12-1:10',
-      '1:50-2', '2-3', '3-4', '4-5', '5-6',
-    ]
-    // Use blocks array length to determine actual labels
     const maxBlocks = schedule.reduce((max, s) => Math.max(max, s.blocks?.length || 0), 0)
-    return labels.slice(0, maxBlocks || 10)
+    return BLOCK_LABELS.slice(0, maxBlocks || 10)
   }, [schedule])
 
   function getEtapaColor(etapa: string): string {

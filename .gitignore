@@ -21,6 +21,7 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
+nul
 
 # Environment variables
 .env
@@ -45,6 +46,9 @@ data/operarios.json
 
 # Reports
 reports/
+
+# Backups
+data/*_backup.*
 
 # Node (Next.js)
 node_modules/
