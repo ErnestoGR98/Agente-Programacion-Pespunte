@@ -42,6 +42,21 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
 
   const semana = `sem_${week}_${year}`
 
+  // Modelo seleccionado del catalogo (para sugerir colores y clave)
+  const selectedModelo = pedido.catalogo.find((m) => m.modelo_num === newModelo)
+
+  function handleModeloChange(modelo: string) {
+    setNewModelo(modelo)
+    const cat = pedido.catalogo.find((m) => m.modelo_num === modelo)
+    if (cat) {
+      setNewClave(cat.clave_material || '')
+      setNewColor(cat.alternativas.length > 0 ? cat.alternativas[0] : '')
+    } else {
+      setNewClave('')
+      setNewColor('')
+    }
+  }
+
   async function handleSavePedido() {
     setSaving(true)
     const id = await pedido.createPedido(semana)
@@ -183,27 +198,42 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       <Card>
         <CardHeader><CardTitle className="text-base">Agregar Item</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-3 flex-wrap">
             <div className="space-y-1">
               <Label className="text-xs">Modelo</Label>
-              <Select value={newModelo} onValueChange={setNewModelo}>
-                <SelectTrigger className="h-8 w-32">
+              <Select value={newModelo} onValueChange={handleModeloChange}>
+                <SelectTrigger className="h-8 w-36">
                   <SelectValue placeholder="Modelo..." />
                 </SelectTrigger>
                 <SelectContent>
                   {pedido.catalogo.map((m) => (
-                    <SelectItem key={m.id} value={m.modelo_num}>{m.modelo_num}</SelectItem>
+                    <SelectItem key={m.id} value={m.modelo_num}>
+                      {m.modelo_num}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Color</Label>
-              <Input value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-8 w-20" />
+              {selectedModelo && selectedModelo.alternativas.length > 0 ? (
+                <Select value={newColor} onValueChange={setNewColor}>
+                  <SelectTrigger className="h-8 w-24">
+                    <SelectValue placeholder="Color..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedModelo.alternativas.map((alt) => (
+                      <SelectItem key={alt} value={alt}>{alt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-8 w-24" placeholder="Color..." />
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Clave Material</Label>
-              <Input value={newClave} onChange={(e) => setNewClave(e.target.value)} className="h-8 w-28" />
+              <Input value={newClave} onChange={(e) => setNewClave(e.target.value)} className="h-8 w-28" readOnly={!!selectedModelo?.clave_material} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Fabrica</Label>
