@@ -275,7 +275,10 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                     <Input
                       type="number" min={50} step={50}
                       value={it.volumen}
-                      onChange={(e) => pedido.updateItem(it.id, { volumen: parseInt(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value)
+                        if (v > 0) pedido.updateItem(it.id, { volumen: v })
+                      }}
                       className="h-7 w-24"
                     />
                   </TableCell>

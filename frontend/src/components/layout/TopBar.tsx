@@ -15,7 +15,7 @@ import type { Resultado } from '@/types'
 interface ResultVersion {
   id: string
   nombre: string
-  created_at: string
+  fecha_optimizacion: string
   nota: string | null
 }
 
@@ -33,9 +33,9 @@ export function TopBar() {
     if (!currentSemana) { setVersions([]); return }
     supabase
       .from('resultados')
-      .select('id, nombre, created_at, nota')
-      .eq('semana', currentSemana)
-      .order('created_at', { ascending: false })
+      .select('id, nombre, fecha_optimizacion, nota')
+      .eq('base_name', currentSemana)
+      .order('fecha_optimizacion', { ascending: false })
       .limit(10)
       .then(({ data }) => setVersions((data as ResultVersion[]) || []))
   }, [currentSemana, currentResult])
