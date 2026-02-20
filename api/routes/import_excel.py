@@ -16,6 +16,7 @@ from excel_parsers import (
     _parse_catalogo_sheet,
     _parse_pedido_sheet,
 )
+from catalog_loader import load_catalog_v2
 
 router = APIRouter()
 
@@ -90,10 +91,19 @@ async def import_catalog(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
+        # Detectar formato: "PLANTILLA MOD." = formato de fabrica (catalog_loader)
         wb = openpyxl.load_workbook(tmp_path, data_only=True)
-        ws = wb["CATALOGO"] if "CATALOGO" in wb.sheetnames else wb.active
-        catalogo, errors = _parse_catalogo_sheet(ws)
+        is_plantilla = "PLANTILLA MOD." in wb.sheetnames
         wb.close()
+
+        errors = []
+        if is_plantilla:
+            catalogo = load_catalog_v2(tmp_path)
+        else:
+            wb = openpyxl.load_workbook(tmp_path, data_only=True)
+            ws = wb["CATALOGO"] if "CATALOGO" in wb.sheetnames else wb.active
+            catalogo, errors = _parse_catalogo_sheet(ws)
+            wb.close()
 
         if not catalogo:
             detail = "No se encontraron modelos en el archivo"
