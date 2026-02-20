@@ -18,8 +18,8 @@ COPY api/ ./api/
 # Directorio de trabajo para el API
 WORKDIR /app/api
 
-# Puerto (Railway asigna PORT automaticamente)
-ENV PORT=8000
+# Puerto (Render asigna PORT automaticamente)
+ENV PORT=10000
 
 EXPOSE ${PORT}
 
