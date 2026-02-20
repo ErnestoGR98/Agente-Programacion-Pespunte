@@ -8,7 +8,7 @@ Crea un archivo .xlsx con 2 hojas:
 El formato generado coincide EXACTAMENTE con lo que espera _parse_pedido_sheet():
   Fila 1: A1="SEMANA", B1=nombre de la semana
   Fila 2: (vacia)
-  Fila 3: headers (MODELO, COLOR, CLAVE_MATERIAL, FABRICA, VOLUMEN)
+  Fila 3: headers (MODELO, COLOR, FABRICA, VOLUMEN)
   Fila 4: indicadores requerido/opcional
   Fila 5+: datos del pedido
 """
@@ -62,7 +62,7 @@ def _build_instrucciones(wb):
         ("Fila 1", "Celda A1 = 'SEMANA', celda B1 = nombre de la semana (ej: sem_8_2026)."),
         ("", "El nombre de la semana se usa como identificador del pedido."),
         ("Fila 2", "Dejar vacia."),
-        ("Fila 3", "Headers: MODELO | COLOR | CLAVE_MATERIAL | FABRICA | VOLUMEN"),
+        ("Fila 3", "Headers: MODELO | COLOR | FABRICA | VOLUMEN"),
         ("", "NO modificar los nombres de los headers."),
         ("Fila 4", "Indicadores de requerido/opcional (solo referencia, no se procesan)."),
         ("Fila 5 en adelante", "Datos del pedido, una fila por item."),
@@ -74,7 +74,6 @@ def _build_instrucciones(wb):
         ("MODELO", "Numero del modelo (ej: 65413). REQUERIDO."),
         ("", "Debe coincidir con un modelo del catalogo cargado en el sistema."),
         ("COLOR", "Color o variante (ej: NEGRO). Opcional."),
-        ("CLAVE_MATERIAL", "Clave de material (ej: MAT-001). Opcional."),
         ("FABRICA", "Fabrica asignada (ej: FABRICA 1). Opcional. Default: FABRICA 1."),
         ("VOLUMEN", "Cantidad de pares a producir. Entero mayor a 0. REQUERIDO."),
         ("", ""),
@@ -97,7 +96,7 @@ def _build_instrucciones(wb):
             ws.cell(row=i, column=1).font = Font(color="999999")
         elif i == 1:
             ws.cell(row=i, column=1).font = Font(bold=True, size=14)
-        elif a in ("MODELO", "COLOR", "CLAVE_MATERIAL", "FABRICA", "VOLUMEN",
+        elif a in ("MODELO", "COLOR", "FABRICA", "VOLUMEN",
                     "Fila 1", "Fila 2", "Fila 3", "Fila 4", "Fila 5 en adelante"):
             ws.cell(row=i, column=1).font = Font(bold=True)
         elif a in ("1.", "2.", "3.", "4.", "5.", "6."):
@@ -115,14 +114,14 @@ def _build_pedido(wb):
 
     # Row 2: vacia (parser la ignora)
 
-    # Row 3: Headers (parser no lee esta fila, pero documenta las columnas)
-    headers = ["MODELO", "COLOR", "CLAVE_MATERIAL", "FABRICA", "VOLUMEN"]
+    # Row 3: Headers (parser lee estos headers para mapear columnas)
+    headers = ["MODELO", "COLOR", "FABRICA", "VOLUMEN"]
     for c, h in enumerate(headers, 1):
         ws.cell(row=3, column=c, value=h)
     _style_header(ws, 3, len(headers))
 
     # Row 4: requerido/opcional (parser no lee esta fila)
-    markers = ["requerido", "opcional", "opcional", "opcional", "requerido"]
+    markers = ["requerido", "opcional", "opcional", "requerido"]
     for c, m in enumerate(markers, 1):
         cell = ws.cell(row=4, column=c, value=m)
         cell.font = Font(italic=True, color="999999", size=9)
@@ -130,9 +129,9 @@ def _build_pedido(wb):
 
     # Filas de ejemplo (fila 5+, parser lee desde fila 5)
     examples = [
-        ["65413", "NEGRO", "MAT-001", "FABRICA 1", 500],
-        ["77525", "CAFE", "MAT-002", "FABRICA 2", 300],
-        ["88190", "", "", "FABRICA 1", 200],
+        ["65413", "NE", "FABRICA 1", 500],
+        ["77525", "NE", "FABRICA 2", 300],
+        ["94750", "AA", "FABRICA 1", 200],
     ]
     for row_idx, data in enumerate(examples, 5):
         for c, val in enumerate(data, 1):
@@ -140,7 +139,7 @@ def _build_pedido(wb):
         _style_example(ws, row_idx, len(headers))
 
     # Anchos de columna
-    widths = [12, 12, 16, 14, 10]
+    widths = [12, 12, 14, 10]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 

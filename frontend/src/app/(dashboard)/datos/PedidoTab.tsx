@@ -33,7 +33,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   const [week, setWeek] = useState(getISOWeek(new Date()))
   const [newModelo, setNewModelo] = useState('')
   const [newColor, setNewColor] = useState('')
-  const [newClave, setNewClave] = useState('')
   const [newFabrica, setNewFabrica] = useState('')
   const [newVolumen, setNewVolumen] = useState(100)
   const [saving, setSaving] = useState(false)
@@ -42,19 +41,13 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
 
   const semana = `sem_${week}_${year}`
 
-  // Modelo seleccionado del catalogo (para sugerir colores y clave)
+  // Modelo seleccionado del catalogo (para sugerir colores)
   const selectedModelo = pedido.catalogo.find((m) => m.modelo_num === newModelo)
 
   function handleModeloChange(modelo: string) {
     setNewModelo(modelo)
     const cat = pedido.catalogo.find((m) => m.modelo_num === modelo)
-    if (cat) {
-      setNewClave(cat.clave_material || '')
-      setNewColor(cat.alternativas.length > 0 ? cat.alternativas[0] : '')
-    } else {
-      setNewClave('')
-      setNewColor('')
-    }
+    setNewColor(cat && cat.alternativas.length > 0 ? cat.alternativas[0] : '')
   }
 
   async function handleSavePedido() {
@@ -81,13 +74,12 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
     await pedido.addItem({
       modelo_num: newModelo,
       color: newColor,
-      clave_material: newClave,
+      clave_material: '',
       fabrica: newFabrica,
       volumen: newVolumen,
     })
     setNewModelo('')
     setNewColor('')
-    setNewClave('')
     setNewVolumen(100)
   }
 
@@ -232,10 +224,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
               )}
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Clave Material</Label>
-              <Input value={newClave} onChange={(e) => setNewClave(e.target.value)} className="h-8 w-28" readOnly={!!selectedModelo?.clave_material} />
-            </div>
-            <div className="space-y-1">
               <Label className="text-xs">Fabrica</Label>
               <Select value={newFabrica} onValueChange={setNewFabrica}>
                 <SelectTrigger className="h-8 w-28">
@@ -272,7 +260,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
               <TableRow>
                 <TableHead>Modelo</TableHead>
                 <TableHead>Color</TableHead>
-                <TableHead>Clave Material</TableHead>
                 <TableHead>Fabrica</TableHead>
                 <TableHead>Volumen</TableHead>
                 <TableHead className="w-16"></TableHead>
@@ -283,7 +270,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                 <TableRow key={it.id}>
                   <TableCell className="font-mono">{it.modelo_num}</TableCell>
                   <TableCell>{it.color}</TableCell>
-                  <TableCell>{it.clave_material}</TableCell>
                   <TableCell>{it.fabrica}</TableCell>
                   <TableCell>
                     <Input
@@ -302,7 +288,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
               ))}
               {pedido.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                     Sin items. Agrega modelos o importa un Excel.
                   </TableCell>
                 </TableRow>

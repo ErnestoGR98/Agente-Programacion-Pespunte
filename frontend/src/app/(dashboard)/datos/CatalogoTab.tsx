@@ -85,7 +85,6 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
                 <TableHead>Modelo</TableHead>
                 <TableHead>Codigo Full</TableHead>
                 <TableHead>Alternativas</TableHead>
-                <TableHead>Clave Material</TableHead>
                 <TableHead>Operaciones</TableHead>
                 <TableHead>Sec/Par</TableHead>
               </TableRow>
@@ -102,14 +101,13 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>{m.clave_material}</TableCell>
                   <TableCell>{m.num_ops}</TableCell>
                   <TableCell>{m.total_sec_per_pair}</TableCell>
                 </TableRow>
               ))}
               {pedido.catalogo.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                     Catalogo vacio. Importa un Excel para comenzar.
                   </TableCell>
                 </TableRow>

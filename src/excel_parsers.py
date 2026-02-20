@@ -227,8 +227,9 @@ def _parse_catalogo_sheet(ws) -> tuple:
 
 
 def _parse_pedido_sheet(ws) -> tuple:
-    """Parsea hoja PEDIDO del template consolidado.
+    """Parsea hoja PEDIDO del template.
 
+    Detecta columnas por headers en fila 3 (soporta con/sin CLAVE_MATERIAL).
     Layout: Fila 1=SEMANA, Fila 2=vacia, Fila 3=headers, Fila 4=req/opt, Fila 5+=datos
 
     Returns:
@@ -240,12 +241,23 @@ def _parse_pedido_sheet(ws) -> tuple:
     semana_raw = ws.cell(row=1, column=2).value
     semana = str(semana_raw).strip() if semana_raw else ""
 
+    # Detectar columnas por headers en fila 3
+    col_map = {}
+    for col in range(1, ws.max_column + 1):
+        h = ws.cell(row=3, column=col).value
+        if h:
+            col_map[str(h).strip().upper()] = col
+
+    col_modelo = col_map.get("MODELO", 1)
+    col_color = col_map.get("COLOR", 2)
+    col_fabrica = col_map.get("FABRICA", col_map.get("CLAVE_MATERIAL", 3) + 1 if "CLAVE_MATERIAL" in col_map else 3)
+    col_volumen = col_map.get("VOLUMEN", col_fabrica + 1)
+
     for row in range(5, ws.max_row + 1):
-        modelo = ws.cell(row=row, column=1).value
-        color = ws.cell(row=row, column=2).value
-        clave = ws.cell(row=row, column=3).value
-        fabrica = ws.cell(row=row, column=4).value
-        volumen = ws.cell(row=row, column=5).value
+        modelo = ws.cell(row=row, column=col_modelo).value
+        color = ws.cell(row=row, column=col_color).value
+        fabrica = ws.cell(row=row, column=col_fabrica).value
+        volumen = ws.cell(row=row, column=col_volumen).value
 
         if not modelo:
             continue
@@ -255,7 +267,6 @@ def _parse_pedido_sheet(ws) -> tuple:
             continue
 
         color_str = str(color).strip() if color else ""
-        clave_str = str(clave).strip() if clave else ""
         fabrica_str = str(fabrica).strip() if fabrica else "FABRICA 1"
 
         try:
@@ -269,7 +280,7 @@ def _parse_pedido_sheet(ws) -> tuple:
         pedido.append({
             "modelo": modelo_str,
             "color": color_str,
-            "clave_material": clave_str,
+            "clave_material": "",
             "fabrica": fabrica_str,
             "volumen": vol,
         })
