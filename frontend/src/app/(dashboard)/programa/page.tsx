@@ -6,8 +6,10 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
-import { STAGE_COLORS, BLOCK_LABELS } from '@/types'
+import { STAGE_COLORS, BLOCK_LABELS, DAY_NAMES } from '@/types'
 import type { DailyResult } from '@/types'
+
+const DAY_ORDER = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 
 export default function ProgramaPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -15,7 +17,8 @@ export default function ProgramaPage() {
 
   const dayNames = useMemo(() => {
     if (!result?.daily_results) return []
-    return Object.keys(result.daily_results)
+    const keys = Object.keys(result.daily_results)
+    return DAY_ORDER.filter((d) => keys.includes(d))
   }, [result])
 
   const day = selectedDay || dayNames[0] || ''

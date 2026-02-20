@@ -26,7 +26,8 @@ export default function RobotsPage() {
 
   const dayNames = useMemo(() => {
     if (!result?.daily_results) return []
-    return Object.keys(result.daily_results)
+    const keys = Object.keys(result.daily_results)
+    return ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'].filter((d) => keys.includes(d))
   }, [result])
 
   // Aggregate robot usage across all days
