@@ -1,21 +1,44 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { runOptimization } from '@/lib/api/fastapi'
 import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Loader2, Play } from 'lucide-react'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Loader2, Play, History } from 'lucide-react'
 import type { Resultado } from '@/types'
 
+interface ResultVersion {
+  id: string
+  nombre: string
+  created_at: string
+  nota: string | null
+}
+
 export function TopBar() {
-  const { appStep, currentPedidoNombre, currentSemana, setCurrentResult } = useAppStore()
+  const { appStep, currentPedidoNombre, currentSemana, setCurrentResult, currentResult } = useAppStore()
   const [optimizing, setOptimizing] = useState(false)
   const [nota, setNota] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [versions, setVersions] = useState<ResultVersion[]>([])
 
   const canOptimize = appStep >= 1 && currentPedidoNombre
+
+  // Load available result versions for current semana
+  useEffect(() => {
+    if (!currentSemana) { setVersions([]); return }
+    supabase
+      .from('resultados')
+      .select('id, nombre, created_at, nota')
+      .eq('semana', currentSemana)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => setVersions((data as ResultVersion[]) || []))
+  }, [currentSemana, currentResult])
 
   async function handleOptimize() {
     if (!currentPedidoNombre) return
@@ -29,7 +52,6 @@ export function TopBar() {
         nota,
       })
 
-      // Cargar resultado completo desde Supabase
       const { data } = await supabase
         .from('resultados')
         .select('*')
@@ -43,6 +65,18 @@ export function TopBar() {
       setError(err instanceof Error ? err.message : 'Error al optimizar')
     } finally {
       setOptimizing(false)
+    }
+  }
+
+  async function handleLoadVersion(id: string) {
+    const { data } = await supabase
+      .from('resultados')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (data) {
+      setCurrentResult(data as Resultado)
     }
   }
 
@@ -62,6 +96,28 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Result version selector */}
+        {versions.length > 0 && (
+          <Select
+            value={currentResult?.id || ''}
+            onValueChange={handleLoadVersion}
+          >
+            <SelectTrigger className="h-8 w-56 text-xs">
+              <History className="mr-1 h-3 w-3" />
+              <SelectValue placeholder="Cargar resultado..." />
+            </SelectTrigger>
+            <SelectContent>
+              {versions.map((v) => (
+                <SelectItem key={v.id} value={v.id}>
+                  <span className="text-xs">
+                    {v.nombre} {v.nota ? `— ${v.nota}` : ''}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         {canOptimize && (
           <>
             <Input
