@@ -240,7 +240,10 @@ def _match_models(catalogo: dict, pedido: list) -> list:
             matched.append({
                 "modelo_num": modelo_num,
                 "codigo_full": cat["codigo_full"],
+                "codigo": cat.get("codigo_full", modelo_num),
                 "color": item.get("color", ""),
+                "fabrica": item.get("fabrica", ""),
+                "suela": cat.get("clave_material", ""),
                 "total_producir": item["volumen"],
                 "operations": cat["operations"],
                 "total_sec_per_pair": cat["total_sec_per_pair"],

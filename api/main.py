@@ -55,9 +55,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Captura excepciones no manejadas para que CORS headers se incluyan."""
     tb = traceback.format_exc()
     print(f"[ERROR] {exc}\n{tb}")
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin:
+        headers["access-control-allow-origin"] = origin
+        headers["access-control-allow-credentials"] = "true"
     return JSONResponse(
         status_code=500,
         content={"detail": str(exc)},
+        headers=headers,
     )
 
 
