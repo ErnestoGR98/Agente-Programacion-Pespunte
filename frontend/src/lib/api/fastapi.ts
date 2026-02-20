@@ -44,6 +44,19 @@ export async function importPedido(nombre: string, file: File): Promise<{ nombre
   return res.json()
 }
 
+/** Download Excel template for catalog/pedido import */
+export async function downloadTemplate(): Promise<void> {
+  const res = await fetch(`${API_URL}/api/template`, { method: 'GET' })
+  if (!res.ok) throw new Error(`Download error ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'template_pespunte.xlsx'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** Warm up Render free tier on page load */
 export async function wakeUpAPI(): Promise<void> {
   try {

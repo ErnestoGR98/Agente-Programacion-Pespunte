@@ -1,14 +1,16 @@
 """
-Endpoint de importacion de Excel.
+Endpoint de importacion de Excel + descarga de template.
 
-Parsea archivos Excel (catalogo, pedido, template consolidado)
-y guarda los datos en Supabase.
+Parsea archivos Excel (catalogo, pedido) y guarda en Supabase.
+Genera template descargable con formato correcto.
 """
 
 import os
 import tempfile
 import requests
+import openpyxl
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 
 from excel_parsers import (
     _parse_catalogo_sheet,
@@ -59,23 +61,54 @@ def _sb_delete(table, query):
     r.raise_for_status()
 
 
+# --- Template download ---
+
+@router.get("/template")
+def download_template():
+    """Genera y descarga template Excel con formato correcto."""
+    # Obtener robots activos desde Supabase (si disponible)
+    robot_names = None
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            robots = _sb_get("robots", "select=nombre&estado=eq.ACTIVO&order=orden")
+            robot_names = [r["nombre"] for r in robots]
+        except Exception:
+            pass  # Usar defaults del generador
+
+    from template_generator import generate_template
+
+    buf = generate_template(robot_names)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template_pespunte.xlsx"},
+    )
+
+
+# --- Import catalog ---
+
 @router.post("/import-catalog")
 async def import_catalog(file: UploadFile = File(...)):
     """Importa catalogo desde Excel y guarda en Supabase."""
     if not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Solo se aceptan archivos Excel (.xlsx)")
 
-    # Guardar archivo temporal
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        # Parsear usando la funcion existente de data_manager
-        catalogo = _parse_catalogo_sheet(tmp_path)
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb["CATALOGO"] if "CATALOGO" in wb.sheetnames else wb.active
+        catalogo, errors = _parse_catalogo_sheet(ws)
+        wb.close()
+
         if not catalogo:
-            raise HTTPException(400, "No se encontraron modelos en el archivo")
+            detail = "No se encontraron modelos en el archivo"
+            if errors:
+                detail += f". Errores: {'; '.join(errors[:5])}"
+            raise HTTPException(400, detail)
 
         # Obtener mapa de robots
         robots = _sb_get("robots", "select=id,nombre")
@@ -83,7 +116,6 @@ async def import_catalog(file: UploadFile = File(...)):
 
         saved = 0
         for modelo_num, data in catalogo.items():
-            # Upsert modelo
             modelo_row = _sb_upsert("catalogo_modelos", {
                 "modelo_num": modelo_num,
                 "codigo_full": data.get("codigo_full", modelo_num),
@@ -94,10 +126,8 @@ async def import_catalog(file: UploadFile = File(...)):
             })
             modelo_id = modelo_row["id"]
 
-            # Borrar operaciones viejas
             _sb_delete("catalogo_operaciones", f"modelo_id=eq.{modelo_id}")
 
-            # Insertar operaciones nuevas
             for op in data.get("operations", []):
                 op_row = _sb_post("catalogo_operaciones", {
                     "modelo_id": modelo_id,
@@ -111,7 +141,6 @@ async def import_catalog(file: UploadFile = File(...)):
                     "sec_per_pair": op.get("sec_per_pair", 0),
                 })
 
-                # Insertar robots
                 for rname in op.get("robots", []):
                     rid = robot_map.get(rname)
                     if rid:
@@ -122,13 +151,19 @@ async def import_catalog(file: UploadFile = File(...)):
 
             saved += 1
 
-        return {"modelos_importados": saved, "total_operaciones": sum(
-            len(d.get("operations", [])) for d in catalogo.values()
-        )}
+        return {
+            "modelos_importados": saved,
+            "total_operaciones": sum(
+                len(d.get("operations", [])) for d in catalogo.values()
+            ),
+            "warnings": errors[:10] if errors else [],
+        }
 
     finally:
         os.unlink(tmp_path)
 
+
+# --- Import pedido ---
 
 @router.post("/import-pedido/{nombre}")
 async def import_pedido(nombre: str, file: UploadFile = File(...)):
@@ -142,18 +177,22 @@ async def import_pedido(nombre: str, file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        items = _parse_pedido_sheet(tmp_path)
-        if not items:
-            raise HTTPException(400, "No se encontraron items en el archivo")
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb["PEDIDO"] if "PEDIDO" in wb.sheetnames else wb.active
+        items, errors, semana = _parse_pedido_sheet(ws)
+        wb.close()
 
-        # Upsert cabecera
+        if not items:
+            detail = "No se encontraron items en el archivo"
+            if errors:
+                detail += f". Errores: {'; '.join(errors[:5])}"
+            raise HTTPException(400, detail)
+
         ped = _sb_upsert("pedidos", {"nombre": nombre})
         ped_id = ped["id"]
 
-        # Borrar items viejos
         _sb_delete("pedido_items", f"pedido_id=eq.{ped_id}")
 
-        # Insertar nuevos
         for it in items:
             _sb_post("pedido_items", {
                 "pedido_id": ped_id,
@@ -164,7 +203,11 @@ async def import_pedido(nombre: str, file: UploadFile = File(...)):
                 "volumen": it["volumen"],
             })
 
-        return {"nombre": nombre, "items_importados": len(items)}
+        return {
+            "nombre": nombre,
+            "items_importados": len(items),
+            "warnings": errors[:10] if errors else [],
+        }
 
     finally:
         os.unlink(tmp_path)

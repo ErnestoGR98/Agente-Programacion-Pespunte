@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { usePedido } from '@/lib/hooks/usePedido'
-import { importCatalog } from '@/lib/api/fastapi'
+import { importCatalog, downloadTemplate } from '@/lib/api/fastapi'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { CheckCircle, Download, Loader2 } from 'lucide-react'
 
 export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) {
   const [uploading, setUploading] = useState(false)
@@ -56,7 +57,7 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
         />
       </div>
 
-      {/* Import */}
+      {/* Import + Template Download */}
       <Card>
         <CardContent className="pt-4">
           <div className="flex items-center gap-3">
@@ -68,6 +69,9 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
               disabled={uploading}
             />
             {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button variant="outline" size="sm" onClick={() => downloadTemplate().catch(() => setMessage('Error descargando template'))}>
+              <Download className="mr-1 h-3 w-3" /> Descargar Template
+            </Button>
           </div>
         </CardContent>
       </Card>

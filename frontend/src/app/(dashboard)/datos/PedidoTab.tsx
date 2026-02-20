@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { usePedido } from '@/lib/hooks/usePedido'
 import { useAppStore } from '@/lib/store/useAppStore'
-import { importPedido } from '@/lib/api/fastapi'
+import { importPedido, downloadTemplate } from '@/lib/api/fastapi'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -160,7 +160,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
         </CardContent>
       </Card>
 
-      {/* Upload Excel */}
+      {/* Upload Excel + Template Download */}
       <Card>
         <CardContent className="pt-4">
           <div className="flex items-center gap-3">
@@ -172,6 +172,9 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
               disabled={uploading}
             />
             {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button variant="outline" size="sm" onClick={() => downloadTemplate().catch(() => setMessage('Error descargando template'))}>
+              <Download className="mr-1 h-3 w-3" /> Descargar Template
+            </Button>
           </div>
         </CardContent>
       </Card>
