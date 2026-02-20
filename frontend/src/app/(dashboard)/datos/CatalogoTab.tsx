@@ -96,7 +96,7 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
                   <TableCell>{m.codigo_full}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      {m.alternativas.map((a) => (
+                      {(m.alternativas || []).map((a) => (
                         <Badge key={a} variant="outline" className="text-xs">{a}</Badge>
                       ))}
                     </div>

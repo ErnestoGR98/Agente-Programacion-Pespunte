@@ -47,7 +47,8 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   function handleModeloChange(modelo: string) {
     setNewModelo(modelo)
     const cat = pedido.catalogo.find((m) => m.modelo_num === modelo)
-    setNewColor(cat && cat.alternativas.length > 0 ? cat.alternativas[0] : '')
+    const alts = cat?.alternativas || []
+    setNewColor(alts.length > 0 ? alts[0] : '')
   }
 
   async function handleSavePedido() {
@@ -208,13 +209,13 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Color</Label>
-              {selectedModelo && selectedModelo.alternativas.length > 0 ? (
+              {selectedModelo && (selectedModelo.alternativas || []).length > 0 ? (
                 <Select value={newColor} onValueChange={setNewColor}>
                   <SelectTrigger className="h-8 w-24">
                     <SelectValue placeholder="Color..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {selectedModelo.alternativas.map((alt) => (
+                    {(selectedModelo.alternativas || []).map((alt) => (
                       <SelectItem key={alt} value={alt}>{alt}</SelectItem>
                     ))}
                   </SelectContent>

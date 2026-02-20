@@ -17,10 +17,10 @@ export function HeadcountTable({
   const resourceTypes: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA']
 
   const rows = dias.map((d) => {
-    const disponibles = operarios.filter((o) => o.dias.includes(d.nombre as DayName))
+    const disponibles = operarios.filter((o) => (o.dias || []).includes(d.nombre as DayName))
     const byResource: Record<string, number> = {}
     for (const rt of resourceTypes) {
-      byResource[rt] = disponibles.filter((o) => o.recursos.includes(rt)).length
+      byResource[rt] = disponibles.filter((o) => (o.recursos || []).includes(rt)).length
     }
     return {
       dia: d.nombre,

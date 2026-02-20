@@ -60,6 +60,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
   }, [schedule])
 
   function getEtapaColor(etapa: string): string {
+    if (!etapa) return '#94A3B8'
     if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return STAGE_COLORS.PRELIMINAR
     if (etapa.includes('ROBOT')) return STAGE_COLORS.ROBOT
     if (etapa.includes('POST')) return STAGE_COLORS.POST
