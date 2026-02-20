@@ -361,7 +361,49 @@ def run_optimization(req: OptimizeRequest):
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
 
     # 7. Scheduling diario
-    daily_results = schedule_week(weekly_schedule, models_for_opt, params, compiled)
+    raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled)
+
+    # Aplanar: mover summary fields al top level y renombrar campos de schedule
+    # para coincidir con DailyResult/DailyScheduleEntry del frontend
+    model_lookup = {m["codigo"]: m for m in models_for_opt}
+    daily_results = {}
+    for day_name, day_data in raw_daily.items():
+        summary = day_data.get("summary", {})
+        raw_schedule = day_data.get("schedule", [])
+
+        # Transformar schedule entries: renombrar campos para el frontend
+        schedule = []
+        for s in raw_schedule:
+            # Buscar etapa desde las operaciones del catalogo
+            modelo_code = s.get("modelo", "")
+            etapa = ""
+            cat_model = model_lookup.get(modelo_code)
+            if cat_model:
+                for op in cat_model.get("operations", []):
+                    if op["fraccion"] == s.get("fraccion"):
+                        etapa = op.get("etapa", "")
+                        break
+
+            schedule.append({
+                "modelo": modelo_code,
+                "fraccion": s.get("fraccion", 0),
+                "operacion": s.get("operacion", ""),
+                "recurso": s.get("recurso", ""),
+                "rate": s.get("rate", 0),
+                "hc": s.get("hc", 0),
+                "etapa": etapa,
+                "blocks": s.get("block_pares", []),
+                "total": s.get("total_pares", 0),
+                "robot": (s.get("robots_used") or [None])[0],
+            })
+
+        daily_results[day_name] = {
+            "status": summary.get("status", ""),
+            "total_pares": summary.get("total_pares", 0),
+            "total_tardiness": summary.get("total_tardiness", 0),
+            "plantilla": summary.get("plantilla", 0),
+            "schedule": schedule,
+        }
 
     # 8. Asignacion de operarios
     if operarios:
