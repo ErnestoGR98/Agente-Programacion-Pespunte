@@ -1,0 +1,345 @@
+// ============================================================
+// Tipos del dominio - basados en 001_initial_schema.sql
+// ============================================================
+
+// --- Enums ---
+
+export type ResourceType = 'MESA' | 'ROBOT' | 'PLANA' | 'POSTE' | 'MAQUILA' | 'GENERAL'
+
+export type ProcessType = 'PRELIMINARES' | 'ROBOT' | 'POST' | 'MAQUILA' | 'N/A PRELIMINAR'
+
+export type ConstraintType =
+  | 'PRIORIDAD' | 'MAQUILA' | 'RETRASO_MATERIAL' | 'FIJAR_DIA'
+  | 'FECHA_LIMITE' | 'SECUENCIA' | 'AGRUPAR_MODELOS' | 'AJUSTE_VOLUMEN'
+  | 'LOTE_MINIMO_CUSTOM' | 'ROBOT_NO_DISPONIBLE' | 'AUSENCIA_OPERARIO'
+  | 'CAPACIDAD_DIA' | 'PRECEDENCIA_OPERACION'
+
+export type DayName = 'Sab' | 'Lun' | 'Mar' | 'Mie' | 'Jue' | 'Vie'
+
+export type RobotEstado = 'ACTIVO' | 'FUERA DE SERVICIO'
+
+export type RobotArea = 'PESPUNTE' | 'AVIOS'
+
+// --- Tablas de Configuración ---
+
+export interface Robot {
+  id: string
+  nombre: string
+  estado: RobotEstado
+  area: RobotArea
+  orden: number
+  created_at: string
+}
+
+export interface RobotAlias {
+  id: string
+  alias: string
+  robot_id: string
+}
+
+export interface Fabrica {
+  id: string
+  nombre: string
+  orden: number
+}
+
+export interface CapacidadRecurso {
+  id: string
+  tipo: ResourceType
+  pares_hora: number
+}
+
+export interface DiaLaboral {
+  id: string
+  nombre: DayName
+  orden: number
+  minutos: number
+  plantilla: number
+  minutos_ot: number
+  plantilla_ot: number
+  es_sabado: boolean
+}
+
+export interface Horario {
+  id: string
+  tipo: 'SEMANA' | 'FINSEMANA'
+  entrada: string
+  salida: string
+  comida_inicio: string | null
+  comida_fin: string | null
+  bloque_min: number
+}
+
+export interface PesoPriorizacion {
+  id: string
+  nombre: string
+  valor: number
+}
+
+export interface ParametroOptimizacion {
+  id: string
+  nombre: string
+  valor: number
+}
+
+// --- Catálogo ---
+
+export interface CatalogoModelo {
+  id: string
+  modelo_num: string
+  codigo_full: string | null
+  alternativas: string[]
+  clave_material: string
+  total_sec_per_pair: number
+  num_ops: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CatalogoOperacion {
+  id: string
+  modelo_id: string
+  fraccion: number
+  operacion: string
+  input_o_proceso: ProcessType
+  etapa: string
+  recurso: ResourceType
+  recurso_raw: string
+  rate: number
+  sec_per_pair: number
+}
+
+export interface CatalogoOperacionRobot {
+  id: string
+  operacion_id: string
+  robot_id: string
+}
+
+export interface ModeloFabrica {
+  id: string
+  modelo_id: string
+  fabrica_id: string
+}
+
+// --- Operarios ---
+
+export interface Operario {
+  id: string
+  nombre: string
+  fabrica_id: string | null
+  eficiencia: number
+  activo: boolean
+  created_at: string
+  updated_at: string
+  // Relaciones (joined)
+  fabricas?: { nombre: string } | null
+  recursos?: string[]
+  robots?: string[]
+  dias?: DayName[]
+}
+
+export interface OperarioRecurso {
+  id: string
+  operario_id: string
+  recurso: ResourceType
+}
+
+export interface OperarioRobot {
+  id: string
+  operario_id: string
+  robot_id: string
+}
+
+export interface OperarioDia {
+  id: string
+  operario_id: string
+  dia: DayName
+}
+
+// --- Pedidos ---
+
+export interface Pedido {
+  id: string
+  nombre: string
+  created_at: string
+}
+
+export interface PedidoItem {
+  id: string
+  pedido_id: string
+  modelo_num: string
+  color: string
+  clave_material: string
+  fabrica: string
+  volumen: number
+}
+
+// --- Restricciones ---
+
+export interface Restriccion {
+  id: string
+  semana: string | null
+  tipo: ConstraintType
+  modelo_num: string
+  activa: boolean
+  parametros: Record<string, unknown>
+  created_at: string
+}
+
+// --- Avance ---
+
+export interface Avance {
+  id: string
+  semana: string
+  updated_at: string
+}
+
+export interface AvanceDetalle {
+  id: string
+  avance_id: string
+  modelo_num: string
+  dia: DayName
+  pares: number
+}
+
+// --- Resultados ---
+
+export interface Resultado {
+  id: string
+  nombre: string
+  base_name: string
+  version: number
+  nota: string
+  fecha_optimizacion: string
+  weekly_schedule: WeeklyScheduleEntry[]
+  weekly_summary: WeeklySummary
+  daily_results: Record<string, DailyResult>
+  pedido_snapshot: unknown[]
+  params_snapshot: Record<string, unknown>
+}
+
+// --- Tipos de datos de optimización ---
+
+export interface WeeklyScheduleEntry {
+  Dia: string
+  Modelo: string
+  Fabrica: string
+  Pares: number
+  HC_Necesario: number
+}
+
+export interface WeeklySummary {
+  status: string
+  total_pares: number
+  total_tardiness: number
+  wall_time_s: number
+  days: WeeklySummaryDay[]
+  models: WeeklySummaryModel[]
+}
+
+export interface WeeklySummaryDay {
+  dia: string
+  pares: number
+  hc_necesario: number
+  hc_disponible: number
+  utilizacion_pct: number
+  overtime_hrs: number
+  is_saturday: boolean
+}
+
+export interface WeeklySummaryModel {
+  codigo: string
+  volumen: number
+  producido: number
+  tardiness: number
+  pct_completado: number
+}
+
+export interface DailyResult {
+  status: string
+  total_pares: number
+  total_tardiness: number
+  plantilla: number
+  schedule: DailyScheduleEntry[]
+  assignments?: Record<string, unknown>
+  operator_timelines?: Record<string, unknown>
+  unassigned_ops?: unknown[]
+}
+
+export interface DailyScheduleEntry {
+  modelo: string
+  fraccion: number
+  operacion: string
+  recurso: ResourceType
+  rate: number
+  hc: number
+  etapa: string
+  blocks: number[]
+  total: number
+  robot?: string
+  pendiente?: number
+}
+
+// --- API FastAPI ---
+
+export interface OptimizeRequest {
+  pedido_nombre: string
+  semana: string
+  nota: string
+  reopt_from_day?: number | null
+}
+
+export interface OptimizeResponse {
+  status: string
+  total_pares: number
+  tardiness: number
+  wall_time: number
+  saved_as: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatRequest {
+  messages: ChatMessage[]
+  pedido_nombre: string
+  semana: string
+  model: string
+}
+
+export interface ChatResponse {
+  response: string
+}
+
+// --- Constantes ---
+
+export const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
+
+export const DAY_NAMES: DayName[] = ['Sab', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie']
+
+export const CONSTRAINT_TYPES_OPERATIVAS: ConstraintType[] = [
+  'PRIORIDAD', 'RETRASO_MATERIAL', 'MAQUILA',
+  'ROBOT_NO_DISPONIBLE', 'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',
+]
+
+export const CONSTRAINT_TYPES_PLANIFICACION: ConstraintType[] = [
+  'FIJAR_DIA', 'FECHA_LIMITE', 'SECUENCIA', 'AGRUPAR_MODELOS',
+  'AJUSTE_VOLUMEN', 'LOTE_MINIMO_CUSTOM', 'PRECEDENCIA_OPERACION',
+]
+
+export const STAGE_COLORS: Record<string, string> = {
+  PRELIMINAR: '#F59E0B',  // amber/gold
+  ROBOT: '#10B981',       // emerald/green
+  POST: '#EC4899',        // pink
+}
+
+export const RESOURCE_COLORS: Record<string, string> = {
+  MESA: '#3B82F6',
+  ROBOT: '#10B981',
+  PLANA: '#F59E0B',
+  POSTE: '#8B5CF6',
+  MAQUILA: '#6B7280',
+  GENERAL: '#94A3B8',
+}
