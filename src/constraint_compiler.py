@@ -100,7 +100,8 @@ class CompiledConstraints:
 
 
 def compile_constraints(restricciones: list, avance_data: dict,
-                        models: list, days: list) -> CompiledConstraints:
+                        models: list, days: list,
+                        reopt_from_day: int = None) -> CompiledConstraints:
     """
     Compila restricciones + avance en parametros del optimizer.
 
@@ -109,6 +110,7 @@ def compile_constraints(restricciones: list, avance_data: dict,
         avance_data: dict de avance.json (puede ser vacio)
         models: matched_models con modelo_num, total_producir, etc.
         days: lista de day configs [{name, ...}]
+        reopt_from_day: indice del dia desde el cual re-optimizar (None = todo)
 
     Returns:
         CompiledConstraints listo para pasar a optimize() y schedule_week()
@@ -138,9 +140,15 @@ def compile_constraints(restricciones: list, avance_data: dict,
             cc.warnings.append(
                 f"Tipo de restriccion desconocido: '{tipo}' (id={r.get('id', '?')})")
 
+    # Congelar dias anteriores a reopt_from_day (sin necesidad de avance)
+    if reopt_from_day is not None:
+        for i in range(reopt_from_day):
+            cc.frozen_days.add(i)
+
     # Procesar avance
     if avance_data and avance_data.get("modelos"):
-        _apply_avance(cc, avance_data, model_nums, day_names, day_index)
+        _apply_avance(cc, avance_data, model_nums, day_names, day_index,
+                      reopt_from_day)
 
     return cc
 
@@ -354,8 +362,13 @@ def _handle_precedencia_operacion(cc, modelo, params, day_names, day_index,
 # Avance
 # ---------------------------------------------------------------------------
 
-def _apply_avance(cc, avance_data, model_nums, day_names, day_index):
-    """Procesa avance de produccion: congela dias completados, ajusta volumenes."""
+def _apply_avance(cc, avance_data, model_nums, day_names, day_index,
+                   reopt_from_day=None):
+    """Procesa avance de produccion: congela dias completados, ajusta volumenes.
+
+    Si reopt_from_day esta definido, solo congela dias con avance que estan
+    ANTES del dia de re-optimizacion.
+    """
     for modelo, day_pairs in avance_data.get("modelos", {}).items():
         if modelo not in model_nums:
             continue
@@ -363,9 +376,11 @@ def _apply_avance(cc, avance_data, model_nums, day_names, day_index):
         for day_name, pares_done in day_pairs.items():
             if isinstance(pares_done, (int, float)) and pares_done > 0:
                 avance_modelo[day_name] = int(pares_done)
-                # Congelar este dia para este modelo
-                if day_name in day_index:
-                    cc.frozen_days.add(day_index[day_name])
+                # Congelar este dia (si no es dia de re-optimizacion)
+                d_idx = day_index.get(day_name)
+                if d_idx is not None:
+                    if reopt_from_day is None or d_idx < reopt_from_day:
+                        cc.frozen_days.add(d_idx)
         if avance_modelo:
             cc.avance[modelo] = avance_modelo
 

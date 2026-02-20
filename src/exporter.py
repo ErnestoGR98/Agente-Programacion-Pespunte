@@ -15,11 +15,10 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 # Colores por tipo de recurso para resaltado visual
 RESOURCE_COLORS = {
     "MESA": "D4E6F1",        # azul claro
-    "MESA-LINEA": "A9CCE3",  # azul medio
     "ROBOT": "F9E79F",       # amarillo
     "PLANA": "A9DFBF",       # verde claro
-    "PLANA-LINEA": "7DCEA0", # verde medio
-    "POSTE-LINEA": "F5CBA7", # naranja claro
+    "POSTE": "F5CBA7",       # naranja claro
+    "MAQUILA": "E8DAEF",     # violeta claro
     "GENERAL": "D5DBDB",     # gris
 }
 

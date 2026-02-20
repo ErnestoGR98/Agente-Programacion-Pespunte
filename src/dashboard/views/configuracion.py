@@ -128,7 +128,7 @@ def _render_recursos(config):
     cap = config["resource_capacity"]
 
     # Excluir GENERAL del editor, se maneja aparte
-    resource_types = ["MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"]
+    resource_types = ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"]
 
     cols = st.columns(3)
     new_cap = {}

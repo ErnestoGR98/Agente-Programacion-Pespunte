@@ -1,0 +1,21 @@
+# FastAPI backend para Pespunte Agent
+# Solo las dependencias necesarias para el API (no incluye streamlit/plotly/pandas)
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Solver OR-Tools (core de optimizacion)
+ortools>=9.8
+
+# Excel parsing
+openpyxl>=3.1.0
+
+# LLM
+anthropic>=0.39.0
+
+# HTTP client (Supabase REST API)
+requests>=2.31.0
+
+# ASGI server para produccion
+gunicorn>=21.2.0

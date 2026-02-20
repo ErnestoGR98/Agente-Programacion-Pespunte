@@ -18,9 +18,9 @@ Restricciones:
   6. Contiguidad: una vez detenida, una operacion no puede reiniciar
 
 Objetivo:
-  tardiness(100k) > uniformity_robot(500) > balance(1 * peak_load_sec)
-  Uniformidad manual: DURA - bloques activos no finales producen al rate exacto
-  Uniformidad robot: SUAVE - penalty por producir menos del rate (evita infeasibilidad)
+  tardiness(100k) > hc_overflow(50k) > uniformity(500) > balance(1 * peak_load_sec)
+  Uniformidad: SUAVE - penalty por producir menos del rate (manual y robot)
+  HC/Recurso: SUAVE - penalty por exceder plantilla o capacidad de recurso
   Balance: minimiza el pico de HC para distribuir trabajo en todos los bloques
 """
 
@@ -29,7 +29,8 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
-W_UNIFORMITY = 500        # soft uniformity para ops robot (por par de shortfall)
+W_UNIFORMITY = 500        # soft uniformity (por par de shortfall)
+W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
@@ -280,12 +281,14 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 sum(y[m_idx, op_idx, r, b] for r in robots) == x[m_idx, op_idx, b]
             )
 
-    # 3. Capacidad de recurso por bloque (recursos NO-robot)
-    #    Para cada tipo de recurso R (excepto ROBOT) y bloque b:
-    #    sum de (tiempo de trabajo) <= capacidad_R * minutos_bloque * 60
+    # 3. Capacidad de recurso por bloque (recursos NO-robot) - SOFT
+    #    Permite exceder capacidad con penalty alto en vez de INFEASIBLE.
+    hc_overflow_terms = []
     for b in range(num_blocks):
         block_minutes = time_blocks[b]["minutes"]
         block_sec = block_minutes * 60
+        if block_sec == 0:
+            continue
 
         # Agrupar carga por tipo de recurso (excluir ops con robots asignados)
         resource_loads = {}
@@ -293,12 +296,10 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             for op_idx, op in enumerate(model["operations"]):
                 robots = op.get("robots", [])
                 if robots:
-                    # Operaciones con robots: manejadas por restriccion 6
                     continue
                 recurso = op["recurso"]
                 if recurso not in resource_loads:
                     resource_loads[recurso] = []
-                # Carga = pares * sec_per_pair
                 resource_loads[recurso].append(
                     x[m_idx, op_idx, b] * op["sec_per_pair"]
                 )
@@ -306,20 +307,29 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
         for recurso, loads in resource_loads.items():
             cap = resource_cap.get(recurso, resource_cap.get("GENERAL", 4))
             max_capacity_sec = cap * block_sec
-            solver_model.Add(sum(loads) <= max_capacity_sec)
+            overflow = solver_model.NewIntVar(
+                0, max_capacity_sec, f"rcap_{recurso}_{b}"
+            )
+            solver_model.Add(sum(loads) <= max_capacity_sec + overflow)
+            hc_overflow_terms.append(overflow)
 
-    # 4. Headcount total por bloque <= plantilla
+    # 4. Headcount total por bloque <= plantilla - SOFT
+    #    Permite exceder plantilla con penalty alto en vez de INFEASIBLE.
     for b in range(num_blocks):
         block_sec = time_blocks[b]["minutes"] * 60
-        # HC por operacion = pares * sec_per_pair / block_sec
-        # Multiplicamos ambos lados por block_sec:
-        # sum(pares * sec_per_pair) <= plantilla * block_sec
+        if block_sec == 0:
+            continue
         total_load = []
         for m_idx, model in enumerate(models_day):
             for op_idx, op in enumerate(model["operations"]):
                 total_load.append(x[m_idx, op_idx, b] * op["sec_per_pair"])
         if total_load:
-            solver_model.Add(sum(total_load) <= plantilla * block_sec)
+            max_hc_sec = plantilla * block_sec
+            overflow = solver_model.NewIntVar(
+                0, max_hc_sec, f"hcov_{b}"
+            )
+            solver_model.Add(sum(total_load) <= max_hc_sec + overflow)
+            hc_overflow_terms.append(overflow)
 
     # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 fraccion a la vez
@@ -377,9 +387,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 )
 
     # 7. Uniformidad de produccion (salta COMIDA):
-    #    a) Ops manuales: DURA - x >= target (con x <= target da x == target)
-    #    b) Ops robot: SUAVE - penalty por shortfall bajo target (evita infeasibilidad)
-    robot_shortfall_terms = []
+    #    SUAVE para todas las ops (manual y robot): penalty por shortfall.
+    #    Hard constraint causaba INFEASIBLE con multiples modelos compitiendo por HC.
+    uniformity_shortfall_terms = []
     for m_idx, model in enumerate(models_day):
         for op_idx, op in enumerate(model["operations"]):
             is_robot = bool(op.get("robots", []))
@@ -391,26 +401,16 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 target = int(op["rate"] * block_min / 60 * hc_mult)
                 if target <= 0:
                     continue
-                if not is_robot:
-                    # Manual: hard constraint (x >= target * hc_mult)
-                    solver_model.Add(
-                        x[m_idx, op_idx, b] >= target
-                    ).OnlyEnforceIf([
-                        active[m_idx, op_idx, b],
-                        active[m_idx, op_idx, next_b]
-                    ])
-                else:
-                    # Robot: soft constraint (penalty for shortfall)
-                    shortfall = solver_model.NewIntVar(
-                        0, target, f"uf_{m_idx}_{op_idx}_{b}"
-                    )
-                    solver_model.Add(
-                        x[m_idx, op_idx, b] + shortfall >= target
-                    ).OnlyEnforceIf([
-                        active[m_idx, op_idx, b],
-                        active[m_idx, op_idx, next_b]
-                    ])
-                    robot_shortfall_terms.append(shortfall)
+                shortfall = solver_model.NewIntVar(
+                    0, target, f"uf_{m_idx}_{op_idx}_{b}"
+                )
+                solver_model.Add(
+                    x[m_idx, op_idx, b] + shortfall >= target
+                ).OnlyEnforceIf([
+                    active[m_idx, op_idx, b],
+                    active[m_idx, op_idx, next_b]
+                ])
+                uniformity_shortfall_terms.append(shortfall)
 
     # --- Funcion Objetivo ---
     obj_terms = []
@@ -419,9 +419,13 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     for m_idx in range(len(models_day)):
         obj_terms.append(W_TARDINESS * tardiness[m_idx])
 
-    # Soft uniformity para ops robot
-    for sf in robot_shortfall_terms:
+    # Soft uniformity para todas las ops (manual + robot)
+    for sf in uniformity_shortfall_terms:
         obj_terms.append(W_UNIFORMITY * sf)
+
+    # Penalty por exceder capacidad de recurso o plantilla por bloque
+    for ov in hc_overflow_terms:
+        obj_terms.append(W_HC_OVERFLOW * ov)
 
     # Balance: minimizar el pico de carga (HC) para distribuir trabajo
     # en todos los bloques del dia. Si peak es bajo, el trabajo se reparte.
@@ -519,12 +523,19 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             if modelo_code not in model_lookup:
                 continue
             model_data = model_lookup[modelo_code]
+            # Excluir operaciones MAQUILA: son externas, no consumen recursos internos
+            internal_ops = [
+                op for op in model_data["operations"]
+                if op.get("recurso") != "MAQUILA"
+            ]
+            if not internal_ops:
+                continue  # Modelo 100% maquila, nada que programar internamente
             models_day.append({
                 "codigo": modelo_code,
                 "fabrica": entry["Fabrica"],
                 "suela": entry.get("Suela", ""),
                 "pares_dia": entry["Pares"],
-                "operations": model_data["operations"],
+                "operations": internal_ops,
             })
 
         # Parametros para este dia (workers reducidos para paralelismo)

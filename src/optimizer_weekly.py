@@ -20,11 +20,11 @@ from ortools.sat.python import cp_model
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
 W_CHANGEOVER = 10_000   # por cambio de modelo (forzar lotes grandes, menos modelos por dia)
-W_HC_PEAK = 8_000       # por operacion concurrente que exceda plantilla (evitar sobrecargar HC)
 W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
-W_SATURDAY = 50         # por par producido en sabado (penalizar horas extra)
+W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
 W_BALANCE = 1           # por unidad de desbalance entre dias
+W_EARLY = 5             # por par * indice_dia (desempata en favor de dias tempranos)
 
 
 def optimize(models: list, params: dict, compiled=None) -> tuple:
@@ -46,6 +46,22 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     num_models = len(models)
     min_lot = params.get("min_lot_size", 100)
     step = params.get("lot_step", 50)
+    lead_time_maquila = params.get("lead_time_maquila", 0)
+
+    # Detectar modelos con operaciones MAQUILA y calcular sec_per_pair ajustado
+    # MAQUILA es trabajo externo: no consume capacidad interna
+    maquila_models = set()
+    adjusted_sec = {}  # m -> sec_per_pair sin MAQUILA
+    for m, model in enumerate(models):
+        maquila_sec = 0
+        for op in model.get("operations", []):
+            if op.get("recurso") == "MAQUILA":
+                maquila_sec += op.get("sec_per_pair", 0)
+        if maquila_sec > 0:
+            maquila_models.add(m)
+            adjusted_sec[m] = max(1, model["total_sec_per_pair"] - maquila_sec)
+        else:
+            adjusted_sec[m] = model["total_sec_per_pair"]
 
     # --- Variables de decision ---
 
@@ -107,6 +123,12 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         # span >= last - first (minimizacion lo empuja al valor exacto)
         solver_model.Add(span[m] >= last_day[m] - first_day[m])
 
+    # MAQUILA: modelos con operaciones externas necesitan span minimo = lead_time
+    # Esto garantiza un hueco de N dias entre produccion pre-MAQUILA y post-MAQUILA
+    if lead_time_maquila > 0 and maquila_models:
+        for m in maquila_models:
+            solver_model.Add(span[m] >= lead_time_maquila)
+
     # --- Restricciones ---
 
     # 1. Completar volumen (o registrar tardiness)
@@ -142,37 +164,69 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     overtime_used = {}
     regular_caps = {}
     overtime_caps = {}
+    # Factor de eficiencia: contiguidad y comida reducen capacidad real ~10%.
+    # El diario ahora usa soft constraints, asi que no necesitamos ser muy conservadores.
+    EFF = 0.90
     for d in range(num_days):
         day_cfg = days[d]
-        regular_cap = day_cfg["plantilla"] * day_cfg["minutes"] * 60
+        regular_cap = int(day_cfg["plantilla"] * day_cfg["minutes"] * 60 * EFF)
         ot_minutes = day_cfg.get("minutes_ot", 0)
         ot_plantilla = day_cfg.get("plantilla_ot", day_cfg["plantilla"])
-        overtime_cap = ot_plantilla * ot_minutes * 60
+        overtime_cap = int(ot_plantilla * ot_minutes * 60 * EFF)
 
         regular_caps[d] = regular_cap
         overtime_caps[d] = overtime_cap
 
         load_terms = []
         for m, model in enumerate(models):
-            sec_per_pair = model["total_sec_per_pair"]
+            sec_per_pair = adjusted_sec[m]
             load_terms.append(x[m, d] * sec_per_pair)
 
         day_load = sum(load_terms)
         day_loads[d] = day_load
 
-        # Hard limit: no exceder regular + overtime
+        # Hard limit: no exceder regular + overtime (con factor eficiencia)
         solver_model.Add(day_load <= regular_cap + overtime_cap)
 
         # Overtime usado (se minimiza via penalizacion)
         overtime_used[d] = solver_model.NewIntVar(0, overtime_cap, f"ot_{d}")
         solver_model.Add(overtime_used[d] >= day_load - regular_cap)
 
+    # 3b. Capacidad por tipo de recurso por dia
+    #     El diario enforza limites por recurso (MESA, PLANA, ROBOT, etc).
+    #     Sin esta restriccion el semanal sobrecarga recursos especificos.
+    resource_cap = params.get("resource_capacity", {})
+    if resource_cap:
+        # Pre-computar carga por recurso para cada modelo (excluir MAQUILA)
+        model_resource_load = []
+        for model in models:
+            rload = {}
+            for op in model.get("operations", []):
+                r = op.get("recurso", "GENERAL") or "GENERAL"
+                if r == "MAQUILA":
+                    continue  # MAQUILA es trabajo externo
+                rload[r] = rload.get(r, 0) + op["sec_per_pair"]
+            model_resource_load.append(rload)
+
+        for d in range(num_days):
+            day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
+            for res_type, cap in resource_cap.items():
+                terms = []
+                for m in range(num_models):
+                    load_sec = model_resource_load[m].get(res_type, 0)
+                    if load_sec > 0:
+                        terms.append(x[m, d] * load_sec)
+                if terms:
+                    solver_model.Add(
+                        sum(terms) <= cap * day_minutes * 60
+                    )
+
     # 4. Throughput maximo por modelo/dia: la operacion mas lenta (cuello de botella)
     #    limita cuantos pares pueden completarse en un dia, independientemente de
     #    la capacidad total. Sin esto el solver asigna mas pares de los que el
     #    programa diario puede realmente producir.
     for m, model in enumerate(models):
-        ops = model.get("operations", [])
+        ops = [op for op in model.get("operations", []) if op.get("recurso") != "MAQUILA"]
         if ops:
             bottleneck_rate = min(op["rate"] for op in ops if op.get("rate", 0) > 0)
         else:
@@ -185,8 +239,10 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             day_minutes = days[d]["minutes"]
             ot_minutes = days[d].get("minutes_ot", 0)
             total_minutes = day_minutes + ot_minutes
-            # Max pares = bottleneck_rate * horas totales, redondeado a multiplo de step
-            max_throughput = int(bottleneck_rate * total_minutes / 60)
+            # Max pares = bottleneck_rate * horas totales * factor contiguidad
+            # Factor 0.80: el diario enforza contiguidad (una vez detenida, no reinicia),
+            # por lo que un modelo tipicamente usa ~80% de los bloques disponibles.
+            max_throughput = int(bottleneck_rate * total_minutes / 60 * 0.80)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -215,8 +271,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     saturday_indices = [d for d in range(num_days) if days[d]["is_saturday"]]
     for d in saturday_indices:
         for m in range(num_models):
-            sec_per_pair = models[m]["total_sec_per_pair"]
-            obj_terms.append(W_SATURDAY * x[m, d] * sec_per_pair)
+            obj_terms.append(W_SATURDAY * x[m, d] * adjusted_sec[m])
 
     # Penalizar dispersion de modelos (consolidar en dias consecutivos)
     # Pespunte alimenta ensamble: modelos desperdigados = ensamble sin buffer
@@ -232,23 +287,18 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         obj_terms.append(W_OVERTIME * overtime_used[d])
 
-    # Penalizar exceso de operaciones concurrentes sobre la plantilla del dia
-    # Cada modelo activo contribuye num_ops operaciones simultaneas (1 operario c/u)
-    # Si sum(y[m,d]*num_ops) > plantilla, el exceso se penaliza
-    # Esto evita dias donde muchos modelos de alta demanda de HC colapsan la agenda diaria
+    # Hard constraint: limitar total de operaciones concurrentes por dia.
+    # El diario enforza plantilla * block_sec por bloque. Con contiguidad,
+    # las operaciones se solapan parcialmente. Factor 3 permite phasing:
+    # con plantilla=5, max 15 ops → ~3 modelos de 5 ops cada uno.
     for d in range(num_days):
         total_ops_day = []
-        max_possible = 0
         for m in range(num_models):
             n_ops = models[m].get("num_ops", 1)
             total_ops_day.append(y[m, d] * n_ops)
-            max_possible += n_ops
         plantilla_d = days[d]["plantilla"]
-        hc_excess = solver_model.NewIntVar(
-            0, max(0, max_possible - plantilla_d), f"hcx_{d}"
-        )
-        solver_model.Add(hc_excess >= sum(total_ops_day) - plantilla_d)
-        obj_terms.append(W_HC_PEAK * hc_excess)
+        max_ops = plantilla_d * 3
+        solver_model.Add(sum(total_ops_day) <= max_ops)
 
     # Penalizar lotes no multiplo de 100 (preferir centenas cerradas)
     for d in range(num_days):
@@ -257,6 +307,13 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
     # Minimizar desbalance (diferencia max-min de carga en dias normales)
     obj_terms.append(W_BALANCE * (max_load - min_load))
+
+    # Preferir produccion en dias tempranos (desempate)
+    # Lun=5, Mar=10, Mie=15, Jue=20, Vie=25: insignificante vs W_TARDINESS(100k)
+    for d in range(num_days):
+        if not days[d]["is_saturday"]:
+            for m in range(num_models):
+                obj_terms.append(W_EARLY * x[m, d] * (d + 1))
 
     solver_model.Minimize(sum(obj_terms))
 

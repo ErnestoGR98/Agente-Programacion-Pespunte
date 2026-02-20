@@ -17,6 +17,10 @@ CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
 def get_default_config() -> dict:
     """Retorna la configuracion por defecto (valores actuales hardcodeados)."""
     return {
+        "supabase": {
+            "url": "",
+            "anon_key": "",
+        },
         "llm": {
             "api_key": "",
             "model": "claude-sonnet-4-5-20250929",
@@ -35,10 +39,17 @@ def get_default_config() -> dict:
             "MESA": 15,
             "ROBOT": 8,
             "PLANA": 8,
-            "POSTE-LINEA": 6,
-            "MESA-LINEA": 10,
-            "PLANA-LINEA": 8,
+            "POSTE": 6,
+            "MAQUILA": 1,
             "GENERAL": 10,
+        },
+        "optimizer_params": {
+            "lote_minimo": 50,
+            "lote_preferido": 100,
+            "factor_eficiencia": 0.90,
+            "factor_contiguidad": 0.80,
+            "timeout_solver": 90,
+            "lead_time_maquila": 3,
         },
         "fabricas": ["FABRICA 1", "FABRICA 2", "FABRICA 3"],
         "days": [
@@ -104,12 +115,41 @@ def load_config() -> dict:
         for key in defaults:
             if key not in saved:
                 saved[key] = defaults[key]
+        # Migrar tipos compuestos de recurso a tipos base
+        if _migrate_resource_capacity(saved):
+            save_config(saved)
         return saved
 
     # Primera vez: crear con defaults
     config = get_default_config()
     save_config(config)
     return config
+
+
+_COMPOUND_TO_BASE = {
+    "MESA-LINEA": "MESA",
+    "PLANA-LINEA": "PLANA",
+    "POSTE-LINEA": "POSTE",
+}
+
+
+def _migrate_resource_capacity(config: dict) -> bool:
+    """Migra tipos compuestos de recurso a tipos base. Retorna True si migro."""
+    cap = config.get("resource_capacity", {})
+    migrated = False
+    for compound, base in _COMPOUND_TO_BASE.items():
+        if compound in cap:
+            cap.pop(compound)
+            migrated = True
+    # Asegurar que existan los tipos base
+    defaults = get_default_config()["resource_capacity"]
+    for key, val in defaults.items():
+        if key not in cap:
+            cap[key] = val
+            migrated = True
+    if migrated:
+        config["resource_capacity"] = cap
+    return migrated
 
 
 def save_config(config: dict):

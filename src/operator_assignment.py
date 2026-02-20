@@ -11,8 +11,8 @@ FASE 2 - Relevo (post-cascada):
   Para tareas que quedaron SIN ASIGNAR (ningun operario con el recurso correcto):
   1. Busca op idle A que pueda hacer la tarea T_B de op ocupado B
   2. Si B puede hacer la tarea sin asignar U: A releva a B en T_B, B toma U
-  Ejemplo: HUGO (MESA-LINEA) releva a DIANA (MESA-LINEA+MESA) en su tarea
-           MESA-LINEA, liberando a DIANA para hacer la tarea MESA sin asignar.
+  Ejemplo: HUGO (MESA) releva a DIANA (MESA+PLANA) en su tarea
+           MESA, liberando a DIANA para hacer la tarea PLANA sin asignar.
 
 REGLA FUNDAMENTAL: un operario NUNCA tiene dos tareas simultaneas.
 Cascada = operario termina tarea A, queda libre, toma tarea B.

@@ -32,13 +32,21 @@ TIME_BLOCKS = [
 ]
 
 # Tipos de recurso canonicos (categorias fisicas fijas)
-RESOURCE_TYPES = ["MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"]
+RESOURCE_TYPES = ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"]
+
+# Configuraciones validas (informativas, no afectan optimizacion)
+CONFIGURACION_OPTIONS = ["LINEA", "INDIVIDUAL", ""]
 
 # Aliases para parseo de Excel (logica de normalizacion fija)
 RESOURCE_ALIASES = {
-    "MESA LINEA": "MESA-LINEA",
-    "PLANA LINEA": "PLANA-LINEA",
-    "POSTE LINEA": "POSTE-LINEA",
+    # Legacy: tipos compuestos -> tipo base
+    "MESA-LINEA": "MESA",
+    "PLANA-LINEA": "PLANA",
+    "POSTE-LINEA": "POSTE",
+    "MESA LINEA": "MESA",
+    "PLANA LINEA": "PLANA",
+    "POSTE LINEA": "POSTE",
+    # Typos
     "MEZA": "MESA",
     "ROBBOT": "ROBOT",
 }
@@ -74,11 +82,13 @@ def get_default_params() -> dict:
         dict con claves 'days', 'time_blocks', 'resource_capacity', etc.
     """
     config = _get_config()
+    opt = config.get("optimizer_params", {})
     return {
-        "min_lot_size": 100,
+        "min_lot_size": opt.get("lote_minimo", 100),
         "lot_step": 50,
         "time_blocks": TIME_BLOCKS,
         "resource_types": RESOURCE_TYPES,
         "resource_capacity": config["resource_capacity"].copy(),
         "days": deepcopy(config["days"]),
+        "lead_time_maquila": opt.get("lead_time_maquila", 3),
     }

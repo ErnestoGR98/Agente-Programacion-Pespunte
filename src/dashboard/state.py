@@ -159,10 +159,15 @@ def load_data(sabana_file, catalog_file):
     }
 
 
-def run_optimization(params):
+def run_optimization(params, reopt_from_day=None):
     """
     Ejecuta la optimizacion semanal + diaria con los parametros dados.
     Almacena resultados en session_state y guarda a disco para acceso remoto.
+
+    Args:
+        params: parametros de optimizacion
+        reopt_from_day: indice del dia desde el cual re-optimizar (None = todo)
+            Dias anteriores se congelan y conservan resultados existentes.
 
     Returns:
         dict con resumen del resultado
@@ -171,13 +176,24 @@ def run_optimization(params):
     if not matched:
         return {"error": "No hay modelos cargados"}
 
+    # Guardar daily_results existentes para merge parcial
+    existing_daily = None
+    existing_weekly = None
+    if reopt_from_day is not None:
+        existing_daily = st.session_state.get("daily_results") or {}
+        existing_weekly = st.session_state.get("weekly_schedule") or []
+
     # Compilar restricciones dinamicas + avance
     from constraint_compiler import compile_constraints
     restricciones = st.session_state.get("restricciones") or []
     avance_data = st.session_state.get("avance") or {}
-    compiled = compile_constraints(restricciones, avance_data, matched, params["days"])
+    compiled = compile_constraints(
+        restricciones, avance_data, matched, params["days"],
+        reopt_from_day=reopt_from_day,
+    )
 
     # Ajustar volumenes en copia de los modelos (no modificar originales)
+    day_names = [d["name"] for d in params["days"]]
     models_for_opt = deepcopy(matched)
     for m in models_for_opt:
         modelo_num = m.get("modelo_num", "")
@@ -189,7 +205,14 @@ def run_optimization(params):
             m["total_producir"] = compiled.volume_overrides[modelo_num]
         # Avance: restar lo ya producido
         if modelo_num in compiled.avance:
-            already = sum(compiled.avance[modelo_num].values())
+            if reopt_from_day is not None:
+                # Solo restar avance de dias congelados (antes de reopt)
+                already = sum(
+                    pares for dn, pares in compiled.avance[modelo_num].items()
+                    if dn in day_names and day_names.index(dn) < reopt_from_day
+                )
+            else:
+                already = sum(compiled.avance[modelo_num].values())
             m["total_producir"] = max(0, m["total_producir"] - already)
 
     # Ajustar plantilla por dia segun restricciones (AUSENCIA/CAPACIDAD)
@@ -205,11 +228,26 @@ def run_optimization(params):
 
     # Optimizacion semanal (con restricciones)
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
+
+    # Merge: conservar weekly_schedule de dias congelados
+    if reopt_from_day is not None and existing_weekly:
+        frozen_day_names = set(day_names[:reopt_from_day])
+        frozen_entries = [
+            e for e in existing_weekly if e["Dia"] in frozen_day_names
+        ]
+        weekly_schedule = frozen_entries + weekly_schedule
+
     st.session_state.weekly_schedule = weekly_schedule
     st.session_state.weekly_summary = weekly_summary
 
     # Scheduling diario (con restricciones)
     daily_results = schedule_week(weekly_schedule, models_for_opt, params, compiled)
+
+    # Merge: conservar daily_results de dias congelados
+    if reopt_from_day is not None and existing_daily:
+        for i, dn in enumerate(day_names):
+            if i < reopt_from_day and dn in existing_daily:
+                daily_results[dn] = existing_daily[dn]
 
     # Asignacion de operarios en cascada (post-proceso)
     operarios = st.session_state.get("operarios") or []

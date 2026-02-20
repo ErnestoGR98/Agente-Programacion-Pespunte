@@ -23,11 +23,10 @@ def json_copy_btn(data, key="json"):
 # Colores por tipo de recurso (saturados para dark mode)
 RESOURCE_COLORS = {
     "MESA": "#5B9BD5",
-    "MESA-LINEA": "#2E75B6",
     "ROBOT": "#E2AC00",
     "PLANA": "#48A868",
-    "PLANA-LINEA": "#2D8B4E",
-    "POSTE-LINEA": "#D98040",
+    "POSTE": "#D98040",
+    "MAQUILA": "#9B59B6",
     "GENERAL": "#808890",
 }
 

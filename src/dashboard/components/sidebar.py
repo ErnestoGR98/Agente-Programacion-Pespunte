@@ -129,7 +129,7 @@ def _render_parameters():
 
     with st.expander("Capacidad de Recursos", expanded=False):
         cap = params["resource_capacity"]
-        for res_type in ["MESA", "ROBOT", "PLANA", "POSTE-LINEA", "MESA-LINEA", "PLANA-LINEA"]:
+        for res_type in ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"]:
             cap[res_type] = st.number_input(
                 res_type,
                 min_value=1, max_value=30,
@@ -228,6 +228,45 @@ def _render_optimize_button():
                     st.warning(f"{result['tardiness']:,} pares pendientes")
             except Exception as e:
                 st.error(f"Error en optimizacion: {e}")
+
+    # Re-optimizar desde un dia especifico
+    _render_reopt_button()
+
+
+def _render_reopt_button():
+    """Boton de re-optimizacion parcial (desde un dia especifico)."""
+    if st.session_state.pipeline_step < 2 or not st.session_state.get("daily_results"):
+        return
+
+    params = st.session_state.get("params")
+    if not params or not params.get("days"):
+        return
+
+    day_names = [d["name"] for d in params["days"]]
+
+    if len(day_names) < 2:
+        return
+
+    with st.expander("Re-optimizar parcial", expanded=False):
+        st.caption("Congela los dias anteriores y re-optimiza desde el dia seleccionado.")
+        reopt_day = st.selectbox(
+            "Desde",
+            day_names[1:],  # Todos los dias menos el primero
+            key="reopt_from_day_select",
+        )
+        if st.button("Re-optimizar", type="secondary", width="stretch"):
+            day_idx = day_names.index(reopt_day)
+            with st.spinner(f"Re-optimizando desde {reopt_day}..."):
+                try:
+                    result = run_optimization(
+                        st.session_state.params, reopt_from_day=day_idx
+                    )
+                    st.success(
+                        f"{result['total_pares']:,}p | {result['saved_as']}"
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 
 def _render_export():

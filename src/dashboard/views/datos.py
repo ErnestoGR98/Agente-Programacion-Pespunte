@@ -18,6 +18,8 @@ from dashboard.data_manager import (
     save_pedido_draft, load_pedido_draft, clear_pedido_draft,
     import_pedido_from_template, build_matched_models,
     generate_template_pedido, generate_template_catalogo,
+    generate_template_consolidado, import_consolidado,
+    load_operarios,
     VALID_RESOURCES,
 )
 from config_manager import get_fabricas, get_physical_robots
@@ -31,6 +33,10 @@ def _to_upper(key):
 
 def render():
     """Renderiza la pagina de entrada de datos."""
+    # Seccion de template consolidado (acceso rapido)
+    _render_consolidado_section()
+    st.divider()
+
     tab_pedido, tab_catalogo = st.tabs(["Pedido Semanal", "Catalogo de Operaciones"])
 
     with tab_pedido:
@@ -38,6 +44,71 @@ def render():
 
     with tab_catalogo:
         _render_catalogo_section()
+
+
+def _render_consolidado_section():
+    """Seccion para descargar/subir el template consolidado."""
+    with st.expander("Template Consolidado (Catalogo + Pedido + Operarios)", expanded=False):
+        st.caption(
+            "Un solo Excel con 3 hojas: CATALOGO, PEDIDO y OPERARIOS. "
+            "Descargue el template, llene los datos y subalo de vuelta."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "Descargar Template Consolidado",
+                data=generate_template_consolidado(),
+                file_name="template_pespunte.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+            )
+
+        with col2:
+            uploaded = st.file_uploader(
+                "Subir template llenado",
+                type=["xlsx"],
+                key="consolidado_upload",
+            )
+
+        if uploaded:
+            result = import_consolidado(uploaded)
+
+            # Mostrar resultados por hoja
+            if result["catalogo"]:
+                cat, cat_errors = result["catalogo"]
+                if cat_errors:
+                    for err in cat_errors[:5]:
+                        st.warning(f"CATALOGO: {err}")
+                if cat:
+                    st.success(
+                        f"CATALOGO: {len(cat)} modelos, "
+                        f"{sum(m['num_ops'] for m in cat.values())} operaciones"
+                    )
+
+            if result["pedido"]:
+                ped, ped_errors = result["pedido"]
+                if ped_errors:
+                    for err in ped_errors[:5]:
+                        st.warning(f"PEDIDO: {err}")
+                if ped:
+                    total_vol = sum(p["volumen"] for p in ped)
+                    st.success(f"PEDIDO: {len(ped)} modelos, {total_vol:,} pares")
+                    if st.button("Usar este pedido", key="consolidado_use_pedido"):
+                        st.session_state.pedido_rows = ped
+                        save_pedido_draft(ped)
+                        st.rerun()
+
+            if result["operarios"]:
+                ops, ops_errors = result["operarios"]
+                if ops_errors:
+                    for err in ops_errors[:5]:
+                        st.warning(f"OPERARIOS: {err}")
+                if ops:
+                    st.success(f"OPERARIOS: {len(ops)} operarios importados")
+
+            if not any(result.values()):
+                st.warning("No se encontraron hojas CATALOGO, PEDIDO ni OPERARIOS en el archivo")
 
 
 # ===========================================================================
@@ -648,6 +719,7 @@ def _render_catalogo_edit(catalog):
             "FRACCION": op["fraccion"],
             "OPERACION": op["operacion"],
             "RECURSO": op["recurso"],
+            "CONFIG": op.get("configuracion", ""),
             "RATE": op["rate"],
             "ROBOTS": ", ".join(op.get("robots", [])),
         })
@@ -668,6 +740,12 @@ def _render_catalogo_edit(catalog):
                 "RECURSO",
                 options=sorted(VALID_RESOURCES),
                 width="small",
+            ),
+            "CONFIG": st.column_config.SelectboxColumn(
+                "CONFIG",
+                options=["LINEA", "INDIVIDUAL", ""],
+                width="small",
+                help="LINEA = en linea, INDIVIDUAL = estacion individual",
             ),
             "RATE": st.column_config.NumberColumn("RATE", min_value=1, step=1, width="small"),
             "ROBOTS": st.column_config.TextColumn("ROBOTS", width="medium",
@@ -720,6 +798,7 @@ def _save_edited_model(model_num, codigo_full, edited_df,
             "operacion": str(row["OPERACION"]).strip() if pd.notna(row.get("OPERACION")) else "",
             "etapa": "",
             "recurso": str(row["RECURSO"]).strip() if pd.notna(row.get("RECURSO")) else "GENERAL",
+            "configuracion": str(row["CONFIG"]).strip() if pd.notna(row.get("CONFIG")) else "",
             "recurso_raw": str(row["RECURSO"]).strip() if pd.notna(row.get("RECURSO")) else "",
             "robots": robots,
             "rate": round(rate, 2),
@@ -789,6 +868,7 @@ def _render_catalogo_add_model(catalog):
             "FRACCION": pd.Series(dtype="int"),
             "OPERACION": pd.Series(dtype="str"),
             "RECURSO": pd.Series(dtype="str"),
+            "CONFIG": pd.Series(dtype="str"),
             "RATE": pd.Series(dtype="float"),
             "ROBOTS": pd.Series(dtype="str"),
         })
@@ -808,6 +888,12 @@ def _render_catalogo_add_model(catalog):
                 options=sorted(VALID_RESOURCES),
                 width="small",
             ),
+            "CONFIG": st.column_config.SelectboxColumn(
+                "CONFIG",
+                options=["LINEA", "INDIVIDUAL", ""],
+                width="small",
+                help="LINEA = en linea, INDIVIDUAL = estacion individual",
+            ),
             "RATE": st.column_config.NumberColumn("RATE", min_value=1, step=1, width="small"),
             "ROBOTS": st.column_config.TextColumn("ROBOTS", width="medium",
                                                      help="Separar por coma: 3020-M4, 6040-M5"),
@@ -824,6 +910,7 @@ def _render_catalogo_add_model(catalog):
             "FRACCION": pd.Series(dtype="int"),
             "OPERACION": pd.Series(dtype="str"),
             "RECURSO": pd.Series(dtype="str"),
+            "CONFIG": pd.Series(dtype="str"),
             "RATE": pd.Series(dtype="float"),
             "ROBOTS": pd.Series(dtype="str"),
         })

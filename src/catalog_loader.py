@@ -13,23 +13,37 @@ import openpyxl
 from rules import RESOURCE_ALIASES
 
 
-# Mapeo de recursos literales a tipos canonicos
+# Mapeo de recursos literales a tipos canonicos (base)
 RESOURCE_MAP = {
     "MESA": "MESA",
-    "MESA-LINEA": "MESA-LINEA",
+    "MESA-LINEA": "MESA",
     "PLANA": "PLANA",
-    "PLANA-LINEA": "PLANA-LINEA",
-    "PLANA - LINEA": "PLANA-LINEA",
+    "PLANA-LINEA": "PLANA",
+    "PLANA - LINEA": "PLANA",
     "ROBOT": "ROBOT",
-    "POSTE-LINEA": "POSTE-LINEA",
-    "POST-LINEA": "POSTE-LINEA",
-    "ZIGZAG-LINEA": "PLANA-LINEA",
-    "ZIGZAG": "PLANA-LINEA",
+    "POSTE": "POSTE",
+    "POSTE-LINEA": "POSTE",
+    "POST-LINEA": "POSTE",
+    "ZIGZAG-LINEA": "PLANA",
+    "ZIGZAG": "PLANA",
     "PLANCHA": "MESA",
-    "MEDIO POSTE": "POSTE-LINEA",
-    "PLANA/POSTE MEDIO-LINEA": "PLANA-LINEA",
+    "MEDIO POSTE": "POSTE",
+    "PLANA/POSTE MEDIO-LINEA": "PLANA",
     "CHACHE 048": "ROBOT",
     "2A-3020-M1": "ROBOT",
+    "MAQUILA": "MAQUILA",
+}
+
+# Inferir configuracion (LINEA/INDIVIDUAL) del nombre original de recurso
+_CONFIGURACION_FROM_RAW = {
+    "MESA-LINEA": "LINEA",
+    "PLANA-LINEA": "LINEA",
+    "PLANA - LINEA": "LINEA",
+    "POSTE-LINEA": "LINEA",
+    "POST-LINEA": "LINEA",
+    "ZIGZAG-LINEA": "LINEA",
+    "PLANA/POSTE MEDIO-LINEA": "LINEA",
+    "MEDIO POSTE": "LINEA",
 }
 
 # Nombres canonicos de robots fisicos
@@ -51,9 +65,9 @@ ETAPA_TO_RESOURCE = {
     "PRE -ROBOT": "MESA",
     "PRE-ROBOT": "MESA",
     "PRE-ROBOT ": "MESA",
-    "POST-PLANA-LINEA": "PLANA-LINEA",
-    "POST-LINEA": "POSTE-LINEA",
-    "ZIGZAG-LINEA": "PLANA-LINEA",
+    "POST-PLANA-LINEA": "PLANA",
+    "POST-LINEA": "POSTE",
+    "ZIGZAG-LINEA": "PLANA",
     "N/A": "MESA",
 }
 
@@ -100,9 +114,13 @@ def normalize_resource(resource_val, etapa_val=None):
         if res.startswith("="):
             return _infer_from_etapa(etapa_val)
         # Buscar por contenido parcial
-        for key in ["MESA-LINEA", "PLANA-LINEA", "POSTE-LINEA"]:
-            if key in res:
-                return key
+        if "LINEA" in res:
+            if "MESA" in res:
+                return "MESA"
+            if "PLANA" in res or "ZIGZAG" in res:
+                return "PLANA"
+            if "POSTE" in res or "POST" in res:
+                return "POSTE"
         if "ROBOT" in res:
             return "ROBOT"
         if "PLANA" in res:
@@ -132,8 +150,22 @@ def _infer_from_etapa(etapa_val):
     if "MESA" in etapa:
         return "MESA"
     if "POSTE" in etapa:
-        return "POSTE-LINEA"
+        return "POSTE"
     return "GENERAL"
+
+
+def infer_configuracion(resource_raw):
+    """Infiere CONFIGURACION (LINEA/INDIVIDUAL) del valor original de recurso."""
+    if not resource_raw:
+        return ""
+    raw = str(resource_raw).strip().upper()
+    if raw in _CONFIGURACION_FROM_RAW:
+        return _CONFIGURACION_FROM_RAW[raw]
+    if "LINEA" in raw and raw not in ("ROBOT", "MESA", "PLANA", "POSTE", "MAQUILA", "GENERAL"):
+        return "LINEA"
+    if raw in ("MESA", "PLANA", "POSTE"):
+        return "INDIVIDUAL"
+    return ""
 
 
 def normalize_robot_name(val):
@@ -221,6 +253,7 @@ def load_catalog_v2(filepath: str) -> dict:
                 sec_per_pair = 3600.0 / rate_val
 
             recurso = normalize_resource(recurso_raw, etapa)
+            configuracion = infer_configuracion(recurso_raw)
 
             # Parsear robots asignados de columnas 8-15
             robots = _parse_robots_from_row(ws, row)
@@ -228,12 +261,14 @@ def load_catalog_v2(filepath: str) -> dict:
             # Si tiene robots asignados, el recurso debe ser ROBOT
             if robots and recurso != "ROBOT":
                 recurso = "ROBOT"
+                configuracion = ""
 
             raw_ops[current_model_num]["ops"].append({
                 "fraccion": int(fraccion),
                 "operacion": str(operacion).strip() if operacion else f"OP {etapa or 'AUTO'}",
                 "etapa": str(etapa).strip() if etapa else "",
                 "recurso": recurso,
+                "configuracion": configuracion,
                 "recurso_raw": str(recurso_raw).strip() if recurso_raw else "",
                 "robots": robots,
                 "rate": round(rate_val, 2),
