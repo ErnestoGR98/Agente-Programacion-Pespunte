@@ -52,7 +52,7 @@ export async function downloadTemplate(): Promise<void> {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'template_pespunte.xlsx'
+  a.download = 'template_pedido.xlsx'
   a.click()
   URL.revokeObjectURL(url)
 }

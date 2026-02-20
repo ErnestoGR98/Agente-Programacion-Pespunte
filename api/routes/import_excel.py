@@ -65,23 +65,14 @@ def _sb_delete(table, query):
 
 @router.get("/template")
 def download_template():
-    """Genera y descarga template Excel con formato correcto."""
-    # Obtener robots activos desde Supabase (si disponible)
-    robot_names = None
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            robots = _sb_get("robots", "select=nombre&estado=eq.ACTIVO&order=orden")
-            robot_names = [r["nombre"] for r in robots]
-        except Exception:
-            pass  # Usar defaults del generador
-
+    """Genera y descarga template Excel para importar pedido semanal."""
     from template_generator import generate_template
 
-    buf = generate_template(robot_names)
+    buf = generate_template()
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=template_pespunte.xlsx"},
+        headers={"Content-Disposition": "attachment; filename=template_pedido.xlsx"},
     )
 
 
