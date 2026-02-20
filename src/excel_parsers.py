@@ -17,16 +17,29 @@ _COMPOUND_TO_BASE = {
 }
 
 
+_DEFAULT_ROBOTS = {
+    "2A-3020-M1", "2A-3020-M2", "3020-M4", "3020-M6",
+    "6040-M4", "6040-M5", "CHACHE 048", "CHACHE 049",
+}
+_DEFAULT_ALIASES = {"3020 M-4": "3020-M4", "6040-M5 (PARCIAL)": "6040-M5"}
+
+
 def _get_valid_robots() -> set:
-    """Lee robots validos desde config.json."""
-    from config_manager import get_physical_robots
-    return set(get_physical_robots())
+    """Lee robots validos desde config.json (con fallback a defaults)."""
+    try:
+        from config_manager import get_physical_robots
+        return set(get_physical_robots())
+    except Exception:
+        return _DEFAULT_ROBOTS
 
 
 def _get_robot_aliases() -> dict:
-    """Lee aliases de robots desde config.json."""
-    from config_manager import get_robot_aliases
-    return get_robot_aliases()
+    """Lee aliases de robots desde config.json (con fallback a defaults)."""
+    try:
+        from config_manager import get_robot_aliases
+        return get_robot_aliases()
+    except Exception:
+        return _DEFAULT_ALIASES
 
 
 def _normalize_robot(val):
