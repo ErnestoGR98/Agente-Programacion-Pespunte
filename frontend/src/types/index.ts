@@ -261,9 +261,8 @@ export interface DailyResult {
   total_tardiness: number
   plantilla: number
   schedule: DailyScheduleEntry[]
-  assignments?: Record<string, unknown>
-  operator_timelines?: Record<string, unknown>
-  unassigned_ops?: unknown[]
+  operator_timelines?: Record<string, OperatorTimelineEntry[]>
+  unassigned_ops?: UnassignedOp[]
 }
 
 export interface DailyScheduleEntry {
@@ -277,7 +276,28 @@ export interface DailyScheduleEntry {
   blocks: number[]
   total: number
   robot?: string
+  operario?: string
   pendiente?: number
+}
+
+export interface OperatorTimelineEntry {
+  block: number
+  label: string
+  modelo: string
+  fraccion: number
+  operacion: string
+  recurso: string
+  pares: number
+  robot: string
+}
+
+export interface UnassignedOp {
+  modelo: string
+  fraccion: number
+  operacion: string
+  recurso: string
+  total_pares: number
+  parcial?: boolean
 }
 
 // --- API FastAPI ---

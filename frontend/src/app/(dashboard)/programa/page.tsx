@@ -55,6 +55,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
   const plantilla = data.plantilla || 0
   const status = data.status || '?'
   const maxHc = schedule.reduce((max, s) => Math.max(max, s.hc), 0)
+  const unassignedCount = (data.unassigned_ops || []).length
 
   // Detect block labels from first schedule entry with blocks
   const blockLabels = useMemo(() => {
@@ -73,7 +74,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
   return (
     <div className="space-y-4">
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <KpiCard label="Pares del Dia" value={totalPares.toLocaleString()} />
         <KpiCard label="HC Maximo" value={maxHc} />
         <KpiCard label="Plantilla" value={plantilla} />
@@ -81,6 +82,11 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
           label="Estado"
           value={status}
           detail={tardiness > 0 ? `${tardiness} pares pendientes` : undefined}
+        />
+        <KpiCard
+          label="Sin Operario"
+          value={unassignedCount}
+          detail={unassignedCount > 0 ? 'operaciones sin asignar' : 'todo asignado'}
         />
       </div>
 
@@ -104,6 +110,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
                 <th className="px-2 py-1 text-left">FRACC</th>
                 <th className="px-2 py-1 text-left">OPERACION</th>
                 <th className="px-2 py-1 text-left">RECURSO</th>
+                <th className="px-2 py-1 text-left">OPERARIO</th>
                 <th className="px-2 py-1 text-right">RATE</th>
                 <th className="px-2 py-1 text-right">HC</th>
                 {blockLabels.map((b) => (
@@ -122,6 +129,15 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
                     <td className="px-2 py-1 max-w-[120px] truncate">{s.operacion}</td>
                     <td className="px-2 py-1">
                       <Badge variant="outline" className="text-[10px]">{s.recurso}</Badge>
+                    </td>
+                    <td className="px-2 py-1">
+                      {s.operario === 'SIN ASIGNAR' ? (
+                        <span className="text-[10px] font-medium text-destructive">SIN ASIGNAR</span>
+                      ) : s.operario ? (
+                        <span className="text-[10px] font-medium">{s.operario}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">-</span>
+                      )}
                     </td>
                     <td className="px-2 py-1 text-right">{s.rate}</td>
                     <td className="px-2 py-1 text-right">{s.hc}</td>
@@ -144,7 +160,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
               })}
               {schedule.length === 0 && (
                 <tr>
-                  <td colSpan={blockLabels.length + 7} className="text-center text-muted-foreground py-8">
+                  <td colSpan={blockLabels.length + 8} className="text-center text-muted-foreground py-8">
                     Sin operaciones para este dia.
                   </td>
                 </tr>

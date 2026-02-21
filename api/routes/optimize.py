@@ -363,17 +363,29 @@ def run_optimization(req: OptimizeRequest):
     # 7. Scheduling diario
     raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled)
 
-    # Aplanar: mover summary fields al top level y renombrar campos de schedule
-    # para coincidir con DailyResult/DailyScheduleEntry del frontend
+    # 8. Asignacion de operarios (ANTES de renombrar campos,
+    #    porque operator_assignment.py espera block_pares/total_pares/robots_used)
+    op_results = {}
+    if operarios:
+        op_results = assign_operators_week(
+            raw_daily, operarios, params["time_blocks"]
+        )
+
+    # 9. Aplanar: mover summary fields al top level y renombrar campos de schedule
+    # para coincidir con DailyResult/DailyScheduleEntry del frontend.
+    # Si hay operator assignments, usar el augmented schedule que incluye operarios.
     model_lookup = {m["codigo"]: m for m in models_for_opt}
     daily_results = {}
     for day_name, day_data in raw_daily.items():
         summary = day_data.get("summary", {})
-        raw_schedule = day_data.get("schedule", [])
+
+        # Usar augmented schedule (con operarios) si existe, sino raw
+        op_day = op_results.get(day_name, {})
+        source_schedule = op_day.get("assignments") or day_data.get("schedule", [])
 
         # Transformar schedule entries: renombrar campos para el frontend
         schedule = []
-        for s in raw_schedule:
+        for s in source_schedule:
             # Buscar etapa desde las operaciones del catalogo
             modelo_code = s.get("modelo", "")
             etapa = ""
@@ -394,7 +406,8 @@ def run_optimization(req: OptimizeRequest):
                 "etapa": etapa,
                 "blocks": s.get("block_pares", []),
                 "total": s.get("total_pares", 0),
-                "robot": (s.get("robots_used") or [None])[0],
+                "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+                "operario": s.get("operario", ""),
             })
 
         daily_results[day_name] = {
@@ -403,20 +416,11 @@ def run_optimization(req: OptimizeRequest):
             "total_tardiness": summary.get("total_tardiness", 0),
             "plantilla": summary.get("plantilla", 0),
             "schedule": schedule,
+            "operator_timelines": op_day.get("operator_timelines", {}),
+            "unassigned_ops": op_day.get("unassigned", []),
         }
 
-    # 8. Asignacion de operarios
-    if operarios:
-        op_assignments = assign_operators_week(
-            daily_results, operarios, params["time_blocks"]
-        )
-        for day, data in op_assignments.items():
-            if day in daily_results:
-                daily_results[day]["assignments"] = data["assignments"]
-                daily_results[day]["operator_timelines"] = data["operator_timelines"]
-                daily_results[day]["unassigned_ops"] = data["unassigned"]
-
-    # 9. Guardar resultado en Supabase
+    # 10. Guardar resultado en Supabase
     base_name = req.semana or req.pedido_nombre
     saved_as = _save_resultado(
         base_name, weekly_schedule, weekly_summary,
