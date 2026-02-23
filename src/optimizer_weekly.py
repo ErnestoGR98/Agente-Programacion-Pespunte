@@ -44,6 +44,12 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     days = params["days"]
     num_days = len(days)
     num_models = len(models)
+
+    if num_days == 0:
+        raise RuntimeError("No hay dias laborales configurados (tabla dias_laborales vacia)")
+    if num_models == 0:
+        raise RuntimeError("No hay modelos para optimizar")
+
     min_lot = params.get("min_lot_size", 100)
     step = params.get("lot_step", 50)
     lead_time_maquila = params.get("lead_time_maquila", 0)

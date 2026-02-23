@@ -33,6 +33,8 @@ def _sb_get(table: str, query: str = "") -> list:
         f"{SUPABASE_URL}/rest/v1/{table}?{query}",
         headers=_sb_headers(),
     )
+    if r.status_code == 400:
+        return []
     r.raise_for_status()
     return r.json()
 
@@ -56,7 +58,7 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
         ]
 
     # Resultado mas reciente
-    q = "select=*&order=created_at.desc&limit=1"
+    q = "select=*&order=fecha_optimizacion.desc&limit=1"
     if semana:
         q = f"select=*&base_name=eq.{semana}&order=version.desc&limit=1"
     resultados = _sb_get("resultados", q)

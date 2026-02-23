@@ -12,6 +12,9 @@ El frontend habla directo a Supabase para CRUD de datos.
 import sys
 import traceback
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # Agregar src/ al path para importar modulos existentes
 SRC_DIR = Path(__file__).parent.parent / "src"

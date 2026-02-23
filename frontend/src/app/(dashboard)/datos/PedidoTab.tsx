@@ -49,6 +49,8 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
     const cat = pedido.catalogo.find((m) => m.modelo_num === modelo)
     const alts = cat?.alternativas || []
     setNewColor(alts.length > 0 ? alts[0] : '')
+    const fab = pedido.getFabricaForModelo(modelo)
+    if (fab) setNewFabrica(fab)
   }
 
   async function handleSavePedido() {
@@ -227,7 +229,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
             <div className="space-y-1">
               <Label className="text-xs">Fabrica</Label>
               <Select value={newFabrica} onValueChange={setNewFabrica}>
-                <SelectTrigger className="h-8 w-28">
+                <SelectTrigger className="h-8 w-36">
                   <SelectValue placeholder="Fabrica..." />
                 </SelectTrigger>
                 <SelectContent>

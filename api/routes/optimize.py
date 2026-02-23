@@ -8,6 +8,7 @@ completo de OR-Tools, y guarda resultados de vuelta en Supabase.
 import os
 import requests
 from copy import deepcopy
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -288,7 +289,7 @@ class OptimizeRequest(BaseModel):
     pedido_nombre: str
     semana: str = ""
     nota: str = ""
-    reopt_from_day: int | None = None
+    reopt_from_day: Optional[int] = None
 
 
 class OptimizeResponse(BaseModel):
@@ -314,12 +315,50 @@ def run_optimization(req: OptimizeRequest):
     if not pedido:
         raise HTTPException(404, f"Pedido '{req.pedido_nombre}' no encontrado")
 
+    # --- Diagnosticos: validar datos antes de optimizar ---
+    days = params.get("days", [])
+    print(f"[OPT] dias_laborales: {len(days)} dias")
+    for d in days:
+        print(f"  {d['name']}: {d['minutes']}min, plantilla={d['plantilla']}")
+    if not days:
+        raise HTTPException(
+            400,
+            "Tabla 'dias_laborales' esta vacia. "
+            "Ejecuta el seed SQL de la migracion inicial.",
+        )
+
+    resource_cap = params.get("resource_capacity", {})
+    print(f"[OPT] capacidades_recurso: {resource_cap}")
+    if not resource_cap:
+        raise HTTPException(
+            400,
+            "Tabla 'capacidades_recurso' esta vacia. "
+            "Ejecuta el seed SQL de la migracion inicial.",
+        )
+
+    print(f"[OPT] catalogo: {len(catalogo)} modelos")
+    for mn, cat in catalogo.items():
+        print(f"  {mn}: {cat['num_ops']} ops, {cat['total_sec_per_pair']}s/par")
+
+    print(f"[OPT] pedido '{req.pedido_nombre}': {len(pedido)} items")
+    for it in pedido:
+        print(f"  {it['modelo']} x{it['volumen']} ({it.get('fabrica','')})")
+
     restricciones = _load_restricciones(req.semana or None)
     avance_data = _load_avance(req.semana) if req.semana else {}
     operarios = _load_operarios()
 
     # 2. Cruzar pedido con catalogo
     matched = _match_models(catalogo, pedido)
+    print(f"[OPT] matched: {len(matched)} modelos cruzados")
+    for m in matched:
+        print(f"  {m['modelo_num']}: {m['total_producir']} pares, "
+              f"{m['num_ops']} ops, {m['total_sec_per_pair']}s/par")
+        if m["num_ops"] == 0:
+            print(f"  *** ATENCION: modelo {m['modelo_num']} sin operaciones!")
+        if m["total_sec_per_pair"] == 0:
+            print(f"  *** ATENCION: modelo {m['modelo_num']} con 0 sec/par!")
+
     if not matched:
         raise HTTPException(400, "Ningun modelo del pedido tiene catalogo")
 

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { sendChatMessage } from '@/lib/api/fastapi'
+import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,11 +22,38 @@ export default function AsistentePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Cargar historial de chat desde Supabase al montar o cambiar semana
+  const loadHistory = useCallback(async () => {
+    const semana = currentSemana || currentPedidoNombre || ''
+    if (!semana) { setMessages([]); setLoading(false); return }
+    setLoading(true)
+    const { data } = await supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('semana', semana)
+      .order('created_at', { ascending: true })
+    setMessages((data as ChatMessage[]) || [])
+    setLoading(false)
+  }, [currentSemana, currentPedidoNombre])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Guardar un mensaje en Supabase
+  async function saveMessage(msg: ChatMessage) {
+    const semana = currentSemana || currentPedidoNombre || 'general'
+    await supabase.from('chat_messages').insert({
+      semana,
+      role: msg.role,
+      content: msg.content,
+    })
+  }
 
   async function handleSend(text?: string) {
     const content = text || input.trim()
@@ -37,6 +65,9 @@ export default function AsistentePage() {
     setInput('')
     setSending(true)
 
+    // Guardar mensaje del usuario
+    await saveMessage(userMsg)
+
     try {
       const res = await sendChatMessage({
         messages: newMessages,
@@ -44,12 +75,17 @@ export default function AsistentePage() {
         semana: currentSemana || '',
         model: 'claude-sonnet-4-5-20250929',
       })
-      setMessages([...newMessages, { role: 'assistant', content: res.response }])
+      const assistantMsg: ChatMessage = { role: 'assistant', content: res.response }
+      setMessages([...newMessages, assistantMsg])
+      // Guardar respuesta del asistente
+      await saveMessage(assistantMsg)
     } catch (err) {
-      setMessages([
-        ...newMessages,
-        { role: 'assistant', content: `Error: ${err instanceof Error ? err.message : 'No se pudo conectar con el asistente'}` },
-      ])
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: `Error: ${err instanceof Error ? err.message : 'No se pudo conectar con el asistente'}`,
+      }
+      setMessages([...newMessages, errorMsg])
+      await saveMessage(errorMsg)
     }
     setSending(false)
   }
@@ -64,7 +100,13 @@ export default function AsistentePage() {
           </p>
         </div>
         {messages.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => setMessages([])}>
+          <Button variant="ghost" size="sm" onClick={async () => {
+            const semana = currentSemana || currentPedidoNombre || ''
+            if (semana) {
+              await supabase.from('chat_messages').delete().eq('semana', semana)
+            }
+            setMessages([])
+          }}>
             <Trash2 className="mr-1 h-3 w-3" /> Limpiar
           </Button>
         )}
@@ -72,7 +114,12 @@ export default function AsistentePage() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-        {messages.length === 0 && (
+        {loading && (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!loading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4">
             <p className="text-muted-foreground">Haz una pregunta sobre tu programacion</p>
             <div className="grid grid-cols-2 gap-2">

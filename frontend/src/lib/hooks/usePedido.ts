@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import type { Pedido, PedidoItem, CatalogoModelo, Fabrica } from '@/types'
+import type { Pedido, PedidoItem, CatalogoModelo, Fabrica, ModeloFabrica } from '@/types'
 
 export function usePedido() {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
@@ -10,18 +10,21 @@ export function usePedido() {
   const [currentPedidoId, setCurrentPedidoId] = useState<string | null>(null)
   const [catalogo, setCatalogo] = useState<CatalogoModelo[]>([])
   const [fabricas, setFabricas] = useState<Fabrica[]>([])
+  const [modeloFabricas, setModeloFabricas] = useState<ModeloFabrica[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadBase = useCallback(async () => {
     setLoading(true)
-    const [pedRes, catRes, fabRes] = await Promise.all([
+    const [pedRes, catRes, fabRes, mfRes] = await Promise.all([
       supabase.from('pedidos').select('*').order('created_at', { ascending: false }),
       supabase.from('catalogo_modelos').select('*').order('modelo_num'),
       supabase.from('fabricas').select('*').order('orden'),
+      supabase.from('modelo_fabrica').select('*'),
     ])
     if (pedRes.data) setPedidos(pedRes.data)
     if (catRes.data) setCatalogo(catRes.data)
     if (fabRes.data) setFabricas(fabRes.data)
+    if (mfRes.data) setModeloFabricas(mfRes.data)
     setLoading(false)
   }, [])
 
@@ -103,6 +106,15 @@ export function usePedido() {
     return Array.from(map.values())
   }
 
+  function getFabricaForModelo(modeloNum: string): string {
+    const cat = catalogo.find((m) => m.modelo_num === modeloNum)
+    if (!cat) return ''
+    const mf = modeloFabricas.find((m) => m.modelo_id === cat.id)
+    if (!mf) return ''
+    const fab = fabricas.find((f) => f.id === mf.fabrica_id)
+    return fab?.nombre || ''
+  }
+
   const totalPares = items.reduce((sum, it) => sum + it.volumen, 0)
   const modelosUnicos = new Set(items.map((it) => it.modelo_num)).size
 
@@ -111,7 +123,7 @@ export function usePedido() {
     totalPares, modelosUnicos,
     loadPedido, createPedido, deletePedido,
     addItem, updateItem, deleteItem, saveItems,
-    consolidateDuplicates,
+    consolidateDuplicates, getFabricaForModelo,
     reload: loadBase,
   }
 }
