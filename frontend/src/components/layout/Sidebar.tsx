@@ -5,9 +5,10 @@ import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, MessageSquare, Users, Settings,
-  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle,
+  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/lib/hooks/useAuth'
 
 interface NavItem {
   href: string
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname()
   const appStep = useAppStore((s) => s.appStep)
+  const { user, signOut } = useAuth()
 
   return (
     <aside className="flex h-screen w-56 flex-col border-r bg-card">
@@ -84,6 +86,24 @@ export function Sidebar() {
           })}
         </ul>
       </nav>
+
+      {/* Usuario + logout */}
+      {user && (
+        <div className="border-t px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="truncate text-xs text-muted-foreground" title={user.email ?? ''}>
+              {user.email}
+            </span>
+            <button
+              onClick={signOut}
+              className="ml-2 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              title="Cerrar sesion"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Step indicator */}
       <div className="border-t px-4 py-3">

@@ -21,7 +21,7 @@ from catalog_loader import load_catalog_v2
 router = APIRouter()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_KEY", "")
 
 
 def _sb_headers(prefer="return=representation"):
