@@ -18,8 +18,8 @@ export function useConfiguracion() {
   const [parametros, setParametros] = useState<ParametroOptimizacion[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (initial = false) => {
+    if (initial) setLoading(true)
     const [r, a, f, c, d, h, p, pm] = await Promise.all([
       supabase.from('robots').select('*').order('orden'),
       supabase.from('robot_aliases').select('*'),
@@ -41,7 +41,7 @@ export function useConfiguracion() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(true) }, [load])
 
   // --- Robots ---
   async function updateRobot(id: string, data: Partial<Robot>) {
@@ -72,14 +72,14 @@ export function useConfiguracion() {
   }
 
   // --- Fabricas ---
-  async function updateFabrica(id: string, nombre: string) {
-    await supabase.from('fabricas').update({ nombre }).eq('id', id)
+  async function updateFabrica(id: string, data: Partial<Fabrica>) {
+    await supabase.from('fabricas').update(data).eq('id', id)
     await load()
   }
 
-  async function addFabrica(nombre: string) {
+  async function addFabrica(nombre: string, es_maquila = false) {
     const maxOrden = fabricas.length > 0 ? Math.max(...fabricas.map(f => f.orden)) + 1 : 0
-    await supabase.from('fabricas').insert({ nombre, orden: maxOrden })
+    await supabase.from('fabricas').insert({ nombre, orden: maxOrden, es_maquila })
     await load()
   }
 

@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import type { Pedido, PedidoItem, CatalogoModelo, Fabrica, ModeloFabrica } from '@/types'
+import type {
+  Pedido, PedidoItem, CatalogoModelo, Fabrica, ModeloFabrica,
+  AsignacionMaquila, MaquilaOperacion,
+} from '@/types'
 
 export function usePedido() {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
@@ -11,20 +14,45 @@ export function usePedido() {
   const [catalogo, setCatalogo] = useState<CatalogoModelo[]>([])
   const [fabricas, setFabricas] = useState<Fabrica[]>([])
   const [modeloFabricas, setModeloFabricas] = useState<ModeloFabrica[]>([])
+  const [maquilaOps, setMaquilaOps] = useState<Record<string, MaquilaOperacion[]>>({})
+  const [asignaciones, setAsignaciones] = useState<AsignacionMaquila[]>([])
+  const [maquilaFabricas, setMaquilaFabricas] = useState<Fabrica[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadBase = useCallback(async () => {
     setLoading(true)
-    const [pedRes, catRes, fabRes, mfRes] = await Promise.all([
+    const [pedRes, catRes, fabRes, mfRes, maqOpsRes] = await Promise.all([
       supabase.from('pedidos').select('*').order('created_at', { ascending: false }),
       supabase.from('catalogo_modelos').select('*').order('modelo_num'),
       supabase.from('fabricas').select('*').order('orden'),
       supabase.from('modelo_fabrica').select('*'),
+      supabase
+        .from('catalogo_operaciones')
+        .select('fraccion, operacion, modelo_id, catalogo_modelos!inner(modelo_num)')
+        .eq('recurso', 'MAQUILA')
+        .order('fraccion'),
     ])
     if (pedRes.data) setPedidos(pedRes.data)
     if (catRes.data) setCatalogo(catRes.data)
-    if (fabRes.data) setFabricas(fabRes.data)
+    if (fabRes.data) {
+      setFabricas(fabRes.data)
+      setMaquilaFabricas(fabRes.data.filter((f: Fabrica) => f.es_maquila))
+    }
     if (mfRes.data) setModeloFabricas(mfRes.data)
+
+    // Build map: modelo_num → MaquilaOperacion[]
+    const maqOpsMap: Record<string, MaquilaOperacion[]> = {}
+    for (const op of maqOpsRes.data || []) {
+      const modeloNum = (op.catalogo_modelos as unknown as { modelo_num: string }).modelo_num
+      if (!maqOpsMap[modeloNum]) maqOpsMap[modeloNum] = []
+      maqOpsMap[modeloNum].push({
+        fraccion: op.fraccion,
+        operacion: op.operacion,
+        modelo_id: op.modelo_id,
+      })
+    }
+    setMaquilaOps(maqOpsMap)
+
     setLoading(false)
   }, [])
 
@@ -32,12 +60,24 @@ export function usePedido() {
 
   async function loadPedido(pedidoId: string) {
     setCurrentPedidoId(pedidoId)
-    const { data } = await supabase
+    const { data: itemsData } = await supabase
       .from('pedido_items')
       .select('*')
       .eq('pedido_id', pedidoId)
       .order('modelo_num')
-    setItems(data || [])
+    setItems(itemsData || [])
+
+    // Load maquila assignments for all items
+    const itemIds = (itemsData || []).map((it: PedidoItem) => it.id)
+    if (itemIds.length > 0) {
+      const { data: asigData } = await supabase
+        .from('asignaciones_maquila')
+        .select('*')
+        .in('pedido_item_id', itemIds)
+      setAsignaciones(asigData || [])
+    } else {
+      setAsignaciones([])
+    }
   }
 
   async function createPedido(nombre: string): Promise<string | null> {
@@ -58,6 +98,7 @@ export function usePedido() {
     if (currentPedidoId === id) {
       setCurrentPedidoId(null)
       setItems([])
+      setAsignaciones([])
     }
     await loadBase()
   }
@@ -82,7 +123,7 @@ export function usePedido() {
   }
 
   async function saveItems(pedidoId: string, newItems: Omit<PedidoItem, 'id' | 'pedido_id'>[]) {
-    // Replace all items
+    // Replace all items (CASCADE deletes asignaciones_maquila too)
     await supabase.from('pedido_items').delete().eq('pedido_id', pedidoId)
     if (newItems.length > 0) {
       await supabase.from('pedido_items').insert(
@@ -90,6 +131,44 @@ export function usePedido() {
       )
     }
     await loadPedido(pedidoId)
+  }
+
+  // --- Maquila assignments ---
+
+  async function setMaquilaAssignment(
+    pedidoItemId: string, fraccion: number, operacion: string, maquila: string
+  ) {
+    await supabase
+      .from('asignaciones_maquila')
+      .upsert(
+        { pedido_item_id: pedidoItemId, fraccion, operacion, maquila },
+        { onConflict: 'pedido_item_id,fraccion' }
+      )
+    if (currentPedidoId) await loadPedido(currentPedidoId)
+  }
+
+  async function setAllMaquilaForItem(pedidoItemId: string, modeloNum: string, maquila: string) {
+    const ops = maquilaOps[modeloNum] || []
+    if (ops.length === 0) return
+    const rows = ops.map((op) => ({
+      pedido_item_id: pedidoItemId,
+      fraccion: op.fraccion,
+      operacion: op.operacion,
+      maquila,
+    }))
+    await supabase.from('asignaciones_maquila').delete().eq('pedido_item_id', pedidoItemId)
+    await supabase.from('asignaciones_maquila').insert(rows)
+    if (currentPedidoId) await loadPedido(currentPedidoId)
+  }
+
+  async function removeMaquilaAssignment(asignacionId: string) {
+    await supabase.from('asignaciones_maquila').delete().eq('id', asignacionId)
+    if (currentPedidoId) await loadPedido(currentPedidoId)
+  }
+
+  async function clearMaquilaAssignments(pedidoItemId: string) {
+    await supabase.from('asignaciones_maquila').delete().eq('pedido_item_id', pedidoItemId)
+    if (currentPedidoId) await loadPedido(currentPedidoId)
   }
 
   function consolidateDuplicates() {
@@ -125,5 +204,8 @@ export function usePedido() {
     addItem, updateItem, deleteItem, saveItems,
     consolidateDuplicates, getFabricaForModelo,
     reload: loadBase,
+    // Maquila
+    maquilaOps, asignaciones, maquilaFabricas,
+    setMaquilaAssignment, setAllMaquilaForItem, removeMaquilaAssignment, clearMaquilaAssignments,
   }
 }

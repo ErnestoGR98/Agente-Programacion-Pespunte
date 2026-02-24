@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useConfiguracion } from '@/lib/hooks/useConfiguracion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,6 +12,7 @@ import { PesosTab } from './tabs/PesosTab'
 
 export default function ConfiguracionPage() {
   const config = useConfiguracion()
+  const [activeTab, setActiveTab] = useState('robots')
 
   if (config.loading) {
     return (
@@ -28,7 +30,7 @@ export default function ConfiguracionPage() {
         Parametros del sistema de optimizacion.
       </p>
 
-      <Tabs defaultValue="robots">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="robots">Robots</TabsTrigger>
           <TabsTrigger value="capacidades">Capacidades</TabsTrigger>

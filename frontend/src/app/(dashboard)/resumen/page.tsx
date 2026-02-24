@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
+import { supabase } from '@/lib/supabase/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -14,9 +15,21 @@ import {
 } from 'recharts'
 import { DAY_ORDER } from '@/types'
 import type { WeeklyScheduleEntry } from '@/types'
+import { Truck } from 'lucide-react'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
+  const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    supabase
+      .from('fabricas')
+      .select('nombre')
+      .eq('es_maquila', true)
+      .then(({ data }) => {
+        setMaquilaFabricas(new Set((data || []).map((f: { nombre: string }) => f.nombre)))
+      })
+  }, [])
 
   if (!result) {
     return (
@@ -47,7 +60,7 @@ export default function ResumenPage() {
       </div>
 
       {/* Pivot table */}
-      <PivotTable schedule={schedule} />
+      <PivotTable schedule={schedule} maquilaFabricas={maquilaFabricas} />
 
       {/* Balance chart */}
       <BalanceChart summary={summary} />
@@ -62,7 +75,7 @@ export default function ResumenPage() {
 // Pivot Table: Modelo x Dia
 // ============================================================
 
-function PivotTable({ schedule }: { schedule: WeeklyScheduleEntry[] }) {
+function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEntry[]; maquilaFabricas: Set<string> }) {
   const pivot = useMemo(() => {
     const rawDays = [...new Set(schedule.map((e) => e.Dia))]
     const days = DAY_ORDER.filter((d) => rawDays.includes(d))
@@ -101,9 +114,16 @@ function PivotTable({ schedule }: { schedule: WeeklyScheduleEntry[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pivot.data.map((row, i) => (
-              <TableRow key={i}>
-                <TableCell className="text-xs">{row.fabrica}</TableCell>
+            {pivot.data.map((row, i) => {
+              const isMaquila = maquilaFabricas.has(row.fabrica as string)
+              return (
+              <TableRow key={i} className={isMaquila ? 'bg-destructive/5' : ''}>
+                <TableCell className="text-xs">
+                  <span className="flex items-center gap-1">
+                    {isMaquila && <Truck className="h-3 w-3 text-destructive shrink-0" />}
+                    <span className={isMaquila ? 'text-destructive' : ''}>{row.fabrica}</span>
+                  </span>
+                </TableCell>
                 <TableCell className="font-mono">{row.modelo}</TableCell>
                 {pivot.days.map((d) => (
                   <TableCell key={d} className="text-center">
@@ -112,7 +132,8 @@ function PivotTable({ schedule }: { schedule: WeeklyScheduleEntry[] }) {
                 ))}
                 <TableCell className="text-center font-bold">{row.total}</TableCell>
               </TableRow>
-            ))}
+              )
+            })}
           </TableBody>
         </Table>
       </CardContent>

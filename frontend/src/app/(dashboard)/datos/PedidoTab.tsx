@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Trash2, Plus, Download, CheckCircle, Loader2 } from 'lucide-react'
+import { Trash2, Plus, Download, CheckCircle, Loader2, Truck, ChevronDown, ChevronRight, X } from 'lucide-react'
 
 function getISOWeek(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
@@ -38,6 +38,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
   const semana = `sem_${week}_${year}`
 
@@ -110,6 +111,26 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
     }
   }
 
+  function toggleExpand(itemId: string) {
+    setExpandedItems((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }
+
+  // Count items with maquila ops
+  const itemsConMaquila = pedido.items.filter(
+    (it) => (pedido.maquilaOps[it.modelo_num] || []).length > 0
+  ).length
+  const itemsMaquilaAsignados = pedido.items.filter((it) => {
+    const ops = pedido.maquilaOps[it.modelo_num] || []
+    if (ops.length === 0) return false
+    const asigs = pedido.asignaciones.filter((a) => a.pedido_item_id === it.id)
+    return asigs.length >= ops.length
+  }).length
+
   return (
     <div className="space-y-4 mt-4">
       {message && (
@@ -120,10 +141,17 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <KpiCard label="Total Pares" value={pedido.totalPares.toLocaleString()} />
         <KpiCard label="Modelos" value={pedido.modelosUnicos} />
         <KpiCard label="Items" value={pedido.items.length} />
+        {itemsConMaquila > 0 && (
+          <KpiCard
+            label="Maquila"
+            value={`${itemsMaquilaAsignados}/${itemsConMaquila}`}
+            detail="items asignados"
+          />
+        )}
       </div>
 
       {/* Semana selector + Save/Load */}
@@ -265,33 +293,135 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                 <TableHead>Color</TableHead>
                 <TableHead>Fabrica</TableHead>
                 <TableHead>Volumen</TableHead>
-                <TableHead className="w-16"></TableHead>
+                <TableHead className="w-20"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pedido.items.map((it) => (
-                <TableRow key={it.id}>
-                  <TableCell className="font-mono">{it.modelo_num}</TableCell>
-                  <TableCell>{it.color}</TableCell>
-                  <TableCell>{it.fabrica}</TableCell>
-                  <TableCell>
-                    <Input
-                      type="number" min={50} step={50}
-                      value={it.volumen}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value)
-                        if (v > 0) pedido.updateItem(it.id, { volumen: v })
-                      }}
-                      className="h-7 w-24"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => pedido.deleteItem(it.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {pedido.items.map((it) => {
+                const maqOps = pedido.maquilaOps[it.modelo_num] || []
+                const hasMaquila = maqOps.length > 0
+                const isExpanded = expandedItems.has(it.id)
+                const itemAsigs = pedido.asignaciones.filter((a) => a.pedido_item_id === it.id)
+                const allAssigned = hasMaquila && itemAsigs.length >= maqOps.length
+
+                return (
+                  <>
+                    <TableRow key={it.id}>
+                      <TableCell className="font-mono">
+                        <span className="flex items-center gap-2">
+                          {it.modelo_num}
+                          {hasMaquila && (
+                            <button
+                              className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-destructive/10 transition-colors"
+                              onClick={() => toggleExpand(it.id)}
+                            >
+                              <Truck className={`h-3.5 w-3.5 shrink-0 ${allAssigned ? 'text-destructive' : 'text-destructive/40'}`} />
+                              {isExpanded
+                                ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                              }
+                            </button>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell>{it.color}</TableCell>
+                      <TableCell>{it.fabrica}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="number" min={50} step={50}
+                          value={it.volumen}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value)
+                            if (v > 0) pedido.updateItem(it.id, { volumen: v })
+                          }}
+                          className="h-7 w-24"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" onClick={() => pedido.deleteItem(it.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Maquila assignment expandable row */}
+                    {hasMaquila && isExpanded && (
+                      <TableRow key={`${it.id}-maquila`}>
+                        <TableCell colSpan={5} className="bg-destructive/5 border-l-2 border-destructive/30 p-3">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-destructive flex items-center gap-1">
+                                <Truck className="h-3.5 w-3.5" />
+                                Operaciones de Maquila ({maqOps.length} fracciones)
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {itemAsigs.length > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                                    onClick={() => pedido.clearMaquilaAssignments(it.id)}
+                                  >
+                                    <X className="h-3 w-3 mr-1" /> Limpiar todas
+                                  </Button>
+                                )}
+                                <span className="text-xs text-muted-foreground">Asignar todas a:</span>
+                                <Select onValueChange={(val) => pedido.setAllMaquilaForItem(it.id, it.modelo_num, val)}>
+                                  <SelectTrigger className="h-7 w-40 text-xs">
+                                    <SelectValue placeholder="Maquila..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {pedido.maquilaFabricas.map((f) => (
+                                      <SelectItem key={f.id} value={f.nombre}>{f.nombre}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {maqOps.map((op) => {
+                                const currentAsig = itemAsigs.find((a) => a.fraccion === op.fraccion)
+                                return (
+                                  <div key={op.fraccion} className="flex items-center gap-3 text-xs">
+                                    <Badge variant="outline" className="font-mono text-[10px] w-10 justify-center shrink-0">
+                                      F{op.fraccion}
+                                    </Badge>
+                                    <span className="flex-1 truncate text-muted-foreground">{op.operacion}</span>
+                                    <Select
+                                      value={currentAsig?.maquila || ''}
+                                      onValueChange={(val) =>
+                                        pedido.setMaquilaAssignment(it.id, op.fraccion, op.operacion, val)
+                                      }
+                                    >
+                                      <SelectTrigger className={`h-7 w-40 text-xs ${currentAsig ? 'border-destructive/40' : ''}`}>
+                                        <SelectValue placeholder="Sin asignar" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {pedido.maquilaFabricas.map((f) => (
+                                          <SelectItem key={f.id} value={f.nombre}>{f.nombre}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {currentAsig && (
+                                      <button
+                                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                                        onClick={() => pedido.removeMaquilaAssignment(currentAsig.id)}
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                )
+              })}
               {pedido.items.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-8">

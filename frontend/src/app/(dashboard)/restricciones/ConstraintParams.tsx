@@ -56,21 +56,6 @@ export function ConstraintParams({
           </Select>
         </div>
       )
-    case 'MAQUILA':
-      return (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <Label className="text-xs">Pares a maquilar</Label>
-            <Input type="number" min={50} step={50} value={String(params.pares_maquila || '')}
-              onChange={(e) => set('pares_maquila', parseInt(e.target.value) || 0)} className="h-8" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Proveedor</Label>
-            <Input value={String(params.proveedor || '')}
-              onChange={(e) => set('proveedor', e.target.value)} className="h-8" />
-          </div>
-        </div>
-      )
     case 'RETRASO_MATERIAL':
       return (
         <div className="grid grid-cols-2 gap-4">

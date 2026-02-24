@@ -6,9 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RestriccionesTab } from './RestriccionesForm'
+import { AvanceTab } from './AvanceTab'
 
 export default function RestriccionesPage() {
   const semana = useAppStore((s) => s.currentSemana)
+  const pedidoNombre = useAppStore((s) => s.currentPedidoNombre)
   const restricciones = useRestricciones(semana || undefined)
 
   if (restricciones.loading) {
@@ -38,9 +40,7 @@ export default function RestriccionesPage() {
           <RestriccionesTab data={restricciones} semana={semana} />
         </TabsContent>
         <TabsContent value="avance">
-          <div className="mt-4 text-center text-muted-foreground py-8">
-            Avance de produccion — disponible cuando haya un pedido cargado.
-          </div>
+          <AvanceTab semana={semana} pedidoNombre={pedidoNombre} />
         </TabsContent>
       </Tabs>
     </div>

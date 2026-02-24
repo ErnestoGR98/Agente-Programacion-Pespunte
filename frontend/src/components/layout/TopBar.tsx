@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Loader2, Play, History } from 'lucide-react'
+import { Loader2, Play, History, RotateCcw } from 'lucide-react'
 import type { Resultado } from '@/types'
+import { DAY_ORDER } from '@/types'
 
 interface ResultVersion {
   id: string
@@ -23,6 +24,7 @@ export function TopBar() {
   const { appStep, currentPedidoNombre, currentSemana, setCurrentResult, currentResult } = useAppStore()
   const [optimizing, setOptimizing] = useState(false)
   const [nota, setNota] = useState('')
+  const [reoptFromDay, setReoptFromDay] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [versions, setVersions] = useState<ResultVersion[]>([])
 
@@ -46,10 +48,12 @@ export function TopBar() {
     setError(null)
 
     try {
+      const dayIndex = reoptFromDay && reoptFromDay !== 'all' ? DAY_ORDER.indexOf(reoptFromDay as typeof DAY_ORDER[number]) : null
       const res = await runOptimization({
         pedido_nombre: currentPedidoNombre,
         semana: currentSemana || '',
         nota,
+        reopt_from_day: dayIndex !== null && dayIndex >= 0 ? dayIndex : null,
       })
 
       const { data } = await supabase
@@ -120,11 +124,29 @@ export function TopBar() {
 
         {canOptimize && (
           <>
+            {/* Re-opt from day selector */}
+            <Select value={reoptFromDay} onValueChange={setReoptFromDay}>
+              <SelectTrigger className="h-8 w-40 text-xs">
+                <RotateCcw className="mr-1 h-3 w-3" />
+                <SelectValue placeholder="Desde dia..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <span className="text-xs">Semana completa</span>
+                </SelectItem>
+                {DAY_ORDER.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    <span className="text-xs">Desde {d}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             <Input
               placeholder="Nota (opcional)"
               value={nota}
               onChange={(e) => setNota(e.target.value)}
-              className="h-8 w-48 text-sm"
+              className="h-8 w-40 text-sm"
             />
             <Button
               size="sm"

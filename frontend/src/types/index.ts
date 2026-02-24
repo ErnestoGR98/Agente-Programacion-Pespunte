@@ -41,6 +41,7 @@ export interface Fabrica {
   id: string
   nombre: string
   orden: number
+  es_maquila: boolean
 }
 
 export interface CapacidadRecurso {
@@ -172,6 +173,20 @@ export interface PedidoItem {
   clave_material: string
   fabrica: string
   volumen: number
+}
+
+export interface AsignacionMaquila {
+  id: string
+  pedido_item_id: string
+  fraccion: number
+  operacion: string
+  maquila: string
+}
+
+export interface MaquilaOperacion {
+  fraccion: number
+  operacion: string
+  modelo_id: string
 }
 
 // --- Restricciones ---
@@ -343,7 +358,7 @@ export const DAY_NAMES: DayName[] = ['Sab', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie']
 export const DAY_ORDER: DayName[] = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 
 export const CONSTRAINT_TYPES_OPERATIVAS: ConstraintType[] = [
-  'PRIORIDAD', 'RETRASO_MATERIAL', 'MAQUILA',
+  'PRIORIDAD', 'RETRASO_MATERIAL',
   'ROBOT_NO_DISPONIBLE', 'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',
 ]
 
