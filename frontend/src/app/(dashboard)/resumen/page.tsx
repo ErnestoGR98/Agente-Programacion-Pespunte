@@ -12,6 +12,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import { DAY_ORDER } from '@/types'
 import type { WeeklyScheduleEntry } from '@/types'
 
 export default function ResumenPage() {
@@ -63,7 +64,8 @@ export default function ResumenPage() {
 
 function PivotTable({ schedule }: { schedule: WeeklyScheduleEntry[] }) {
   const pivot = useMemo(() => {
-    const days = [...new Set(schedule.map((e) => e.Dia))]
+    const rawDays = [...new Set(schedule.map((e) => e.Dia))]
+    const days = DAY_ORDER.filter((d) => rawDays.includes(d))
     const models = [...new Set(schedule.map((e) => `${e.Fabrica}|${e.Modelo}`))]
 
     const data = models.map((key) => {

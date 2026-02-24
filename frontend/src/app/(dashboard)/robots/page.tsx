@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +8,7 @@ import { DaySelector } from '@/components/shared/DaySelector'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { BLOCK_LABELS, RESOURCE_COLORS } from '@/types'
+import { BLOCK_LABELS, RESOURCE_COLORS, DAY_ORDER } from '@/types'
 import type { DailyResult } from '@/types'
 
 interface RobotUsage {
@@ -27,7 +27,7 @@ export default function RobotsPage() {
   const dayNames = useMemo(() => {
     if (!result?.daily_results) return []
     const keys = Object.keys(result.daily_results)
-    return ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'].filter((d) => keys.includes(d))
+    return DAY_ORDER.filter((d) => keys.includes(d))
   }, [result])
 
   // Aggregate robot usage across all days
@@ -165,8 +165,8 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
           {robots.map((robot) => {
             const ops = robotOps.filter((s) => s.robot === robot)
             return (
-              <>
-                <div key={`label-${robot}`} className="flex items-center text-xs font-mono font-medium">
+              <Fragment key={robot}>
+                <div className="flex items-center text-xs font-mono font-medium">
                   {robot}
                 </div>
                 {BLOCK_LABELS.map((_, bi) => {
@@ -186,7 +186,7 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
                     </div>
                   )
                 })}
-              </>
+              </Fragment>
             )
           })}
         </div>

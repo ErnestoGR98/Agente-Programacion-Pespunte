@@ -18,5 +18,8 @@ anthropic>=0.39.0
 # HTTP client (Supabase REST API)
 requests>=2.31.0
 
+# Env vars locales
+python-dotenv>=1.0.0
+
 # ASGI server para produccion
 gunicorn>=21.2.0

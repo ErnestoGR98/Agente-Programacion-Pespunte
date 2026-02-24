@@ -224,7 +224,7 @@ def _load_operarios() -> list:
             "nombre": r["nombre"],
             "fabrica": (r.get("fabricas") or {}).get("nombre", ""),
             "recursos_habilitados": [x["recurso"] for x in recursos],
-            "robots_habilitados": [x["robots"]["nombre"] for x in robots],
+            "robots_habilitados": [x["robots"]["nombre"] for x in robots if x.get("robots")],
             "eficiencia": float(r["eficiencia"]),
             "dias_disponibles": [x["dia"] for x in dias],
             "activo": True,
@@ -260,8 +260,6 @@ def _match_models(catalogo: dict, pedido: list) -> list:
 def _save_resultado(base_name: str, weekly_schedule, weekly_summary,
                     daily_results, pedido, params, nota="") -> str:
     """Guarda resultado en Supabase con versionado."""
-    import json
-
     existing = _sb_get(
         "resultados",
         f"select=version&base_name=eq.{base_name}&order=version.desc&limit=1",

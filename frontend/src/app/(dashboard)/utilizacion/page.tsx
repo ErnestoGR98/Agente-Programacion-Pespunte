@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DaySelector } from '@/components/shared/DaySelector'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { BLOCK_LABELS, CHART_COLORS, HEATMAP_COLORS } from '@/types'
+import { BLOCK_LABELS, CHART_COLORS, HEATMAP_COLORS, DAY_ORDER } from '@/types'
 import type { DailyResult } from '@/types'
 
 export default function UtilizacionPage() {
@@ -17,7 +17,7 @@ export default function UtilizacionPage() {
   const dayNames = useMemo(() => {
     if (!result?.daily_results) return []
     const keys = Object.keys(result.daily_results)
-    return ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'].filter((d) => keys.includes(d))
+    return DAY_ORDER.filter((d) => keys.includes(d))
   }, [result])
 
   if (!result) {
@@ -108,8 +108,8 @@ function WeeklyHeatmap({
 
             {/* Rows */}
             {dayNames.map((day) => (
-              <>
-                <div key={`label-${day}`} className="flex items-center text-xs font-medium">
+              <Fragment key={day}>
+                <div className="flex items-center text-xs font-medium">
                   {day}
                 </div>
                 {BLOCK_LABELS.map((block) => {
@@ -126,7 +126,7 @@ function WeeklyHeatmap({
                     </div>
                   )
                 })}
-              </>
+              </Fragment>
             ))}
           </div>
         </div>

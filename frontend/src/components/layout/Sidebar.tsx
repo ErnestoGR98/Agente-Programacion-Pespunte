@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, MessageSquare, Users, Settings,
-  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut,
+  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/restricciones', label: 'Restricciones', icon: ShieldAlert, minStep: 0 },
   { href: '/asistente', label: 'Asistente', icon: MessageSquare, minStep: 0 },
   { href: '/operarios', label: 'Operarios', icon: Users, minStep: 0 },
+  { href: '/catalogo', label: 'Catalogo', icon: BookOpen, minStep: 0 },
   { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
   { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
   { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },

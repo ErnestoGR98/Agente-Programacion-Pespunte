@@ -339,6 +339,9 @@ export const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE'
 
 export const DAY_NAMES: DayName[] = ['Sab', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie']
 
+/** Orden logico Lun→Sab para display en frontend */
+export const DAY_ORDER: DayName[] = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+
 export const CONSTRAINT_TYPES_OPERATIVAS: ConstraintType[] = [
   'PRIORIDAD', 'RETRASO_MATERIAL', 'MAQUILA',
   'ROBOT_NO_DISPONIBLE', 'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',
@@ -350,9 +353,11 @@ export const CONSTRAINT_TYPES_PLANIFICACION: ConstraintType[] = [
 ]
 
 export const STAGE_COLORS: Record<string, string> = {
-  PRELIMINAR: '#F59E0B',  // amber/gold
-  ROBOT: '#10B981',       // emerald/green
-  POST: '#EC4899',        // pink
+  PRELIMINAR: '#F59E0B',      // amarillo
+  ROBOT: '#10B981',            // verde
+  POST: '#EC4899',             // rosa
+  'N/A PRELIMINAR': '#94A3B8', // blanco/gris claro
+  MAQUILA: '#EF4444',          // rojo
 }
 
 export const RESOURCE_COLORS: Record<string, string> = {

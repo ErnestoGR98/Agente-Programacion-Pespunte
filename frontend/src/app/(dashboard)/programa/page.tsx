@@ -6,10 +6,8 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
-import { STAGE_COLORS, BLOCK_LABELS, DAY_NAMES } from '@/types'
+import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult } from '@/types'
-
-const DAY_ORDER = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 
 export default function ProgramaPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -65,9 +63,11 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
 
   function getEtapaColor(etapa: string): string {
     if (!etapa) return '#94A3B8'
+    if (etapa.includes('N/A PRELIMINAR')) return STAGE_COLORS['N/A PRELIMINAR']
     if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return STAGE_COLORS.PRELIMINAR
     if (etapa.includes('ROBOT')) return STAGE_COLORS.ROBOT
     if (etapa.includes('POST')) return STAGE_COLORS.POST
+    if (etapa.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
     return '#94A3B8'
   }
 
@@ -94,7 +94,7 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
       <div className="flex gap-4">
         {Object.entries(STAGE_COLORS).map(([name, color]) => (
           <div key={name} className="flex items-center gap-1">
-            <div className="h-3 w-3 rounded" style={{ backgroundColor: color }} />
+            <div className="h-3 w-3 rounded border" style={{ backgroundColor: name === 'N/A PRELIMINAR' ? '#fff' : color }} />
             <span className="text-xs">{name}</span>
           </div>
         ))}
@@ -128,7 +128,9 @@ function DayView({ dayName, data }: { dayName: string; data: DailyResult }) {
                     <td className="px-2 py-1">{s.fraccion}</td>
                     <td className="px-2 py-1 max-w-[120px] truncate">{s.operacion}</td>
                     <td className="px-2 py-1">
-                      <Badge variant="outline" className="text-[10px]">{s.recurso}</Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {s.robot || s.recurso}
+                      </Badge>
                     </td>
                     <td className="px-2 py-1">
                       {s.operario === 'SIN ASIGNAR' ? (
