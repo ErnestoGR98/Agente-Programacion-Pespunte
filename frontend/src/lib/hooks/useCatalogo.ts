@@ -22,6 +22,7 @@ export interface ModeloFull {
   alternativas: string[]
   total_sec_per_pair: number
   num_ops: number
+  imagen_url: string | null
   operaciones: OperacionFull[]
 }
 
@@ -73,6 +74,7 @@ export function useCatalogo() {
       alternativas: (m.alternativas as string[]) || [],
       total_sec_per_pair: Number(m.total_sec_per_pair),
       num_ops: Number(m.num_ops),
+      imagen_url: (m.imagen_url as string) || null,
       operaciones: ops
         .filter((o: { modelo_id: string }) => o.modelo_id === m.id)
         .map((o: Record<string, unknown>) => ({
@@ -94,5 +96,109 @@ export function useCatalogo() {
 
   useEffect(() => { load() }, [load])
 
-  return { loading, modelos, robots, reload: load }
+  // --- CRUD Modelo ---
+
+  async function addModelo(modeloNum: string, codigoFull?: string, claveMaterial?: string, alternativas?: string[]) {
+    await supabase.from('catalogo_modelos').insert({
+      modelo_num: modeloNum,
+      codigo_full: codigoFull || modeloNum,
+      clave_material: claveMaterial || '',
+      alternativas: alternativas || [],
+      total_sec_per_pair: 0,
+      num_ops: 0,
+    })
+    await load()
+  }
+
+  async function updateModelo(id: string, data: { modelo_num?: string; codigo_full?: string; clave_material?: string; alternativas?: string[]; imagen_url?: string | null }) {
+    await supabase.from('catalogo_modelos').update(data).eq('id', id)
+    await load()
+  }
+
+  async function uploadModeloImagen(modeloId: string, modeloNum: string, file: File): Promise<string | null> {
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${modeloNum}.${ext}`
+    // Overwrite if exists
+    await supabase.storage.from('modelos').upload(path, file, { upsert: true })
+    const { data } = supabase.storage.from('modelos').getPublicUrl(path)
+    if (data?.publicUrl) {
+      await supabase.from('catalogo_modelos').update({ imagen_url: data.publicUrl }).eq('id', modeloId)
+      await load()
+      return data.publicUrl
+    }
+    return null
+  }
+
+  async function deleteModelo(id: string) {
+    await supabase.from('catalogo_modelos').delete().eq('id', id)
+    await load()
+  }
+
+  // --- CRUD Operacion ---
+
+  async function refreshModeloTotals(modeloId: string) {
+    const { data } = await supabase
+      .from('catalogo_operaciones')
+      .select('sec_per_pair')
+      .eq('modelo_id', modeloId)
+    const ops = data || []
+    const total = ops.reduce((sum: number, o: { sec_per_pair: number }) => sum + o.sec_per_pair, 0)
+    await supabase.from('catalogo_modelos').update({
+      total_sec_per_pair: total,
+      num_ops: ops.length,
+    }).eq('id', modeloId)
+  }
+
+  async function addOperacion(modeloId: string, data: {
+    fraccion: number; operacion: string; input_o_proceso: ProcessType
+    etapa: string; recurso: ResourceType; rate: number; sec_per_pair: number
+    robotIds?: string[]
+  }) {
+    const { robotIds, ...opData } = data
+    const { data: inserted } = await supabase
+      .from('catalogo_operaciones')
+      .insert({ ...opData, modelo_id: modeloId, recurso_raw: opData.recurso })
+      .select('id')
+      .single()
+    if (inserted && robotIds && robotIds.length > 0) {
+      await supabase.from('catalogo_operacion_robots').insert(
+        robotIds.map((rid) => ({ operacion_id: inserted.id, robot_id: rid }))
+      )
+    }
+    await refreshModeloTotals(modeloId)
+    await load()
+  }
+
+  async function updateOperacion(id: string, modeloId: string, data: {
+    fraccion?: number; operacion?: string; input_o_proceso?: ProcessType
+    etapa?: string; recurso?: ResourceType; rate?: number; sec_per_pair?: number
+    robotIds?: string[]
+  }) {
+    const { robotIds, ...opData } = data
+    if (Object.keys(opData).length > 0) {
+      await supabase.from('catalogo_operaciones').update(opData).eq('id', id)
+    }
+    if (robotIds !== undefined) {
+      await supabase.from('catalogo_operacion_robots').delete().eq('operacion_id', id)
+      if (robotIds.length > 0) {
+        await supabase.from('catalogo_operacion_robots').insert(
+          robotIds.map((rid) => ({ operacion_id: id, robot_id: rid }))
+        )
+      }
+    }
+    await refreshModeloTotals(modeloId)
+    await load()
+  }
+
+  async function deleteOperacion(id: string, modeloId: string) {
+    await supabase.from('catalogo_operaciones').delete().eq('id', id)
+    await refreshModeloTotals(modeloId)
+    await load()
+  }
+
+  return {
+    loading, modelos, robots, reload: load,
+    addModelo, updateModelo, deleteModelo, uploadModeloImagen,
+    addOperacion, updateOperacion, deleteOperacion,
+  }
 }

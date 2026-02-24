@@ -149,6 +149,21 @@ export function OperarioForm({
             {saving ? 'Guardando...' : operario ? 'Guardar Cambios' : 'Agregar Operario'}
           </Button>
           <Button size="sm" variant="outline" onClick={onCancel}>Cancelar</Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setNombre('')
+              setFabricaId('')
+              setEficiencia(1.0)
+              setActivo(true)
+              setRecursos([])
+              setRobotIds([])
+              setSelectedDias(['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+            }}
+          >
+            Limpiar
+          </Button>
         </div>
       </CardContent>
     </Card>
