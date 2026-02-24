@@ -8,11 +8,18 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { DAY_NAMES, type ConstraintType, type Robot } from '@/types'
+import { Badge } from '@/components/ui/badge'
+import { DAY_NAMES, STAGE_COLORS, type ConstraintType, type Robot } from '@/types'
 
 interface ModeloOption {
   modelo_num: string
   color: string
+}
+
+interface FraccionOption {
+  fraccion: number
+  operacion: string
+  input_o_proceso: string
 }
 
 export function ConstraintParams({
@@ -20,25 +27,56 @@ export function ConstraintParams({
   params,
   setParams,
   modeloItems = [],
+  selectedModelo,
 }: {
   tipo: ConstraintType
   params: Record<string, unknown>
   setParams: (p: Record<string, unknown>) => void
   modeloItems?: ModeloOption[]
+  selectedModelo?: string
 }) {
   const [robots, setRobots] = useState<Robot[]>([])
+  const [fracciones, setFracciones] = useState<FraccionOption[]>([])
 
   const loadRobots = useCallback(async () => {
     const { data } = await supabase.from('robots').select('*').eq('estado', 'ACTIVO').order('orden')
     if (data) setRobots(data)
   }, [])
 
+  const loadFracciones = useCallback(async () => {
+    if (!selectedModelo || selectedModelo === '*') {
+      setFracciones([])
+      return
+    }
+    const { data: modelo } = await supabase
+      .from('catalogo_modelos')
+      .select('id')
+      .eq('modelo_num', selectedModelo)
+      .single()
+    if (!modelo) { setFracciones([]); return }
+    const { data: ops } = await supabase
+      .from('catalogo_operaciones')
+      .select('fraccion, operacion, input_o_proceso')
+      .eq('modelo_id', modelo.id)
+      .order('fraccion')
+    setFracciones(ops || [])
+  }, [selectedModelo])
+
   useEffect(() => {
     if (tipo === 'ROBOT_NO_DISPONIBLE') loadRobots()
   }, [tipo, loadRobots])
 
+  useEffect(() => {
+    if (tipo === 'PRECEDENCIA') loadFracciones()
+  }, [tipo, loadFracciones])
+
   function set(key: string, value: unknown) {
     setParams({ ...params, [key]: value })
+  }
+
+  function stageColor(stage: string): string {
+    if (stage === 'PRELIMINARES' || stage.includes('PRELIMINAR')) return STAGE_COLORS.PRELIMINAR
+    return STAGE_COLORS[stage] || '#94A3B8'
   }
 
   switch (tipo) {
@@ -296,26 +334,118 @@ export function ConstraintParams({
           </div>
         </div>
       )
-    case 'PRECEDENCIA_OPERACION':
+    case 'PRECEDENCIA': {
+      const fracsOrigen = (params.fracciones_origen as number[]) || []
+      const fracsDest = (params.fracciones_destino as number[]) || []
+
+      function toggleFrac(frac: number, group: 'origen' | 'destino') {
+        const keyThis = group === 'origen' ? 'fracciones_origen' : 'fracciones_destino'
+        const keyOther = group === 'origen' ? 'fracciones_destino' : 'fracciones_origen'
+        const current = (params[keyThis] as number[]) || []
+        const other = (params[keyOther] as number[]) || []
+
+        if (current.includes(frac)) {
+          // Uncheck
+          setParams({ ...params, [keyThis]: current.filter((f) => f !== frac) })
+        } else {
+          // Check this, remove from other group
+          setParams({
+            ...params,
+            [keyThis]: [...current, frac].sort((a, b) => a - b),
+            [keyOther]: other.filter((f) => f !== frac),
+          })
+        }
+      }
+
+      if (fracciones.length === 0) {
+        return (
+          <p className="text-xs text-muted-foreground">
+            Selecciona un modelo para ver sus operaciones.
+          </p>
+        )
+      }
+
       return (
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <Label className="text-xs">Fraccion origen</Label>
-            <Input type="number" min={1} value={String(params.fraccion_origen || '')}
-              onChange={(e) => set('fraccion_origen', parseInt(e.target.value) || 0)} className="h-8" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Fraccion destino</Label>
-            <Input type="number" min={1} value={String(params.fraccion_destino || '')}
-              onChange={(e) => set('fraccion_destino', parseInt(e.target.value) || 0)} className="h-8" />
+        <div className="space-y-3">
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-2 py-1.5 text-left w-14">Fracc</th>
+                  <th className="px-2 py-1.5 text-left">Operacion</th>
+                  <th className="px-2 py-1.5 text-left w-28">Proceso</th>
+                  <th className="px-2 py-1.5 text-center w-16">Origen</th>
+                  <th className="px-2 py-1.5 text-center w-16">Destino</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fracciones.map((f) => (
+                  <tr key={f.fraccion} className="border-b last:border-0 hover:bg-accent/30">
+                    <td className="px-2 py-1 font-mono">F{f.fraccion}</td>
+                    <td className="px-2 py-1">{f.operacion}</td>
+                    <td className="px-2 py-1">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] font-medium"
+                        style={{ borderColor: stageColor(f.input_o_proceso), color: stageColor(f.input_o_proceso) }}
+                      >
+                        {f.input_o_proceso}
+                      </Badge>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <Checkbox
+                        checked={fracsOrigen.includes(f.fraccion)}
+                        onCheckedChange={() => toggleFrac(f.fraccion, 'origen')}
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <Checkbox
+                        checked={fracsDest.includes(f.fraccion)}
+                        onCheckedChange={() => toggleFrac(f.fraccion, 'destino')}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Buffer (pares)</Label>
-            <Input type="number" min={0} step={50} value={String(params.buffer_pares || '')}
-              onChange={(e) => set('buffer_pares', parseInt(e.target.value) || 0)} className="h-8" />
+            <div className="flex items-center gap-2">
+              <Select
+                value={params.buffer_pares === 'todo' ? 'todo' : 'numero'}
+                onValueChange={(v) => {
+                  if (v === 'todo') set('buffer_pares', 'todo')
+                  else set('buffer_pares', 0)
+                }}
+              >
+                <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todo">Todo</SelectItem>
+                  <SelectItem value="numero">Especifico</SelectItem>
+                </SelectContent>
+              </Select>
+              {params.buffer_pares !== 'todo' && (
+                <Input type="number" min={0} step={50}
+                  value={String(params.buffer_pares || '')}
+                  onChange={(e) => set('buffer_pares', parseInt(e.target.value) || 0)}
+                  className="h-8 w-28" placeholder="0" />
+              )}
+              <span className="text-[10px] text-muted-foreground">
+                {params.buffer_pares === 'todo'
+                  ? 'Origen debe completar todos los pares antes de iniciar destino'
+                  : 'Pares de ventaja del origen sobre destino'}
+              </span>
+            </div>
           </div>
+          {fracsOrigen.length === 0 && fracsDest.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Marca las operaciones del bloque que debe completarse primero (Origen) y las que esperan (Destino).
+            </p>
+          )}
         </div>
       )
+    }
     default:
       return null
   }

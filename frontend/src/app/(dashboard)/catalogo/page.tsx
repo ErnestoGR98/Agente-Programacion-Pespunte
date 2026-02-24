@@ -6,8 +6,10 @@ import type { ModeloFull } from '@/lib/hooks/useCatalogo'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { STAGE_COLORS, RESOURCE_COLORS } from '@/types'
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, ScrollText } from 'lucide-react'
+import { ModelRulesDialog } from './ModelRulesDialog'
 
 export default function CatalogoPage() {
   const { loading, modelos, robots } = useCatalogo()
@@ -73,6 +75,7 @@ export default function CatalogoPage() {
 
 function ModeloCard({ modelo }: { modelo: ModeloFull }) {
   const [open, setOpen] = useState(true)
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   const robotOps = modelo.operaciones.filter((o) => o.recurso === 'ROBOT').length
 
@@ -112,6 +115,14 @@ function ModeloCard({ modelo }: { modelo: ModeloFull }) {
             <span>{modelo.operaciones.length} ops</span>
             {robotOps > 0 && <span>{robotOps} en robot</span>}
             <span>{modelo.total_sec_per_pair} sec/par</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-[10px] px-2"
+              onClick={(e) => { e.stopPropagation(); setRulesOpen(true) }}
+            >
+              <ScrollText className="mr-1 h-3 w-3" /> Reglas
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -191,6 +202,13 @@ function ModeloCard({ modelo }: { modelo: ModeloFull }) {
           </table>
         </CardContent>
       )}
+
+      <ModelRulesDialog
+        open={rulesOpen}
+        onOpenChange={setRulesOpen}
+        modeloNum={modelo.modelo_num}
+        operaciones={modelo.operaciones}
+      />
     </Card>
   )
 }

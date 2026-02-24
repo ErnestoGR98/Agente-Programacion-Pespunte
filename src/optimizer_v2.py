@@ -197,16 +197,15 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                                 if key in y:
                                     solver_model.Add(y[key] == 0)
 
-    # Precedencia entre operaciones: produccion acumulativa con buffer
-    if compiled and compiled.operation_precedences:
-        # Lookup: (m_idx, fraccion) -> op_idx
-        frac_to_op = {}
+    # Precedencia entre operaciones: fracciones_origen deben llevar
+    # buffer de ventaja acumulativa sobre cada fraccion en fracciones_destino.
+    frac_to_op = {}
+    if compiled and compiled.precedences:
         for m_idx, model in enumerate(models_day):
             for op_idx, op in enumerate(model["operations"]):
                 frac_to_op[(m_idx, op["fraccion"])] = op_idx
 
-        for (modelo_code, frac_orig, frac_dest, buffer) in compiled.operation_precedences:
-            # Encontrar m_idx para este modelo
+        for (modelo_code, fracs_orig, fracs_dest, buffer) in compiled.precedences:
             target_m = None
             for m_idx, model in enumerate(models_day):
                 code = model.get("codigo", "")
@@ -216,16 +215,27 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             if target_m is None:
                 continue
 
-            op_o = frac_to_op.get((target_m, frac_orig))
-            op_d = frac_to_op.get((target_m, frac_dest))
-            if op_o is None or op_d is None:
+            # buffer=-1 means "todo": all origin pairs must finish before
+            # any destination pair starts → use pares_dia as buffer
+            effective_buffer = buffer
+            if effective_buffer < 0:
+                effective_buffer = models_day[target_m]["pares_dia"]
+
+            # Map fraccion numbers to op_idx
+            idx_orig = [frac_to_op[(target_m, f)]
+                        for f in fracs_orig if (target_m, f) in frac_to_op]
+            idx_dest = [frac_to_op[(target_m, f)]
+                        for f in fracs_dest if (target_m, f) in frac_to_op]
+
+            if not idx_orig or not idx_dest:
                 continue
 
-            # Para cada bloque: cumul_origen >= buffer + cumul_destino
-            for b in range(num_blocks):
-                cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
-                cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
-                solver_model.Add(cum_orig >= buffer + cum_dest)
+            for op_o in idx_orig:
+                for op_d in idx_dest:
+                    for b in range(num_blocks):
+                        cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
+                        cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
+                        solver_model.Add(cum_orig >= effective_buffer + cum_dest)
 
     # --- Restricciones ---
 

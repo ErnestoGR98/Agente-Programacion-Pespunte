@@ -19,9 +19,9 @@ interface MaquilaEntry {
 
 interface OpMaquilaEntry {
   modelo: string
-  fraccion: number
-  operacion: string
   maquila: string
+  pares: number
+  fracciones: number[]
 }
 
 /** Catalog-level: models that have MAQUILA operations (from catalogo_operaciones) */
@@ -84,7 +84,7 @@ export default function ProgramaPage() {
       })
   }, [result])
 
-  // Load operation-level maquila assignments from pedido
+  // Load maquila assignments from pedido
   useEffect(() => {
     if (!pedidoNombre) { setOpMaquilaEntries([]); return }
 
@@ -113,9 +113,9 @@ export default function ProgramaPage() {
                 setOpMaquilaEntries(
                   (asigs || []).map((a: AsignacionMaquila) => ({
                     modelo: itemMap.get(a.pedido_item_id) || '?',
-                    fraccion: a.fraccion,
-                    operacion: a.operacion,
                     maquila: a.maquila,
+                    pares: a.pares,
+                    fracciones: a.fracciones,
                   }))
                 )
               })
@@ -146,14 +146,19 @@ export default function ProgramaPage() {
     return map
   }, [maquilaEntries])
 
-  // Group operation-level assignments by maquila → modelo → fracciones
+  // Group assignments by maquila → modelo → { fracciones, pares }
   const opMaquilaByFactory = useMemo(() => {
-    const map = new Map<string, Map<string, number[]>>()
+    const map = new Map<string, Map<string, { fracciones: number[]; pares: number }>>()
     for (const e of opMaquilaEntries) {
       if (!map.has(e.maquila)) map.set(e.maquila, new Map())
       const modelMap = map.get(e.maquila)!
-      if (!modelMap.has(e.modelo)) modelMap.set(e.modelo, [])
-      modelMap.get(e.modelo)!.push(e.fraccion)
+      const existing = modelMap.get(e.modelo)
+      if (existing) {
+        existing.fracciones = [...new Set([...existing.fracciones, ...e.fracciones])].sort((a, b) => a - b)
+        existing.pares += e.pares
+      } else {
+        modelMap.set(e.modelo, { fracciones: [...e.fracciones], pares: e.pares })
+      }
     }
     return map
   }, [opMaquilaEntries])
@@ -171,7 +176,9 @@ export default function ProgramaPage() {
   // Models with unassigned MAQUILA ops (in catalog but not yet assigned)
   const assignedSet = useMemo(() => {
     const set = new Set<string>()
-    for (const e of opMaquilaEntries) set.add(`${e.modelo}|${e.fraccion}`)
+    for (const e of opMaquilaEntries) {
+      for (const f of e.fracciones) set.add(`${e.modelo}|${f}`)
+    }
     return set
   }, [opMaquilaEntries])
 
@@ -267,9 +274,9 @@ export default function ProgramaPage() {
                           <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
                             {maquila}
                           </Badge>
-                          {[...models.entries()].map(([modelo, fracciones]) => (
+                          {[...models.entries()].map(([modelo, info]) => (
                             <span key={modelo} className="text-xs text-destructive/70 font-mono">
-                              {modelo}: F{fracciones.sort((a, b) => a - b).join(', F')}
+                              {modelo}: {info.pares} pares (F{info.fracciones.join(', F')})
                             </span>
                           ))}
                         </div>

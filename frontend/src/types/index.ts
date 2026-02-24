@@ -12,7 +12,7 @@ export type ConstraintType =
   | 'PRIORIDAD' | 'MAQUILA' | 'RETRASO_MATERIAL' | 'FIJAR_DIA'
   | 'FECHA_LIMITE' | 'SECUENCIA' | 'AGRUPAR_MODELOS' | 'AJUSTE_VOLUMEN'
   | 'LOTE_MINIMO_CUSTOM' | 'ROBOT_NO_DISPONIBLE' | 'AUSENCIA_OPERARIO'
-  | 'CAPACIDAD_DIA' | 'PRECEDENCIA_OPERACION'
+  | 'CAPACIDAD_DIA' | 'PRECEDENCIA'
 
 export type DayName = 'Sab' | 'Lun' | 'Mar' | 'Mie' | 'Jue' | 'Vie'
 
@@ -178,9 +178,9 @@ export interface PedidoItem {
 export interface AsignacionMaquila {
   id: string
   pedido_item_id: string
-  fraccion: number
-  operacion: string
   maquila: string
+  pares: number
+  fracciones: number[]
 }
 
 export interface MaquilaOperacion {
@@ -357,14 +357,16 @@ export const DAY_NAMES: DayName[] = ['Sab', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie']
 /** Orden logico Lun→Sab para display en frontend */
 export const DAY_ORDER: DayName[] = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 
-export const CONSTRAINT_TYPES_OPERATIVAS: ConstraintType[] = [
-  'PRIORIDAD', 'RETRASO_MATERIAL',
-  'ROBOT_NO_DISPONIBLE', 'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',
+/** Restricciones TEMPORALES — cambian por semana, en pagina Restricciones */
+export const CONSTRAINT_TYPES_TEMPORALES: ConstraintType[] = [
+  'PRIORIDAD', 'RETRASO_MATERIAL', 'ROBOT_NO_DISPONIBLE',
+  'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',
+  'FIJAR_DIA', 'FECHA_LIMITE', 'AJUSTE_VOLUMEN',
 ]
 
-export const CONSTRAINT_TYPES_PLANIFICACION: ConstraintType[] = [
-  'FIJAR_DIA', 'FECHA_LIMITE', 'SECUENCIA', 'AGRUPAR_MODELOS',
-  'AJUSTE_VOLUMEN', 'LOTE_MINIMO_CUSTOM', 'PRECEDENCIA_OPERACION',
+/** Reglas PERMANENTES — sin semana, en Configuracion > Reglas y Catalogo > Reglas */
+export const CONSTRAINT_TYPES_PERMANENTES: ConstraintType[] = [
+  'PRECEDENCIA', 'LOTE_MINIMO_CUSTOM', 'SECUENCIA', 'AGRUPAR_MODELOS',
 ]
 
 export const STAGE_COLORS: Record<string, string> = {

@@ -26,7 +26,7 @@ export default function RestriccionesPage() {
     <div>
       <h1 className="text-2xl font-bold">Restricciones</h1>
       <p className="mb-4 text-sm text-muted-foreground">
-        Reglas de negocio y avance de produccion.
+        Restricciones semanales y avance de produccion.
         {semana && <Badge variant="secondary" className="ml-2">{semana}</Badge>}
       </p>
 

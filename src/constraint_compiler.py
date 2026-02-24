@@ -91,9 +91,11 @@ class CompiledConstraints:
     # {modelo_num: int} - override de lote minimo por modelo
     lot_min_overrides: dict = field(default_factory=dict)
 
-    # [(modelo, frac_origen, frac_destino, buffer_pares)]
-    # Precedencia entre operaciones: origen debe llevar buffer pares de ventaja
-    operation_precedences: list = field(default_factory=list)
+    # [(modelo, fracciones_origen, fracciones_destino, buffer_pares)]
+    # Precedencia: todas las fracciones_origen deben llevar buffer_pares
+    # de ventaja acumulativa sobre cada fraccion_destino.
+    # fracciones_origen/destino son listas de numeros de fraccion.
+    precedences: list = field(default_factory=list)
 
     # Warnings generados durante compilacion
     warnings: list = field(default_factory=list)
@@ -328,33 +330,45 @@ def _handle_lote_minimo(cc, modelo, params, day_names, day_index,
     cc.lot_min_overrides[modelo] = nuevo_min
 
 
-def _handle_precedencia_operacion(cc, modelo, params, day_names, day_index,
-                                   model_nums, model_idx_by_num):
-    """Precedencia entre operaciones (fracciones) del mismo modelo.
+def _handle_precedencia(cc, modelo, params, day_names, day_index,
+                         model_nums, model_idx_by_num):
+    """Precedencia entre grupos de operaciones del mismo modelo.
 
-    Fuerza que fraccion_origen lleve al menos buffer_pares de ventaja
-    acumulativa sobre fraccion_destino en cada bloque horario.
-    Buffer=0 implica simultaneidad, buffer alto implica desfase temporal.
+    Todas las fracciones_origen deben llevar buffer_pares de ventaja
+    acumulativa sobre cada fraccion en fracciones_destino.
+    Funciona tanto para bloques completos como para pares individuales.
+    La expansion a constraints CP-SAT ocurre en optimizer_v2.
     """
     if modelo not in model_nums:
         cc.warnings.append(
-            f"PRECEDENCIA_OPERACION: modelo '{modelo}' no esta en el pedido")
+            f"PRECEDENCIA: modelo '{modelo}' no esta en el pedido")
         return
-    frac_origen = params.get("fraccion_origen")
-    frac_destino = params.get("fraccion_destino")
+    fracs_origen = params.get("fracciones_origen", [])
+    fracs_destino = params.get("fracciones_destino", [])
     buffer_pares = params.get("buffer_pares", 0)
 
-    if frac_origen is None or frac_destino is None:
+    if not fracs_origen or not fracs_destino:
         cc.warnings.append(
-            "PRECEDENCIA_OPERACION: faltan fraccion_origen o fraccion_destino")
-        return
-    if frac_origen == frac_destino:
-        cc.warnings.append(
-            f"PRECEDENCIA_OPERACION: origen y destino iguales ({frac_origen})")
+            "PRECEDENCIA: faltan fracciones_origen o fracciones_destino")
         return
 
-    cc.operation_precedences.append(
-        (modelo, int(frac_origen), int(frac_destino), max(0, int(buffer_pares)))
+    overlap = set(fracs_origen) & set(fracs_destino)
+    if overlap:
+        cc.warnings.append(
+            f"PRECEDENCIA: fracciones en ambos grupos: {overlap}")
+        return
+
+    # "todo" = -1 sentinel → optimizer resolves to pares_dia
+    if buffer_pares == "todo":
+        buffer_val = -1
+    else:
+        buffer_val = max(0, int(buffer_pares))
+
+    cc.precedences.append(
+        (modelo,
+         [int(f) for f in fracs_origen],
+         [int(f) for f in fracs_destino],
+         buffer_val)
     )
 
 
@@ -404,5 +418,5 @@ _HANDLERS = {
     "AGRUPAR_MODELOS": _handle_agrupar_modelos,
     "AJUSTE_VOLUMEN": _handle_ajuste_volumen,
     "LOTE_MINIMO_CUSTOM": _handle_lote_minimo,
-    "PRECEDENCIA_OPERACION": _handle_precedencia_operacion,
+    "PRECEDENCIA": _handle_precedencia,
 }

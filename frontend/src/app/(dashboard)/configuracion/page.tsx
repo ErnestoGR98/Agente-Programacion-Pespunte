@@ -9,6 +9,7 @@ import { CapacidadesTab } from './tabs/CapacidadesTab'
 import { FabricasTab } from './tabs/FabricasTab'
 import { DiasTab } from './tabs/DiasTab'
 import { PesosTab } from './tabs/PesosTab'
+import { ReglasTab } from './tabs/ReglasTab'
 
 export default function ConfiguracionPage() {
   const config = useConfiguracion()
@@ -37,6 +38,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="fabricas">Fabricas</TabsTrigger>
           <TabsTrigger value="dias">Dias / Plantilla</TabsTrigger>
           <TabsTrigger value="pesos">Pesos / Params</TabsTrigger>
+          <TabsTrigger value="reglas">Reglas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="robots"><RobotsTab config={config} /></TabsContent>
@@ -44,6 +46,7 @@ export default function ConfiguracionPage() {
         <TabsContent value="fabricas"><FabricasTab config={config} /></TabsContent>
         <TabsContent value="dias"><DiasTab config={config} /></TabsContent>
         <TabsContent value="pesos"><PesosTab config={config} /></TabsContent>
+        <TabsContent value="reglas"><ReglasTab /></TabsContent>
       </Tabs>
     </div>
   )

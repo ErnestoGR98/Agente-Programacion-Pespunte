@@ -135,29 +135,33 @@ export function usePedido() {
 
   // --- Maquila assignments ---
 
-  async function setMaquilaAssignment(
-    pedidoItemId: string, fraccion: number, operacion: string, maquila: string
+  async function addMaquilaAssignment(
+    pedidoItemId: string, maquila: string, pares: number, fracciones: number[]
   ) {
     await supabase
       .from('asignaciones_maquila')
       .upsert(
-        { pedido_item_id: pedidoItemId, fraccion, operacion, maquila },
-        { onConflict: 'pedido_item_id,fraccion' }
+        { pedido_item_id: pedidoItemId, maquila, pares, fracciones },
+        { onConflict: 'pedido_item_id,maquila' }
       )
     if (currentPedidoId) await loadPedido(currentPedidoId)
   }
 
-  async function setAllMaquilaForItem(pedidoItemId: string, modeloNum: string, maquila: string) {
+  async function updateMaquilaAssignment(id: string, data: { pares?: number; fracciones?: number[] }) {
+    await supabase.from('asignaciones_maquila').update(data).eq('id', id)
+    if (currentPedidoId) await loadPedido(currentPedidoId)
+  }
+
+  async function setAllMaquilaForItem(
+    pedidoItemId: string, modeloNum: string, maquila: string, volumen: number
+  ) {
     const ops = maquilaOps[modeloNum] || []
     if (ops.length === 0) return
-    const rows = ops.map((op) => ({
-      pedido_item_id: pedidoItemId,
-      fraccion: op.fraccion,
-      operacion: op.operacion,
-      maquila,
-    }))
+    const fracciones = ops.map((op) => op.fraccion)
     await supabase.from('asignaciones_maquila').delete().eq('pedido_item_id', pedidoItemId)
-    await supabase.from('asignaciones_maquila').insert(rows)
+    await supabase.from('asignaciones_maquila').insert({
+      pedido_item_id: pedidoItemId, maquila, pares: volumen, fracciones,
+    })
     if (currentPedidoId) await loadPedido(currentPedidoId)
   }
 
@@ -206,6 +210,7 @@ export function usePedido() {
     reload: loadBase,
     // Maquila
     maquilaOps, asignaciones, maquilaFabricas,
-    setMaquilaAssignment, setAllMaquilaForItem, removeMaquilaAssignment, clearMaquilaAssignments,
+    addMaquilaAssignment, updateMaquilaAssignment,
+    setAllMaquilaForItem, removeMaquilaAssignment, clearMaquilaAssignments,
   }
 }

@@ -128,7 +128,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
     const ops = pedido.maquilaOps[it.modelo_num] || []
     if (ops.length === 0) return false
     const asigs = pedido.asignaciones.filter((a) => a.pedido_item_id === it.id)
-    return asigs.length >= ops.length
+    return asigs.length > 0
   }).length
 
   return (
@@ -302,7 +302,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                 const hasMaquila = maqOps.length > 0
                 const isExpanded = expandedItems.has(it.id)
                 const itemAsigs = pedido.asignaciones.filter((a) => a.pedido_item_id === it.id)
-                const allAssigned = hasMaquila && itemAsigs.length >= maqOps.length
+                const allAssigned = hasMaquila && itemAsigs.length > 0
 
                 return (
                   <>
@@ -344,7 +344,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                       </TableCell>
                     </TableRow>
 
-                    {/* Maquila assignment expandable row */}
+                    {/* Maquila distribution expandable row */}
                     {hasMaquila && isExpanded && (
                       <TableRow key={`${it.id}-maquila`}>
                         <TableCell colSpan={5} className="bg-destructive/5 border-l-2 border-destructive/30 p-3">
@@ -362,11 +362,11 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                     className="h-7 text-xs text-muted-foreground hover:text-destructive"
                                     onClick={() => pedido.clearMaquilaAssignments(it.id)}
                                   >
-                                    <X className="h-3 w-3 mr-1" /> Limpiar todas
+                                    <X className="h-3 w-3 mr-1" /> Limpiar
                                   </Button>
                                 )}
-                                <span className="text-xs text-muted-foreground">Asignar todas a:</span>
-                                <Select onValueChange={(val) => pedido.setAllMaquilaForItem(it.id, it.modelo_num, val)}>
+                                <span className="text-xs text-muted-foreground">Asignar a una:</span>
+                                <Select onValueChange={(val) => pedido.setAllMaquilaForItem(it.id, it.modelo_num, val, it.volumen)}>
                                   <SelectTrigger className="h-7 w-40 text-xs">
                                     <SelectValue placeholder="Maquila..." />
                                   </SelectTrigger>
@@ -379,41 +379,151 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                               </div>
                             </div>
 
-                            <div className="space-y-1.5">
-                              {maqOps.map((op) => {
-                                const currentAsig = itemAsigs.find((a) => a.fraccion === op.fraccion)
+                            {/* Distribution table */}
+                            {itemAsigs.length > 0 && (
+                              <div className="border rounded-md overflow-hidden">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="border-b bg-muted/50">
+                                      <th className="px-2 py-1.5 text-left w-40">Maquila</th>
+                                      <th className="px-2 py-1.5 text-left">Fracciones</th>
+                                      <th className="px-2 py-1.5 text-right w-24">Pares</th>
+                                      <th className="px-2 py-1.5 w-10"></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {itemAsigs.map((asig) => {
+                                      const allFracs = maqOps.map((op) => op.fraccion)
+                                      return (
+                                        <tr key={asig.id} className="border-b last:border-0">
+                                          <td className="px-2 py-1.5">
+                                            <Select
+                                              value={asig.maquila}
+                                              onValueChange={(val) => {
+                                                pedido.removeMaquilaAssignment(asig.id).then(() =>
+                                                  pedido.addMaquilaAssignment(it.id, val, asig.pares, asig.fracciones)
+                                                )
+                                              }}
+                                            >
+                                              <SelectTrigger className="h-7 text-xs">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {pedido.maquilaFabricas.map((f) => (
+                                                  <SelectItem key={f.id} value={f.nombre}>{f.nombre}</SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          </td>
+                                          <td className="px-2 py-1.5">
+                                            <div className="flex flex-wrap gap-1">
+                                              {allFracs.map((frac) => {
+                                                const isSelected = asig.fracciones.includes(frac)
+                                                const op = maqOps.find((o) => o.fraccion === frac)
+                                                const shortName = op?.operacion
+                                                  ? op.operacion.length > 18
+                                                    ? op.operacion.slice(0, 18) + '…'
+                                                    : op.operacion
+                                                  : ''
+                                                return (
+                                                  <button
+                                                    key={frac}
+                                                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono border transition-colors ${
+                                                      isSelected
+                                                        ? 'bg-destructive/10 border-destructive/40 text-destructive'
+                                                        : 'border-muted text-muted-foreground hover:border-destructive/30'
+                                                    }`}
+                                                    title={op?.operacion || `F${frac}`}
+                                                    onClick={() => {
+                                                      const newFracs = isSelected
+                                                        ? asig.fracciones.filter((f) => f !== frac)
+                                                        : [...asig.fracciones, frac].sort((a, b) => a - b)
+                                                      if (newFracs.length > 0) {
+                                                        pedido.updateMaquilaAssignment(asig.id, { fracciones: newFracs })
+                                                      }
+                                                    }}
+                                                  >
+                                                    F{frac}{shortName && ` ${shortName}`}
+                                                  </button>
+                                                )
+                                              })}
+                                            </div>
+                                          </td>
+                                          <td className="px-2 py-1.5 text-right">
+                                            {(() => {
+                                              const otherPares = itemAsigs
+                                                .filter((a) => a.id !== asig.id)
+                                                .reduce((sum, a) => sum + a.pares, 0)
+                                              const maxPares = it.volumen - otherPares
+                                              return (
+                                                <Input
+                                                  type="number"
+                                                  min={0}
+                                                  max={maxPares}
+                                                  step={50}
+                                                  className="h-7 w-20 text-xs text-right ml-auto"
+                                                  defaultValue={asig.pares}
+                                                  onBlur={(e) => {
+                                                    let val = parseInt(e.target.value)
+                                                    if (isNaN(val)) return
+                                                    val = Math.max(0, Math.min(val, maxPares))
+                                                    e.target.value = String(val)
+                                                    if (val !== asig.pares) {
+                                                      pedido.updateMaquilaAssignment(asig.id, { pares: val })
+                                                    }
+                                                  }}
+                                                />
+                                              )
+                                            })()}
+                                          </td>
+                                          <td className="px-2 py-1.5">
+                                            <button
+                                              className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                                              onClick={() => pedido.removeMaquilaAssignment(asig.id)}
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+
+                            {/* Total + Add button */}
+                            <div className="flex items-center justify-between">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  const allFracs = maqOps.map((op) => op.fraccion)
+                                  const usedPares = itemAsigs.reduce((sum, a) => sum + a.pares, 0)
+                                  const remaining = Math.max(0, it.volumen - usedPares)
+                                  const usedMaquilas = new Set(itemAsigs.map((a) => a.maquila))
+                                  const nextMaquila = pedido.maquilaFabricas.find((f) => !usedMaquilas.has(f.nombre))
+                                  if (nextMaquila) {
+                                    pedido.addMaquilaAssignment(it.id, nextMaquila.nombre, remaining, allFracs)
+                                  }
+                                }}
+                                disabled={
+                                  itemAsigs.length >= pedido.maquilaFabricas.length ||
+                                  itemAsigs.reduce((sum, a) => sum + a.pares, 0) >= it.volumen
+                                }
+                              >
+                                <Plus className="h-3 w-3 mr-1" /> Agregar maquila
+                              </Button>
+                              {itemAsigs.length > 0 && (() => {
+                                const totalPares = itemAsigs.reduce((sum, a) => sum + a.pares, 0)
+                                const match = totalPares === it.volumen
                                 return (
-                                  <div key={op.fraccion} className="flex items-center gap-3 text-xs">
-                                    <Badge variant="outline" className="font-mono text-[10px] w-10 justify-center shrink-0">
-                                      F{op.fraccion}
-                                    </Badge>
-                                    <span className="flex-1 truncate text-muted-foreground">{op.operacion}</span>
-                                    <Select
-                                      value={currentAsig?.maquila || ''}
-                                      onValueChange={(val) =>
-                                        pedido.setMaquilaAssignment(it.id, op.fraccion, op.operacion, val)
-                                      }
-                                    >
-                                      <SelectTrigger className={`h-7 w-40 text-xs ${currentAsig ? 'border-destructive/40' : ''}`}>
-                                        <SelectValue placeholder="Sin asignar" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {pedido.maquilaFabricas.map((f) => (
-                                          <SelectItem key={f.id} value={f.nombre}>{f.nombre}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    {currentAsig && (
-                                      <button
-                                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                                        onClick={() => pedido.removeMaquilaAssignment(currentAsig.id)}
-                                      >
-                                        <X className="h-3.5 w-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
+                                  <span className={`text-xs font-medium ${match ? 'text-green-600' : 'text-amber-600'}`}>
+                                    Total: {totalPares} / {it.volumen} pares
+                                  </span>
                                 )
-                              })}
+                              })()}
                             </div>
                           </div>
                         </TableCell>

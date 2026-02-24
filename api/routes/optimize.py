@@ -177,10 +177,10 @@ def _load_pedido(pedido_nombre: str) -> list:
 
 
 def _load_restricciones(semana: str = None) -> list:
-    """Carga restricciones."""
+    """Carga restricciones semanales + reglas permanentes (semana IS NULL)."""
     q = "select=*&order=created_at"
     if semana:
-        q += f"&semana=eq.{semana}"
+        q += f"&or=(semana.eq.{semana},semana.is.null)"
     rows = _sb_get("restricciones", q)
     return [
         {
