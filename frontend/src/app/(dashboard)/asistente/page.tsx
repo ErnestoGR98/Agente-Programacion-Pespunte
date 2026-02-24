@@ -73,7 +73,7 @@ export default function AsistentePage() {
         messages: newMessages,
         pedido_nombre: currentPedidoNombre || '',
         semana: currentSemana || '',
-        model: 'claude-sonnet-4-5-20250514',
+        model: 'claude-sonnet-4-6',
       })
       const assistantMsg: ChatMessage = { role: 'assistant', content: res.response }
       setMessages([...newMessages, assistantMsg])

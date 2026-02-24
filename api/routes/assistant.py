@@ -113,7 +113,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     pedido_nombre: str = ""
     semana: str = ""
-    model: str = "claude-sonnet-4-5-20250929"
+    model: str = "claude-sonnet-4-6"
 
 
 class ChatResponse(BaseModel):
