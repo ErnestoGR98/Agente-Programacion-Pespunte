@@ -17,18 +17,38 @@ interface NavItem {
   minStep: 0 | 1 | 2
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { href: '/datos', label: 'Datos', icon: Database, minStep: 0 },
-  { href: '/restricciones', label: 'Restricciones', icon: ShieldAlert, minStep: 0 },
-  { href: '/asistente', label: 'Asistente', icon: MessageSquare, minStep: 0 },
-  { href: '/operarios', label: 'Operarios', icon: Users, minStep: 0 },
-  { href: '/catalogo', label: 'Catalogo', icon: BookOpen, minStep: 0 },
-  { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
-  { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
-  { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },
-  { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
-  { href: '/robots', label: 'Robots', icon: Bot, minStep: 2 },
-  { href: '/cuellos', label: 'Cuellos de Botella', icon: AlertTriangle, minStep: 2 },
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Entrada',
+    items: [
+      { href: '/datos', label: 'Datos', icon: Database, minStep: 0 },
+      { href: '/catalogo', label: 'Catalogo', icon: BookOpen, minStep: 0 },
+      { href: '/operarios', label: 'Operarios', icon: Users, minStep: 0 },
+      { href: '/restricciones', label: 'Restricciones', icon: ShieldAlert, minStep: 0 },
+    ],
+  },
+  {
+    label: 'Herramientas',
+    items: [
+      { href: '/asistente', label: 'Asistente', icon: MessageSquare, minStep: 0 },
+      { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
+    ],
+  },
+  {
+    label: 'Resultados',
+    items: [
+      { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
+      { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },
+      { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
+      { href: '/robots', label: 'Robots', icon: Bot, minStep: 2 },
+      { href: '/cuellos', label: 'Cuellos de Botella', icon: AlertTriangle, minStep: 2 },
+    ],
+  },
 ]
 
 export function Sidebar() {
@@ -55,37 +75,46 @@ export function Sidebar() {
 
       {/* Navegacion */}
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        <ul className="space-y-1">
-          {NAV_ITEMS.map((item) => {
-            const disabled = appStep < item.minStep
-            const active = pathname === item.href
-            const Icon = item.icon
+        {NAV_GROUPS.map((group, gi) => (
+          <div key={group.label} className={gi > 0 ? 'mt-3' : ''}>
+            <div className="rounded-lg bg-muted/60 border border-border/50 px-1 py-2">
+              <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground/60">
+                {group.label}
+              </p>
+              <ul className="space-y-0.5">
+                {group.items.map((item) => {
+                  const disabled = appStep < item.minStep
+                  const active = pathname === item.href
+                  const Icon = item.icon
 
-            return (
-              <li key={item.href}>
-                {disabled ? (
-                  <span className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground/50 cursor-not-allowed">
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </span>
-                ) : (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                      active
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+                  return (
+                    <li key={item.href}>
+                      {disabled ? (
+                        <span className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed">
+                          <Icon className="h-4 w-4" />
+                          {item.label}
+                        </span>
+                      ) : (
+                        <Link
+                          href={item.href}
+                          className={cn(
+                            'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                            active
+                              ? 'bg-primary/10 text-primary font-medium'
+                              : 'text-muted-foreground hover:bg-background hover:text-accent-foreground',
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {item.label}
+                        </Link>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Usuario + logout */}
