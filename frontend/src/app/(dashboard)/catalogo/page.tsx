@@ -10,7 +10,25 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { Robot } from '@/types'
 import { STAGE_COLORS, RESOURCE_COLORS } from '@/types'
-import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import type { ProcessType, ResourceType } from '@/types'
+import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, Save, X, Check } from 'lucide-react'
+
+const PROCESS_TYPES: ProcessType[] = ['PRELIMINARES', 'ROBOT', 'POST', 'MAQUILA', 'N/A PRELIMINAR']
+const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
+
+interface EditableOp {
+  id: string
+  fraccion: number
+  operacion: string
+  input_o_proceso: ProcessType
+  etapa: string
+  recurso: ResourceType
+  rate: number
+}
 import { ModelRulesDialog } from './ModelRulesDialog'
 import { ModeloDialog } from './ModeloDialog'
 import { OperacionDialog } from './OperacionDialog'
@@ -165,11 +183,70 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
   const [open, setOpen] = useState(true)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [opDialog, setOpDialog] = useState<{ open: boolean; op: OperacionFull | null }>({ open: false, op: null })
+  const [editing, setEditing] = useState(false)
+  const [edits, setEdits] = useState<Record<string, EditableOp>>({})
+  const [saving, setSaving] = useState(false)
+  const [confirmSave, setConfirmSave] = useState(false)
+  const [confirmEdit, setConfirmEdit] = useState(false)
   const [confirmOp, setConfirmOp] = useState<{ open: boolean; action: () => Promise<void>; title: string; desc: string }>({
     open: false, action: async () => {}, title: '', desc: '',
   })
 
   const robotOps = modelo.operaciones.filter((o) => o.recurso === 'ROBOT').length
+  const changedCount = Object.keys(edits).filter((id) => {
+    const orig = modelo.operaciones.find((o) => o.id === id)
+    const ed = edits[id]
+    if (!orig || !ed) return false
+    return orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
+      orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
+      orig.recurso !== ed.recurso || orig.rate !== ed.rate
+  }).length
+
+  function startEditing() {
+    const map: Record<string, EditableOp> = {}
+    for (const op of modelo.operaciones) {
+      map[op.id] = {
+        id: op.id, fraccion: op.fraccion, operacion: op.operacion,
+        input_o_proceso: op.input_o_proceso, etapa: op.etapa,
+        recurso: op.recurso, rate: op.rate,
+      }
+    }
+    setEdits(map)
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    setEditing(false)
+    setEdits({})
+  }
+
+  function updateOp(id: string, field: keyof EditableOp, value: string | number) {
+    setEdits((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
+  }
+
+  async function saveAll() {
+    setSaving(true)
+    for (const [id, ed] of Object.entries(edits)) {
+      const orig = modelo.operaciones.find((o) => o.id === id)
+      if (!orig) continue
+      const changed = orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
+        orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
+        orig.recurso !== ed.recurso || orig.rate !== ed.rate
+      if (!changed) continue
+      await catalogo.updateOperacion(id, modelo.id, {
+        fraccion: ed.fraccion,
+        operacion: ed.operacion,
+        input_o_proceso: ed.input_o_proceso,
+        etapa: ed.etapa,
+        recurso: ed.recurso,
+        rate: ed.rate,
+        sec_per_pair: ed.rate > 0 ? Math.round(3600 / ed.rate) : 0,
+      })
+    }
+    setSaving(false)
+    setEditing(false)
+    setEdits({})
+  }
 
   function getProcesoColor(proceso: string): string {
     if (!proceso) return '#94A3B8'
@@ -179,15 +256,6 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
     if (proceso === 'POST') return STAGE_COLORS.POST
     if (proceso === 'MAQUILA') return STAGE_COLORS.MAQUILA
     return '#94A3B8'
-  }
-
-  function confirmEditOp(op: OperacionFull) {
-    setConfirmOp({
-      open: true,
-      title: `Editar F${op.fraccion} ${op.operacion}`,
-      desc: 'Esta accion modificara la operacion.',
-      action: async () => { setOpDialog({ open: true, op }) },
-    })
   }
 
   function confirmDeleteOp(op: OperacionFull) {
@@ -270,6 +338,41 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
 
       {open && (
         <CardContent className="pt-0 overflow-x-auto">
+          {/* Edit mode toolbar */}
+          <div className="flex items-center gap-2 mb-2">
+            {editing ? (
+              <>
+                <Button
+                  size="sm"
+                  className="h-6 text-[10px] px-2"
+                  disabled={changedCount === 0 || saving}
+                  onClick={() => setConfirmSave(true)}
+                >
+                  <Save className="mr-1 h-3 w-3" />
+                  {saving ? 'Guardando...' : `Guardar ${changedCount} cambio${changedCount !== 1 ? 's' : ''}`}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px] px-2"
+                  onClick={cancelEditing}
+                  disabled={saving}
+                >
+                  <X className="mr-1 h-3 w-3" /> Cancelar
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-[10px] px-2"
+                onClick={() => setConfirmEdit(true)}
+              >
+                <Pencil className="mr-1 h-3 w-3" /> Editar tabla
+              </Button>
+            )}
+          </div>
+
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b">
@@ -280,44 +383,119 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                 <th className="px-2 py-1 text-left">RECURSO</th>
                 <th className="px-2 py-1 text-right">RATE</th>
                 <th className="px-2 py-1 text-left">ROBOTS</th>
-                <th className="px-2 py-1 w-16"></th>
+                <th className="px-2 py-1 w-10"></th>
               </tr>
             </thead>
             <tbody>
               {modelo.operaciones.map((op) => {
-                const procesoColor = getProcesoColor(op.input_o_proceso)
-                const recursoColor = RESOURCE_COLORS[op.recurso] || '#94A3B8'
+                const ed = edits[op.id]
+                const proceso = editing && ed ? ed.input_o_proceso : op.input_o_proceso
+                const recurso = editing && ed ? ed.recurso : op.recurso
+                const procesoColor = getProcesoColor(proceso)
+                const recursoColor = RESOURCE_COLORS[recurso] || '#94A3B8'
+
+                // Check if this row has been modified
+                const isModified = editing && ed && (
+                  op.fraccion !== ed.fraccion || op.operacion !== ed.operacion ||
+                  op.input_o_proceso !== ed.input_o_proceso || op.etapa !== ed.etapa ||
+                  op.recurso !== ed.recurso || op.rate !== ed.rate
+                )
 
                 return (
                   <tr
                     key={op.id}
-                    className="border-b hover:bg-accent/30"
-                    style={{ backgroundColor: `${procesoColor}15` }}
+                    className={`border-b ${editing ? 'hover:bg-accent/50' : 'hover:bg-accent/30'} ${isModified ? 'ring-1 ring-inset ring-primary/30' : ''}`}
+                    style={{ backgroundColor: isModified ? 'rgba(59,130,246,0.06)' : `${procesoColor}15` }}
                   >
-                    <td className="px-2 py-1 font-mono">{op.fraccion}</td>
-                    <td className="px-2 py-1">{op.operacion}</td>
-                    <td className="px-2 py-1">
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] font-medium"
-                        style={{ borderColor: procesoColor, color: procesoColor }}
-                      >
-                        {op.input_o_proceso}
-                      </Badge>
+                    {/* FRACCION */}
+                    <td className="px-1 py-0.5 font-mono">
+                      {editing && ed ? (
+                        <Input
+                          type="number" min={1}
+                          value={ed.fraccion}
+                          onChange={(e) => updateOp(op.id, 'fraccion', parseInt(e.target.value) || 0)}
+                          className="h-6 w-14 text-xs font-mono px-1"
+                        />
+                      ) : op.fraccion}
                     </td>
-                    <td className="px-2 py-1">
-                      <span className="text-muted-foreground">{op.etapa}</span>
+
+                    {/* OPERACION */}
+                    <td className="px-1 py-0.5">
+                      {editing && ed ? (
+                        <Input
+                          value={ed.operacion}
+                          onChange={(e) => updateOp(op.id, 'operacion', e.target.value)}
+                          className="h-6 text-xs px-1"
+                        />
+                      ) : op.operacion}
                     </td>
-                    <td className="px-2 py-1">
-                      <Badge
-                        variant="outline"
-                        className="text-[10px]"
-                        style={{ borderColor: recursoColor, color: recursoColor }}
-                      >
-                        {op.recurso}
-                      </Badge>
+
+                    {/* INPUT/PROCESO */}
+                    <td className="px-1 py-0.5">
+                      {editing && ed ? (
+                        <Select value={ed.input_o_proceso} onValueChange={(v) => updateOp(op.id, 'input_o_proceso', v)}>
+                          <SelectTrigger className="h-6 text-[10px] w-28 px-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PROCESS_TYPES.map((p) => (
+                              <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] font-medium" style={{ borderColor: procesoColor, color: procesoColor }}>
+                          {op.input_o_proceso}
+                        </Badge>
+                      )}
                     </td>
-                    <td className="px-2 py-1 text-right font-mono">{op.rate}</td>
+
+                    {/* ETAPA */}
+                    <td className="px-1 py-0.5">
+                      {editing && ed ? (
+                        <Input
+                          value={ed.etapa}
+                          onChange={(e) => updateOp(op.id, 'etapa', e.target.value)}
+                          className="h-6 text-xs px-1"
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">{op.etapa}</span>
+                      )}
+                    </td>
+
+                    {/* RECURSO */}
+                    <td className="px-1 py-0.5">
+                      {editing && ed ? (
+                        <Select value={ed.recurso} onValueChange={(v) => updateOp(op.id, 'recurso', v)}>
+                          <SelectTrigger className="h-6 text-[10px] w-24 px-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {RESOURCE_TYPES.map((r) => (
+                              <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]" style={{ borderColor: recursoColor, color: recursoColor }}>
+                          {op.recurso}
+                        </Badge>
+                      )}
+                    </td>
+
+                    {/* RATE */}
+                    <td className="px-1 py-0.5 text-right font-mono">
+                      {editing && ed ? (
+                        <Input
+                          type="number" min={0} step={1}
+                          value={ed.rate}
+                          onChange={(e) => updateOp(op.id, 'rate', parseFloat(e.target.value) || 0)}
+                          className="h-6 w-20 text-xs font-mono px-1 text-right"
+                        />
+                      ) : op.rate}
+                    </td>
+
+                    {/* ROBOTS */}
                     <td className="px-2 py-1">
                       {op.recurso === 'ROBOT' && op.robots.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
@@ -337,21 +515,20 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                         <span className="text-[10px] text-muted-foreground">-</span>
                       )}
                     </td>
-                    <td className="px-2 py-1">
-                      <div className="flex gap-0.5">
-                        <button
-                          className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                          onClick={() => confirmEditOp(op)}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
+
+                    {/* ACTIONS */}
+                    <td className="px-1 py-0.5">
+                      {!editing && (
                         <button
                           className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                           onClick={() => confirmDeleteOp(op)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
-                      </div>
+                      )}
+                      {editing && isModified && (
+                        <Check className="h-3 w-3 text-primary" />
+                      )}
                     </td>
                   </tr>
                 )
@@ -381,36 +558,43 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
       <OperacionDialog
         open={opDialog.open}
         onOpenChange={(open) => setOpDialog({ open, op: opDialog.op })}
-        operacion={opDialog.op}
+        operacion={null}
         robots={robots}
         nextFraccion={modelo.operaciones.length > 0 ? Math.max(...modelo.operaciones.map((o) => o.fraccion)) + 1 : 1}
         onSave={async (data) => {
-          if (data.id) {
-            await catalogo.updateOperacion(data.id, modelo.id, {
-              fraccion: data.fraccion,
-              operacion: data.operacion,
-              input_o_proceso: data.input_o_proceso,
-              etapa: data.etapa,
-              recurso: data.recurso,
-              rate: data.rate,
-              sec_per_pair: data.sec_per_pair,
-              robotIds: data.robotIds,
-            })
-          } else {
-            await catalogo.addOperacion(modelo.id, {
-              fraccion: data.fraccion,
-              operacion: data.operacion,
-              input_o_proceso: data.input_o_proceso,
-              etapa: data.etapa,
-              recurso: data.recurso,
-              rate: data.rate,
-              sec_per_pair: data.sec_per_pair,
-              robotIds: data.robotIds,
-            })
-          }
+          await catalogo.addOperacion(modelo.id, {
+            fraccion: data.fraccion,
+            operacion: data.operacion,
+            input_o_proceso: data.input_o_proceso,
+            etapa: data.etapa,
+            recurso: data.recurso,
+            rate: data.rate,
+            sec_per_pair: data.sec_per_pair,
+            robotIds: data.robotIds,
+          })
         }}
       />
 
+      {/* CAPTCHA to enter edit mode */}
+      <ConfirmDialog
+        open={confirmEdit}
+        onOpenChange={setConfirmEdit}
+        title={`Editar operaciones de ${modelo.modelo_num}`}
+        description="Esta accion habilitara la edicion de operaciones del modelo."
+        onConfirm={startEditing}
+        variant="default"
+      />
+
+      {/* CAPTCHA for batch save */}
+      <ConfirmDialog
+        open={confirmSave}
+        onOpenChange={setConfirmSave}
+        title={`Guardar ${changedCount} cambio${changedCount !== 1 ? 's' : ''} en ${modelo.modelo_num}`}
+        description={`Se modificaran ${changedCount} operacion${changedCount !== 1 ? 'es' : ''} del modelo.`}
+        onConfirm={saveAll}
+      />
+
+      {/* CAPTCHA for delete */}
       <ConfirmDialog
         open={confirmOp.open}
         onOpenChange={(open) => setConfirmOp((prev) => ({ ...prev, open }))}
