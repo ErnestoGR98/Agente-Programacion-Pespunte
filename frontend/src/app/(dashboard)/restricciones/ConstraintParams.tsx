@@ -1,22 +1,42 @@
 'use client'
 
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '@/lib/supabase/client'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { DAY_NAMES, type ConstraintType } from '@/types'
+import { DAY_NAMES, type ConstraintType, type Robot } from '@/types'
+
+interface ModeloOption {
+  modelo_num: string
+  color: string
+}
 
 export function ConstraintParams({
   tipo,
   params,
   setParams,
+  modeloItems = [],
 }: {
   tipo: ConstraintType
   params: Record<string, unknown>
   setParams: (p: Record<string, unknown>) => void
+  modeloItems?: ModeloOption[]
 }) {
+  const [robots, setRobots] = useState<Robot[]>([])
+
+  const loadRobots = useCallback(async () => {
+    const { data } = await supabase.from('robots').select('*').eq('estado', 'ACTIVO').order('orden')
+    if (data) setRobots(data)
+  }, [])
+
+  useEffect(() => {
+    if (tipo === 'ROBOT_NO_DISPONIBLE') loadRobots()
+  }, [tipo, loadRobots])
+
   function set(key: string, value: unknown) {
     setParams({ ...params, [key]: value })
   }
@@ -55,7 +75,7 @@ export function ConstraintParams({
       return (
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <Label className="text-xs">Disponible desde</Label>
+            <Label className="text-xs">Disponible desde (dia)</Label>
             <Select value={String(params.disponible_desde || '')} onValueChange={(v) => set('disponible_desde', v)}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Dia..." /></SelectTrigger>
               <SelectContent>
@@ -64,9 +84,21 @@ export function ConstraintParams({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Hora (opcional)</Label>
-            <Input value={String(params.hora_disponible || '')}
-              onChange={(e) => set('hora_disponible', e.target.value)} className="h-8" placeholder="10:00" />
+            <Label className="text-xs">Hora disponible (opcional)</Label>
+            <Select value={String(params.hora_disponible || '')} onValueChange={(v) => set('hora_disponible', v === 'none' ? '' : v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Inicio del dia" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Inicio del dia</SelectItem>
+                <SelectItem value="8:00">8:00</SelectItem>
+                <SelectItem value="9:00">9:00</SelectItem>
+                <SelectItem value="10:00">10:00</SelectItem>
+                <SelectItem value="11:00">11:00</SelectItem>
+                <SelectItem value="12:00">12:00</SelectItem>
+                <SelectItem value="14:00">14:00 (despues de comida)</SelectItem>
+                <SelectItem value="15:00">15:00</SelectItem>
+                <SelectItem value="16:00">16:00</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )
@@ -119,13 +151,29 @@ export function ConstraintParams({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <Label className="text-xs">Modelo antes</Label>
-            <Input value={String(params.modelo_antes || '')}
-              onChange={(e) => set('modelo_antes', e.target.value)} className="h-8" />
+            <Select value={String(params.modelo_antes || '')} onValueChange={(v) => set('modelo_antes', v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Modelo..." /></SelectTrigger>
+              <SelectContent>
+                {modeloItems.map((item, i) => (
+                  <SelectItem key={`antes-${item.modelo_num}-${i}`} value={item.modelo_num}>
+                    {item.modelo_num} — {item.color}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Modelo despues</Label>
-            <Input value={String(params.modelo_despues || '')}
-              onChange={(e) => set('modelo_despues', e.target.value)} className="h-8" />
+            <Select value={String(params.modelo_despues || '')} onValueChange={(v) => set('modelo_despues', v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Modelo..." /></SelectTrigger>
+              <SelectContent>
+                {modeloItems.map((item, i) => (
+                  <SelectItem key={`despues-${item.modelo_num}-${i}`} value={item.modelo_num}>
+                    {item.modelo_num} — {item.color}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )
@@ -134,13 +182,29 @@ export function ConstraintParams({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <Label className="text-xs">Modelo A</Label>
-            <Input value={String(params.modelo_a || '')}
-              onChange={(e) => set('modelo_a', e.target.value)} className="h-8" />
+            <Select value={String(params.modelo_a || '')} onValueChange={(v) => set('modelo_a', v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Modelo..." /></SelectTrigger>
+              <SelectContent>
+                {modeloItems.map((item, i) => (
+                  <SelectItem key={`a-${item.modelo_num}-${i}`} value={item.modelo_num}>
+                    {item.modelo_num} — {item.color}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Modelo B</Label>
-            <Input value={String(params.modelo_b || '')}
-              onChange={(e) => set('modelo_b', e.target.value)} className="h-8" />
+            <Select value={String(params.modelo_b || '')} onValueChange={(v) => set('modelo_b', v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Modelo..." /></SelectTrigger>
+              <SelectContent>
+                {modeloItems.map((item, i) => (
+                  <SelectItem key={`b-${item.modelo_num}-${i}`} value={item.modelo_num}>
+                    {item.modelo_num} — {item.color}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )
@@ -167,33 +231,43 @@ export function ConstraintParams({
             onChange={(e) => set('lote_minimo', parseInt(e.target.value) || 0)} className="h-8 w-32" />
         </div>
       )
-    case 'ROBOT_NO_DISPONIBLE':
+    case 'ROBOT_NO_DISPONIBLE': {
+      const diasSelected = (params.dias as string[]) || []
       return (
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <Label className="text-xs">Robot</Label>
-            <Input value={String(params.robot || '')}
-              onChange={(e) => set('robot', e.target.value)} className="h-8" placeholder="3020-M4" />
+            <Select value={String(params.robot || '')} onValueChange={(v) => set('robot', v)}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Robot..." /></SelectTrigger>
+              <SelectContent>
+                {robots.map((r) => (
+                  <SelectItem key={r.id} value={r.nombre}>{r.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Dias</Label>
+            <Label className="text-xs">Dias no disponible</Label>
             <div className="flex gap-2 flex-wrap">
               {DAY_NAMES.map((d) => (
                 <label key={d} className="flex items-center gap-1 text-xs">
                   <Checkbox
-                    checked={((params.dias as string[]) || []).includes(d)}
+                    checked={diasSelected.includes(d)}
                     onCheckedChange={(checked) => {
-                      const current = (params.dias as string[]) || []
-                      set('dias', checked ? [...current, d] : current.filter((x) => x !== d))
+                      set('dias', checked ? [...diasSelected, d] : diasSelected.filter((x) => x !== d))
                     }}
                   />
                   {d}
                 </label>
               ))}
             </div>
+            {diasSelected.length === 0 && (
+              <p className="text-xs text-destructive">Sin dias seleccionados = bloqueado toda la semana</p>
+            )}
           </div>
         </div>
       )
+    }
     case 'AUSENCIA_OPERARIO':
       return (
         <div className="grid grid-cols-2 gap-4">

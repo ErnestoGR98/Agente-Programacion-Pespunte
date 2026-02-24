@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { useRestricciones } from '@/lib/hooks/useRestricciones'
+import { useAppStore } from '@/lib/store/useAppStore'
+import { supabase } from '@/lib/supabase/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -22,6 +24,11 @@ import {
 } from '@/types'
 import { ConstraintParams } from './ConstraintParams'
 
+interface PedidoModeloItem {
+  modelo_num: string
+  color: string
+}
+
 export function RestriccionesTab({
   data,
   semana,
@@ -35,20 +42,50 @@ export function RestriccionesTab({
   const [modelo, setModelo] = useState('*')
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [nota, setNota] = useState('')
+  const [modeloItems, setModeloItems] = useState<PedidoModeloItem[]>([])
+  const pedidoNombre = useAppStore((s) => s.currentPedidoNombre)
+
+  const loadModelos = useCallback(async () => {
+    if (!pedidoNombre) return
+    const { data: ped } = await supabase
+      .from('pedidos')
+      .select('id')
+      .eq('nombre', pedidoNombre)
+      .single()
+    if (!ped) return
+    const { data: items } = await supabase
+      .from('pedido_items')
+      .select('modelo_num, color')
+      .eq('pedido_id', ped.id)
+      .order('modelo_num')
+    if (items) setModeloItems(items)
+  }, [pedidoNombre])
+
+  useEffect(() => { loadModelos() }, [loadModelos])
+
+  // Tipos donde el modelo se especifica en los parametros, no en el campo principal
+  const TIPOS_SIN_MODELO: ConstraintType[] = [
+    'SECUENCIA', 'AGRUPAR_MODELOS',         // modelos en params
+    'ROBOT_NO_DISPONIBLE',                   // aplica a un robot
+    'AUSENCIA_OPERARIO', 'CAPACIDAD_DIA',    // aplica a plantilla/dia
+  ]
+  const hideModelo = TIPOS_SIN_MODELO.includes(tipo)
 
   const tipos = categoria === 'operativas'
     ? CONSTRAINT_TYPES_OPERATIVAS
     : CONSTRAINT_TYPES_PLANIFICACION
 
   async function handleAdd() {
+    const parametros = nota ? { ...params, nota } : params
     await data.addRestriccion({
       semana: semana,
       tipo,
       modelo_num: modelo,
       activa: true,
-      parametros: params,
+      parametros,
     })
     setShowForm(false)
+    setModelo('*')
     setParams({})
     setNota('')
   }
@@ -72,7 +109,7 @@ export function RestriccionesTab({
         <Card>
           <CardHeader><CardTitle className="text-base">Nueva Restriccion</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className={`grid gap-4 ${hideModelo ? 'grid-cols-3' : 'grid-cols-4'}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Categoria</Label>
                 <Select
@@ -81,6 +118,7 @@ export function RestriccionesTab({
                     const cat = v as 'operativas' | 'planificacion'
                     setCategoria(cat)
                     setTipo(cat === 'operativas' ? 'PRIORIDAD' : 'FIJAR_DIA')
+                    setModelo('*')
                   }}
                 >
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
@@ -92,7 +130,12 @@ export function RestriccionesTab({
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Tipo</Label>
-                <Select value={tipo} onValueChange={(v) => { setTipo(v as ConstraintType); setParams({}) }}>
+                <Select value={tipo} onValueChange={(v) => {
+                  const newTipo = v as ConstraintType
+                  setTipo(newTipo)
+                  setParams({})
+                  if (TIPOS_SIN_MODELO.includes(newTipo)) setModelo('*')
+                }}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {tipos.map((t) => (
@@ -101,10 +144,22 @@ export function RestriccionesTab({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Modelo</Label>
-                <Input value={modelo} onChange={(e) => setModelo(e.target.value)} className="h-8" placeholder="* = todos" />
-              </div>
+              {!hideModelo && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Modelo</Label>
+                  <Select value={modelo} onValueChange={setModelo}>
+                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="*">* (Todos)</SelectItem>
+                      {modeloItems.map((item, i) => (
+                        <SelectItem key={`${item.modelo_num}-${item.color}-${i}`} value={item.modelo_num}>
+                          {item.modelo_num} — {item.color}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs">Nota</Label>
                 <Input value={nota} onChange={(e) => setNota(e.target.value)} className="h-8" />
@@ -112,7 +167,7 @@ export function RestriccionesTab({
             </div>
 
             {/* Dynamic params */}
-            <ConstraintParams tipo={tipo} params={params} setParams={setParams} />
+            <ConstraintParams tipo={tipo} params={params} setParams={setParams} modeloItems={modeloItems} />
 
             <div className="flex gap-2">
               <Button size="sm" onClick={handleAdd}>Agregar</Button>
@@ -130,6 +185,7 @@ export function RestriccionesTab({
               <TableRow>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Modelo</TableHead>
+                <TableHead>Alternativa</TableHead>
                 <TableHead>Parametros</TableHead>
                 <TableHead>Activa</TableHead>
                 <TableHead className="w-16"></TableHead>
@@ -142,8 +198,17 @@ export function RestriccionesTab({
                     <Badge variant="secondary">{r.tipo}</Badge>
                   </TableCell>
                   <TableCell className="font-mono">{r.modelo_num}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {r.modelo_num !== '*'
+                      ? modeloItems.find((m) => m.modelo_num === r.modelo_num)?.color || '—'
+                      : '—'}
+                  </TableCell>
                   <TableCell className="text-xs max-w-xs truncate">
-                    {JSON.stringify(r.parametros)}
+                    {(() => {
+                      const { nota: _nota, ...rest } = (r.parametros || {}) as Record<string, unknown>
+                      const display = Object.keys(rest).length > 0 ? JSON.stringify(rest) : '—'
+                      return _nota ? `${display} (${_nota})` : display
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Checkbox
@@ -160,7 +225,7 @@ export function RestriccionesTab({
               ))}
               {data.restricciones.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     Sin restricciones. Agrega una para comenzar.
                   </TableCell>
                 </TableRow>
