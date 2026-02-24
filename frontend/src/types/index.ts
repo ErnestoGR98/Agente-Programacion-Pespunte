@@ -367,8 +367,8 @@ export const RESOURCE_COLORS: Record<string, string> = {
 // --- Constantes compartidas ---
 
 export const BLOCK_LABELS = [
-  '8-9', '9-10', '10-11', '11-12', '12-1:10',
-  '1:50-2', '2-3', '3-4', '4-5', '5-6',
+  '8-9', '9-10', '10-11', '11-12', '12-1',
+  '1-2', 'COMIDA', '3-4', '4-5', '5-6', '6-7',
 ] as const
 
 export const DEFAULT_CAPACITIES: Record<string, number> = {
