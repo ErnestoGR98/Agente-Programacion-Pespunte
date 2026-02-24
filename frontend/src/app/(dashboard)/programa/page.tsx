@@ -10,6 +10,7 @@ import { DaySelector } from '@/components/shared/DaySelector'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult, AsignacionMaquila } from '@/types'
 import { Truck } from 'lucide-react'
+import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 
 interface MaquilaEntry {
   modelo: string
@@ -315,6 +316,7 @@ export default function ProgramaPage() {
 }
 
 function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: DailyResult; maquilaModelos: Set<string> }) {
+  const catImages = useCatalogoImages()
   const schedule = data.schedule || []
 
   const totalPares = data.total_pares || 0
@@ -395,6 +397,7 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
                   <tr key={i} className="border-b hover:bg-accent/30">
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
+                        {(() => { const u = getModeloImageUrl(catImages, s.modelo); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
                         {s.modelo}
                         {maquilaModelos.has(s.modelo) && (
                           <Truck className="h-3 w-3 text-destructive" />

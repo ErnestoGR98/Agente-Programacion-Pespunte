@@ -23,6 +23,7 @@ export interface ModeloFull {
   total_sec_per_pair: number
   num_ops: number
   imagen_url: string | null
+  alternativas_imagenes: Record<string, string>
   operaciones: OperacionFull[]
 }
 
@@ -75,6 +76,7 @@ export function useCatalogo() {
       total_sec_per_pair: Number(m.total_sec_per_pair),
       num_ops: Number(m.num_ops),
       imagen_url: (m.imagen_url as string) || null,
+      alternativas_imagenes: (m.alternativas_imagenes as Record<string, string>) || {},
       operaciones: ops
         .filter((o: { modelo_id: string }) => o.modelo_id === m.id)
         .map((o: Record<string, unknown>) => ({
@@ -125,6 +127,27 @@ export function useCatalogo() {
       await supabase.from('catalogo_modelos').update({ imagen_url: data.publicUrl }).eq('id', modeloId)
       await load()
       return data.publicUrl
+    }
+    return null
+  }
+
+  async function uploadAlternativaImagen(modeloId: string, modeloNum: string, alternativa: string, file: File): Promise<string | null> {
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${modeloNum}_${alternativa}.${ext}`
+    await supabase.storage.from('modelos').upload(path, file, { upsert: true })
+    const { data: urlData } = supabase.storage.from('modelos').getPublicUrl(path)
+    if (urlData?.publicUrl) {
+      // Read current alternativas_imagenes, merge, save
+      const { data: current } = await supabase
+        .from('catalogo_modelos')
+        .select('alternativas_imagenes')
+        .eq('id', modeloId)
+        .single()
+      const existing = (current?.alternativas_imagenes as Record<string, string>) || {}
+      existing[alternativa] = urlData.publicUrl
+      await supabase.from('catalogo_modelos').update({ alternativas_imagenes: existing }).eq('id', modeloId)
+      await load()
+      return urlData.publicUrl
     }
     return null
   }
@@ -198,7 +221,7 @@ export function useCatalogo() {
 
   return {
     loading, modelos, robots, reload: load,
-    addModelo, updateModelo, deleteModelo, uploadModeloImagen,
+    addModelo, updateModelo, deleteModelo, uploadModeloImagen, uploadAlternativaImagen,
     addOperacion, updateOperacion, deleteOperacion,
   }
 }

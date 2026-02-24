@@ -95,9 +95,14 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
                   <TableCell className="font-mono font-medium">{m.modelo_num}</TableCell>
                   <TableCell>{m.codigo_full}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex gap-2">
                       {(m.alternativas || []).map((a) => (
-                        <Badge key={a} variant="outline" className="text-xs">{a}</Badge>
+                        <div key={a} className="flex items-center gap-1">
+                          {m.alternativas_imagenes?.[a] && (
+                            <img src={m.alternativas_imagenes[a]} alt={a} className="h-8 w-auto rounded border object-contain bg-white" />
+                          )}
+                          <Badge variant="outline" className="text-xs">{a}</Badge>
+                        </div>
                       ))}
                     </div>
                   </TableCell>

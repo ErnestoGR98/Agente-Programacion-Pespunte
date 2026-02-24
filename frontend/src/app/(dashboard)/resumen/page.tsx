@@ -16,6 +16,7 @@ import {
 import { DAY_ORDER } from '@/types'
 import type { WeeklyScheduleEntry } from '@/types'
 import { Truck } from 'lucide-react'
+import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -76,6 +77,7 @@ export default function ResumenPage() {
 // ============================================================
 
 function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEntry[]; maquilaFabricas: Set<string> }) {
+  const catImages = useCatalogoImages()
   const pivot = useMemo(() => {
     const rawDays = [...new Set(schedule.map((e) => e.Dia))]
     const days = DAY_ORDER.filter((d) => rawDays.includes(d))
@@ -124,7 +126,12 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
                     <span className={isMaquila ? 'text-destructive' : ''}>{row.fabrica}</span>
                   </span>
                 </TableCell>
-                <TableCell className="font-mono">{row.modelo}</TableCell>
+                <TableCell className="font-mono">
+                  <span className="flex items-center gap-1">
+                    {(() => { const u = getModeloImageUrl(catImages, String(row.modelo)); return u ? <img src={u} alt={String(row.modelo)} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                    {row.modelo}
+                  </span>
+                </TableCell>
                 {pivot.days.map((d) => (
                   <TableCell key={d} className="text-center">
                     {row[d] || ''}
@@ -181,6 +188,7 @@ function BalanceChart({ summary }: { summary: { days?: Array<{ dia: string; hc_n
 // ============================================================
 
 function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string; volumen: number; producido: number; tardiness: number; pct_completado: number }> } }) {
+  const catImages = useCatalogoImages()
   const models = summary.models || []
   if (models.length === 0) return null
 
@@ -202,7 +210,12 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
           <TableBody>
             {models.map((m) => (
               <TableRow key={m.codigo}>
-                <TableCell className="font-mono">{m.codigo}</TableCell>
+                <TableCell className="font-mono">
+                  <span className="flex items-center gap-1">
+                    {(() => { const u = getModeloImageUrl(catImages, m.codigo); return u ? <img src={u} alt={m.codigo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                    {m.codigo}
+                  </span>
+                </TableCell>
                 <TableCell>{m.volumen}</TableCell>
                 <TableCell>{m.producido}</TableCell>
                 <TableCell className={m.tardiness > 0 ? 'text-destructive font-bold' : ''}>

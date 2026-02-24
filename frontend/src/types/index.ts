@@ -93,6 +93,8 @@ export interface CatalogoModelo {
   clave_material: string
   total_sec_per_pair: number
   num_ops: number
+  imagen_url: string | null
+  alternativas_imagenes: Record<string, string>
   created_at: string
   updated_at: string
 }

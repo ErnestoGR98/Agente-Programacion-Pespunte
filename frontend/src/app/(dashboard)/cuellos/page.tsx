@@ -12,6 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
+import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { BLOCK_LABELS, DEFAULT_CAPACITIES, CHART_COLORS } from '@/types'
 
 interface Alert {
@@ -39,6 +40,7 @@ interface ModelWorkload {
 
 export default function CuellosPage() {
   const result = useAppStore((s) => s.currentResult)
+  const catImages = useCatalogoImages()
 
   const alerts = useMemo(() => {
     if (!result) return []
@@ -278,7 +280,12 @@ export default function CuellosPage() {
               <TableBody>
                 {modelWorkloads.map((m) => (
                   <TableRow key={m.modelo}>
-                    <TableCell className="font-mono">{m.modelo}</TableCell>
+                    <TableCell className="font-mono">
+                      <span className="flex items-center gap-1">
+                        {(() => { const u = getModeloImageUrl(catImages, m.modelo); return u ? <img src={u} alt={m.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                        {m.modelo}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-right">{m.volumen}</TableCell>
                     <TableCell className="text-right">{m.sec_par.toFixed(1)}</TableCell>
                     <TableCell className="text-right">{Math.round(m.min_total).toLocaleString()}</TableCell>

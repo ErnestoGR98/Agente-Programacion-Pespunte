@@ -309,6 +309,11 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                     <TableRow key={it.id}>
                       <TableCell className="font-mono">
                         <span className="flex items-center gap-2">
+                          {(() => {
+                            const cat = pedido.catalogo.find((c) => c.modelo_num === it.modelo_num)
+                            const imgUrl = cat?.alternativas_imagenes?.[it.color] || cat?.imagen_url
+                            return imgUrl ? <img src={imgUrl} alt={`${it.modelo_num} ${it.color}`} className="h-8 w-auto rounded border object-contain bg-white" /> : null
+                          })()}
                           {it.modelo_num}
                           {hasMaquila && (
                             <button

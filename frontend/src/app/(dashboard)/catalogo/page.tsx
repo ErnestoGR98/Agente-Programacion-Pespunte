@@ -122,13 +122,22 @@ export default function CatalogoPage() {
             if (data.imageFile) {
               await catalogo.uploadModeloImagen(data.id, data.modeloNum, data.imageFile)
             }
+            if (data.altImageFiles) {
+              for (const [alt, file] of Object.entries(data.altImageFiles)) {
+                await catalogo.uploadAlternativaImagen(data.id, data.modeloNum, alt, file)
+              }
+            }
           } else {
             await catalogo.addModelo(data.modeloNum, data.codigoFull, data.claveMaterial, data.alternativas)
-            // Find the newly created model to upload image
-            if (data.imageFile) {
-              const newMod = catalogo.modelos.find((m) => m.modelo_num === data.modeloNum)
-              if (newMod) {
+            const newMod = catalogo.modelos.find((m) => m.modelo_num === data.modeloNum)
+            if (newMod) {
+              if (data.imageFile) {
                 await catalogo.uploadModeloImagen(newMod.id, data.modeloNum, data.imageFile)
+              }
+              if (data.altImageFiles) {
+                for (const [alt, file] of Object.entries(data.altImageFiles)) {
+                  await catalogo.uploadAlternativaImagen(newMod.id, data.modeloNum, alt, file)
+                }
               }
             }
           }
@@ -203,21 +212,29 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
             ) : (
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
             )}
-            {modelo.imagen_url && (
+            <CardTitle className="text-base font-mono">{modelo.modelo_num}</CardTitle>
+            {modelo.alternativas.length > 0 ? (
+              <div className="flex gap-2">
+                {modelo.alternativas.map((a) => (
+                  <div key={a} className="flex items-center gap-1">
+                    {modelo.alternativas_imagenes[a] && (
+                      <img
+                        src={modelo.alternativas_imagenes[a]}
+                        alt={a}
+                        className="h-10 w-auto rounded border object-contain bg-white"
+                      />
+                    )}
+                    <Badge variant="outline" className="text-[10px]">{a}</Badge>
+                  </div>
+                ))}
+              </div>
+            ) : modelo.imagen_url ? (
               <img
                 src={modelo.imagen_url}
                 alt={modelo.modelo_num}
-                className="h-10 w-10 rounded border object-cover"
+                className="h-10 w-auto rounded border object-contain bg-white"
               />
-            )}
-            <CardTitle className="text-base font-mono">{modelo.modelo_num}</CardTitle>
-            {modelo.alternativas.length > 0 && (
-              <div className="flex gap-1">
-                {modelo.alternativas.map((a) => (
-                  <Badge key={a} variant="outline" className="text-[10px]">{a}</Badge>
-                ))}
-              </div>
-            )}
+            ) : null}
           </div>
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <span>{modelo.operaciones.length} ops</span>
