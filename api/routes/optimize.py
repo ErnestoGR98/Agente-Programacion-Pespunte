@@ -242,7 +242,7 @@ def _match_models(catalogo: dict, pedido: list) -> list:
             matched.append({
                 "modelo_num": modelo_num,
                 "codigo_full": cat["codigo_full"],
-                "codigo": cat.get("codigo_full", modelo_num),
+                "codigo": f"{cat.get('codigo_full', modelo_num)} {item.get('color', '')}".strip(),
                 "color": item.get("color", ""),
                 "fabrica": item.get("fabrica", ""),
                 "suela": cat.get("clave_material", ""),
@@ -351,12 +351,12 @@ def run_optimization(req: OptimizeRequest):
     matched = _match_models(catalogo, pedido)
     print(f"[OPT] matched: {len(matched)} modelos cruzados")
     for m in matched:
-        print(f"  {m['modelo_num']}: {m['total_producir']} pares, "
+        print(f"  {m['codigo']}: {m['total_producir']} pares, "
               f"{m['num_ops']} ops, {m['total_sec_per_pair']}s/par")
         if m["num_ops"] == 0:
-            print(f"  *** ATENCION: modelo {m['modelo_num']} sin operaciones!")
+            print(f"  *** ATENCION: modelo {m['codigo']} sin operaciones!")
         if m["total_sec_per_pair"] == 0:
-            print(f"  *** ATENCION: modelo {m['modelo_num']} con 0 sec/par!")
+            print(f"  *** ATENCION: modelo {m['codigo']} con 0 sec/par!")
 
     if not matched:
         raise HTTPException(400, "Ningun modelo del pedido tiene catalogo")
