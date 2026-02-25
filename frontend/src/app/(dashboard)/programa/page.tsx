@@ -252,21 +252,23 @@ export default function ProgramaPage() {
     const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
     const headers = ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLbls, 'TOTAL']
 
-    // Build maquila summary text
-    const maqParts: string[] = []
+    // Build maquila summary as bullet lines
+    const maqLines: string[] = []
     for (const [fab, models] of maquilaByFabrica) {
-      const items = Array.from(models.entries()).map(([m, p]) => `${m} ${p}p`).join(', ')
-      maqParts.push(`${fab}: ${items}`)
+      for (const [m, p] of models.entries()) {
+        maqLines.push(`${fab}: ${m} — ${p.toLocaleString()} pares`)
+      }
     }
     for (const [maq, models] of opMaquilaByFactory) {
-      const items = Array.from(models.entries()).map(([m, d]) => {
+      for (const [m, d] of models.entries()) {
         const baseM = m.split(' ')[0]
-        const opList = d.fracciones.map((f) => `${f}.- ${fracToOpName.get(`${baseM}|${f}`) || `F${f}`}`).join(', ')
-        return `${m} ${d.pares}p (${opList})`
-      }).join(', ')
-      maqParts.push(`${maq}: ${items}`)
+        maqLines.push(`${maq}: ${m} — ${d.pares} pares`)
+        for (const f of d.fracciones) {
+          const name = fracToOpName.get(`${baseM}|${f}`) || `F${f}`
+          maqLines.push(`    ${f}.- ${name}`)
+        }
+      }
     }
-    const maquilaText = maqParts.join('  |  ')
 
     const groups: ProgramaDayGroup[] = dayNames
       .filter((d) => result.daily_results![d]?.schedule?.length)
@@ -281,7 +283,7 @@ export default function ProgramaPage() {
             s.total,
           ] as (string | number)[]),
           etapas: sched.map((s) => s.etapa || ''),
-          maquilaInfo: maquilaText || undefined,
+          maquilaInfo: maqLines.length > 0 ? maqLines : undefined,
         }
       })
     exportProgramaPDF('programa_completo', headers, groups)

@@ -98,7 +98,7 @@ export interface ProgramaDayGroup {
   day: string
   rows: (string | number)[][]
   etapas: string[]       // etapa per row (same length as rows)
-  maquilaInfo?: string   // text to show at top of page (e.g., "MAQUILA: 77525 600 pares")
+  maquilaInfo?: string[] // lines to show at top of page as bullet list
 }
 
 // Stage colors matching the frontend STAGE_COLORS
@@ -152,13 +152,20 @@ export function exportProgramaPDF(
 
     let startY = 28
 
-    // Maquila info banner
-    if (group.maquilaInfo) {
-      doc.setFontSize(8)
+    // Maquila info banner as bullet list
+    if (group.maquilaInfo && group.maquilaInfo.length > 0) {
+      doc.setFontSize(7)
       doc.setTextColor(239, 68, 68)
-      doc.text(`MAQUILA: ${group.maquilaInfo}`, 14, startY)
+      doc.setFont('helvetica', 'bold')
+      doc.text('MAQUILA:', 14, startY)
+      doc.setFont('helvetica', 'normal')
+      startY += 4
+      for (const line of group.maquilaInfo) {
+        doc.text(`•  ${line}`, 16, startY)
+        startY += 3.5
+      }
       doc.setTextColor(0, 0, 0)
-      startY += 6
+      startY += 1
     }
 
     // Legend
