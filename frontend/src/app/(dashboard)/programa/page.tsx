@@ -176,6 +176,15 @@ export default function ProgramaPage() {
     return map
   }, [catalogMaquilaOps])
 
+  // Map modelo|fraccion → operacion name (for resolving F1→name)
+  const fracToOpName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const op of catalogMaquilaOps) {
+      map.set(`${op.modelo_num}|${op.fraccion}`, op.operacion)
+    }
+    return map
+  }, [catalogMaquilaOps])
+
   // Models with unassigned MAQUILA ops (in catalog but not yet assigned)
   const assignedSet = useMemo(() => {
     const set = new Set<string>()
@@ -250,7 +259,7 @@ export default function ProgramaPage() {
       maqParts.push(`${fab}: ${items}`)
     }
     for (const [maq, models] of opMaquilaByFactory) {
-      const items = Array.from(models.entries()).map(([m, d]) => `${m} ${d.pares}p (F${d.fracciones.join(',')})`).join(', ')
+      const items = Array.from(models.entries()).map(([m, d]) => `${m} ${d.pares}p (${d.fracciones.map((f) => fracToOpName.get(`${m}|${f}`) || `F${f}`).join(', ')})`).join(', ')
       maqParts.push(`${maq}: ${items}`)
     }
     const maquilaText = maqParts.join('  |  ')
@@ -342,7 +351,7 @@ export default function ProgramaPage() {
                           </Badge>
                           {[...models.entries()].map(([modelo, info]) => (
                             <span key={modelo} className="text-xs text-destructive/70 font-mono">
-                              {modelo}: {info.pares} pares (F{info.fracciones.join(', F')})
+                              {modelo}: {info.pares} pares ({info.fracciones.map((f) => fracToOpName.get(`${modelo}|${f}`) || `F${f}`).join(', ')})
                             </span>
                           ))}
                         </div>
