@@ -193,6 +193,7 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
   const [confirmOp, setConfirmOp] = useState<{ open: boolean; action: () => Promise<void>; title: string; desc: string }>({
     open: false, action: async () => {}, title: '', desc: '',
   })
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const robotOps = modelo.operaciones.filter((o) => o.recurso === 'ROBOT').length
   function isOpChanged(orig: OperacionFull, ed: EditableOp) {
@@ -306,7 +307,8 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                       <img
                         src={modelo.alternativas_imagenes[a]}
                         alt={a}
-                        className="h-10 w-auto rounded border object-contain bg-white"
+                        className="h-10 w-auto rounded border object-contain bg-white cursor-pointer hover:ring-2 hover:ring-primary/50 transition-shadow"
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(modelo.alternativas_imagenes[a]) }}
                       />
                     )}
                     <Badge variant="outline" className="text-[10px]">{a}</Badge>
@@ -317,7 +319,8 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
               <img
                 src={modelo.imagen_url}
                 alt={modelo.modelo_num}
-                className="h-10 w-auto rounded border object-contain bg-white"
+                className="h-10 w-auto rounded border object-contain bg-white cursor-pointer hover:ring-2 hover:ring-primary/50 transition-shadow"
+                onClick={(e) => { e.stopPropagation(); setLightboxUrl(modelo.imagen_url) }}
               />
             ) : null}
           </div>
@@ -625,6 +628,27 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
         description={confirmOp.desc}
         onConfirm={confirmOp.action}
       />
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm cursor-pointer"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Vista ampliada"
+            className="max-h-[85vh] max-w-[90vw] rounded-lg shadow-2xl object-contain bg-white"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </Card>
   )
 }
