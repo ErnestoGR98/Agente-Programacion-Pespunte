@@ -6,9 +6,11 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, MessageSquare, Users, Settings,
   CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen,
+  Sun, Moon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useTheme } from 'next-themes'
 
 interface NavItem {
   href: string
@@ -55,6 +57,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const appStep = useAppStore((s) => s.appStep)
   const { user, signOut } = useAuth()
+  const { theme, setTheme } = useTheme()
 
   return (
     <aside className="flex h-screen w-56 flex-col border-r bg-card">
@@ -134,6 +137,18 @@ export function Sidebar() {
           </div>
         </div>
       )}
+
+      {/* Theme toggle */}
+      <div className="border-t px-4 py-2 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Tema</span>
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+        >
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+      </div>
 
       {/* Step indicator */}
       <div className="border-t px-4 py-3">

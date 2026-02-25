@@ -552,17 +552,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       {/* Actions */}
       <div className="flex gap-2">
         <Button
-          size="sm" variant="outline"
-          onClick={async () => {
-            if (!pedido.currentPedidoId) return
-            const consolidated = pedido.consolidateDuplicates()
-            await pedido.saveItems(pedido.currentPedidoId, consolidated.map(({ id: _, pedido_id: __, ...rest }) => rest))
-          }}
-          disabled={pedido.items.length === 0}
-        >
-          Consolidar Duplicados
-        </Button>
-        <Button
           size="sm"
           onClick={handleCargarOptimizador}
           disabled={pedido.items.length === 0}

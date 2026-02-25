@@ -106,10 +106,20 @@ export function usePedido() {
   async function addItem(item: Omit<PedidoItem, 'id' | 'pedido_id'>, pedidoId?: string) {
     const pid = pedidoId || currentPedidoId
     if (!pid) return
-    await supabase.from('pedido_items').insert({
-      ...item,
-      pedido_id: pid,
-    })
+    // Check if same modelo+color already exists — if so, sum volumen
+    const existing = items.find(
+      (it) => it.pedido_id === pid && it.modelo_num === item.modelo_num && it.color === item.color
+    )
+    if (existing) {
+      await supabase.from('pedido_items')
+        .update({ volumen: existing.volumen + item.volumen })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('pedido_items').insert({
+        ...item,
+        pedido_id: pid,
+      })
+    }
     await loadPedido(pid)
   }
 
