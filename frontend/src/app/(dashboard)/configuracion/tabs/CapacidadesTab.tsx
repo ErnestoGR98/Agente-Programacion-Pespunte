@@ -10,10 +10,10 @@ export function CapacidadesTab({ config }: { config: ReturnType<typeof useConfig
   return (
     <Card className="mt-4">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">Capacidad por Tipo de Recurso (pares/hora)</CardTitle>
+        <CardTitle className="text-base">Cantidad de Recursos Disponibles</CardTitle>
         <TableExport
-          title="Capacidades por Recurso"
-          headers={['Tipo de Recurso', 'Pares/Hora']}
+          title="Recursos Disponibles"
+          headers={['Tipo de Recurso', 'Cantidad']}
           rows={config.capacidades.map((c) => [c.tipo, c.pares_hora])}
         />
       </CardHeader>
