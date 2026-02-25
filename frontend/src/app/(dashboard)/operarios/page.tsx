@@ -85,14 +85,12 @@ export default function OperariosPage() {
             <span className="text-sm font-medium">Listado de Operarios</span>
             <TableExport
               title="Operarios"
-              headers={['Nombre', 'Fabrica', 'Recursos', 'Robots', 'Eficiencia', 'Dias', 'Activo']}
+              headers={['Nombre', 'Recursos', 'Eficiencia', 'Sabado', 'Activo']}
               rows={operarios.map((op) => [
                 op.nombre,
-                op.fabrica_nombre,
                 op.recursos.join(', '),
-                op.robots.map((r) => r).join(', '),
                 `${(op.eficiencia * 100).toFixed(0)}%`,
-                op.dias.join(', '),
+                op.dias.includes('Sab') ? 'Si' : 'No',
                 op.activo ? 'Si' : 'No',
               ])}
             />
@@ -101,11 +99,9 @@ export default function OperariosPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nombre</TableHead>
-                <TableHead>Fabrica</TableHead>
                 <TableHead>Recursos</TableHead>
-                <TableHead>Robots</TableHead>
                 <TableHead>Eficiencia</TableHead>
-                <TableHead>Dias</TableHead>
+                <TableHead>Sabado</TableHead>
                 <TableHead>Activo</TableHead>
                 <TableHead className="w-20"></TableHead>
               </TableRow>
@@ -114,7 +110,6 @@ export default function OperariosPage() {
               {operarios.map((op) => (
                 <TableRow key={op.id} className={!op.activo ? 'opacity-50' : ''}>
                   <TableCell className="font-medium">{op.nombre}</TableCell>
-                  <TableCell>{op.fabrica_nombre}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {op.recursos.map((r) => (
@@ -122,15 +117,14 @@ export default function OperariosPage() {
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {op.robots.map((r) => (
-                        <Badge key={r} variant="outline" className="text-xs">{r}</Badge>
-                      ))}
-                    </div>
-                  </TableCell>
                   <TableCell>{(op.eficiencia * 100).toFixed(0)}%</TableCell>
-                  <TableCell className="text-xs">{op.dias.join(', ')}</TableCell>
+                  <TableCell>
+                    {op.dias.includes('Sab') ? (
+                      <Badge variant="secondary" className="text-xs">Si</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Checkbox
                       checked={op.activo}
