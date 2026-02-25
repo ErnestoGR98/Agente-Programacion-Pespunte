@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Loader2, Send, Trash2, MessageSquare, X, Minimize2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '@/types'
 
 const SUGGESTIONS = [
@@ -187,7 +188,13 @@ export function ChatWidget() {
                       : 'bg-muted'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap text-xs">{msg.content}</div>
+                  {msg.role === 'assistant' ? (
+                    <div className="prose prose-xs dark:prose-invert max-w-none text-xs [&_table]:text-[10px] [&_th]:px-1.5 [&_th]:py-0.5 [&_td]:px-1.5 [&_td]:py-0.5 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_pre]:text-[10px] [&_code]:text-[10px]">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap text-xs">{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))}

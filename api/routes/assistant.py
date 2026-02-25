@@ -86,6 +86,64 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
         for r in restricciones
     ]
 
+    # Catalogo (modelos + operaciones + robots)
+    cat_modelos = _sb_get("catalogo_modelos", "select=id,modelo_num,alternativas,total_sec_per_pair,num_ops&order=modelo_num")
+    if cat_modelos:
+        cat_ops = _sb_get("catalogo_operaciones", "select=modelo_id,fraccion,operacion,recurso,etapa,rate,sec_per_pair&order=fraccion")
+        robots_activos = _sb_get("robots", "select=id,nombre&estado=eq.ACTIVO&order=orden")
+        robot_rels = _sb_get("catalogo_operacion_robots", "select=operacion_id,robot_id")
+
+        # Build robot id->name map
+        robot_name_map = {r["id"]: r["nombre"] for r in robots_activos}
+        # Build op_id -> robot names
+        op_robots = {}
+        for rel in robot_rels:
+            oid = rel["operacion_id"]
+            rname = robot_name_map.get(rel["robot_id"], "")
+            if rname:
+                op_robots.setdefault(oid, []).append(rname)
+
+        # Build ops by modelo_id
+        ops_by_modelo = {}
+        for op in cat_ops:
+            mid = op["modelo_id"]
+            ops_by_modelo.setdefault(mid, []).append(op)
+
+        state["catalogo"] = []
+        for m in cat_modelos:
+            ops = ops_by_modelo.get(m["id"], [])
+            state["catalogo"].append({
+                "modelo_num": m["modelo_num"],
+                "alternativas": m.get("alternativas", []),
+                "total_sec_per_pair": m.get("total_sec_per_pair", 0),
+                "num_ops": m.get("num_ops", 0),
+                "operaciones": [
+                    {
+                        "fraccion": op["fraccion"],
+                        "operacion": op["operacion"],
+                        "recurso": op["recurso"],
+                        "etapa": op.get("etapa", ""),
+                        "rate": op.get("rate", 0),
+                        "robots": op_robots.get(op.get("id", ""), []),
+                    }
+                    for op in ops
+                ],
+            })
+        state["robots_activos"] = [r["nombre"] for r in robots_activos]
+
+    # Configuracion (capacidades, dias laborales, fabricas)
+    capacidades = _sb_get("capacidades_recurso", "select=tipo,pares_hora&order=tipo")
+    if capacidades:
+        state["capacidades"] = capacidades
+
+    dias_lab = _sb_get("dias_laborales", "select=dia,activo,minutos,minutos_ot,plantilla&order=dia")
+    if dias_lab:
+        state["dias_laborales"] = dias_lab
+
+    fabricas = _sb_get("fabricas", "select=nombre,orden&order=orden")
+    if fabricas:
+        state["fabricas"] = [f["nombre"] for f in fabricas]
+
     # Avance
     if semana:
         av = _sb_get("avance", f"select=*&semana=eq.{semana}")

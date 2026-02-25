@@ -22,6 +22,7 @@ REGLAS:
 - No inventes datos que no esten en el contexto
 - Puedes sugerir restricciones o ajustes cuando sea relevante
 - Usa formato markdown para tablas y listas cuando ayude a la claridad
+- Tienes acceso al catalogo de modelos (operaciones, robots, rates) y a la configuracion del sistema
 
 CONCEPTOS CLAVE:
 - Pares: unidad de produccion (zapatos = pares)
@@ -142,6 +143,48 @@ def build_context(state: dict) -> str:
             day_detail = ", ".join(f"{d}={p}" for d, p in days_data.items() if p > 0)
             avance_lines.append(f"  {modelo}: {total} pares ({day_detail})")
         sections.append("AVANCE DE PRODUCCION:\n" + "\n".join(avance_lines))
+
+    # Catalogo de modelos
+    catalogo = state.get("catalogo") or []
+    if catalogo:
+        robots_activos = state.get("robots_activos", [])
+        cat_lines = [f"  Robots activos: {', '.join(robots_activos)}" if robots_activos else ""]
+        for m in catalogo:
+            alts = f" ({'/'.join(m['alternativas'])})" if m.get("alternativas") else ""
+            cat_lines.append(
+                f"\n  {m['modelo_num']}{alts}: {m['num_ops']} ops, "
+                f"{m['total_sec_per_pair']} sec/par"
+            )
+            for op in m.get("operaciones", []):
+                robots_str = f" [{', '.join(op['robots'])}]" if op.get("robots") else ""
+                cat_lines.append(
+                    f"    F{op['fraccion']} {op['operacion']}: "
+                    f"{op['recurso']} rate={op['rate']}"
+                    f" etapa={op['etapa']}{robots_str}"
+                )
+        sections.append(f"CATALOGO ({len(catalogo)} modelos):\n" + "\n".join(cat_lines))
+
+    # Configuracion del sistema
+    capacidades = state.get("capacidades") or []
+    if capacidades:
+        cap_lines = [f"  {c['tipo']}: {c['pares_hora']} pares/hora" for c in capacidades]
+        sections.append("CAPACIDADES POR RECURSO:\n" + "\n".join(cap_lines))
+
+    dias_lab = state.get("dias_laborales") or []
+    if dias_lab:
+        dia_lines = []
+        for d in dias_lab:
+            status = "activo" if d.get("activo") else "inactivo"
+            ot = f" +{d.get('minutos_ot', 0)}min OT" if d.get("minutos_ot", 0) > 0 else ""
+            dia_lines.append(
+                f"  {d['dia']}: {status}, {d.get('minutos', 0)}min, "
+                f"plantilla={d.get('plantilla', 0)}{ot}"
+            )
+        sections.append("DIAS LABORALES:\n" + "\n".join(dia_lines))
+
+    fabricas = state.get("fabricas") or []
+    if fabricas:
+        sections.append(f"FABRICAS: {', '.join(fabricas)}")
 
     # Parametros
     params = state.get("params")
