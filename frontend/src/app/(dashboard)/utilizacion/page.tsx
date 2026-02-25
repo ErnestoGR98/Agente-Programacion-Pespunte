@@ -8,6 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { BLOCK_LABELS, CHART_COLORS, HEATMAP_COLORS, DAY_ORDER } from '@/types'
+import { TableExport } from '@/components/shared/TableExport'
 import type { DailyResult } from '@/types'
 
 export default function UtilizacionPage() {
@@ -82,6 +83,19 @@ function WeeklyHeatmap({
     return result
   }, [dailyResults, dayNames])
 
+  // Build exportable rows: one row per day, columns = block HC% values
+  const heatmapHeaders = useMemo(() => ['Dia', ...BLOCK_LABELS], [])
+  const heatmapRows = useMemo(() => {
+    return dayNames.map((day) => {
+      const row: (string | number)[] = [day]
+      for (const block of BLOCK_LABELS) {
+        const cell = cells.find((c) => c.day === day && c.block === block)
+        row.push(cell?.value ?? 0)
+      }
+      return row
+    })
+  }, [cells, dayNames])
+
   function getColor(pct: number): string {
     if (pct === 0) return HEATMAP_COLORS.empty
     if (pct < 50) return HEATMAP_COLORS.low
@@ -92,7 +106,10 @@ function WeeklyHeatmap({
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Mapa de Calor: Utilizacion HC</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Mapa de Calor: Utilizacion HC</CardTitle>
+        <TableExport title="Utilizacion HC - Mapa de Calor" headers={heatmapHeaders} rows={heatmapRows} />
+      </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <div className="grid gap-1" style={{

@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { TableExport } from '@/components/shared/TableExport'
 import type { DiaLaboral } from '@/types'
 
 export function DiasTab({ config }: { config: ReturnType<typeof useConfiguracion> }) {
@@ -16,8 +17,20 @@ export function DiasTab({ config }: { config: ReturnType<typeof useConfiguracion
 
   return (
     <Card className="mt-4">
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Dias Laborales y Plantilla</CardTitle>
+        <TableExport
+          title="Dias Laborales y Plantilla"
+          headers={['Dia', 'Minutos', 'Plantilla', 'Min OT', 'Plant. OT', 'Sabado']}
+          rows={config.dias.map((d) => [
+            d.nombre,
+            d.minutos,
+            d.plantilla,
+            d.minutos_ot,
+            d.plantilla_ot,
+            d.es_sabado ? 'Si' : 'No',
+          ])}
+        />
       </CardHeader>
       <CardContent>
         <Table>

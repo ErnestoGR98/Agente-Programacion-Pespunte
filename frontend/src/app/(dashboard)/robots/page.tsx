@@ -9,6 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { BLOCK_LABELS, RESOURCE_COLORS, DAY_ORDER } from '@/types'
+import { TableExport } from '@/components/shared/TableExport'
 import type { DailyResult } from '@/types'
 
 interface RobotUsage {
@@ -65,6 +66,19 @@ export default function RobotsPage() {
     return Array.from(map.values()).sort((a, b) => b.totalPares - a.totalPares)
   }, [result, dayNames])
 
+  // Exportable rows for robot stats cards
+  const statsHeaders = useMemo(() => ['Robot', 'Operaciones', 'Pares', 'Modelos', 'Dias', '% Util'], [])
+  const statsRows = useMemo(() => {
+    return robotUsage.map((r) => [
+      r.nombre,
+      r.totalOps,
+      r.totalPares,
+      r.models.join(', '),
+      r.days.join(', '),
+      r.pctUtil,
+    ] as (string | number)[])
+  }, [robotUsage])
+
   if (!result) {
     return (
       <div className="flex h-64 items-center justify-center text-muted-foreground">
@@ -101,6 +115,10 @@ export default function RobotsPage() {
       )}
 
       {/* Robot cards */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Resumen por Robot</h2>
+        <TableExport title="Robots - Resumen" headers={statsHeaders} rows={statsRows} />
+      </div>
       <div className="grid grid-cols-4 gap-3">
         {robotUsage.map((r) => (
           <Card key={r.nombre}>
@@ -143,13 +161,32 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
   const robotOps = schedule.filter((s) => s.recurso === 'ROBOT' && s.robot)
   const robots = [...new Set(robotOps.map((s) => s.robot!))]
 
+  // Build exportable rows for the timeline: one row per robot, columns = block values (model + pares)
+  const timelineHeaders = useMemo(() => ['Robot', ...BLOCK_LABELS], [])
+  const timelineRows = useMemo(() => {
+    return robots.map((robot) => {
+      const ops = robotOps.filter((s) => s.robot === robot)
+      const row: (string | number)[] = [robot]
+      for (let bi = 0; bi < BLOCK_LABELS.length; bi++) {
+        const op = ops.find((s) => (s.blocks?.[bi] || 0) > 0)
+        const val = op?.blocks?.[bi] || 0
+        row.push(val > 0 ? `${op?.modelo} (${val})` : '')
+      }
+      return row
+    })
+  }, [robots, robotOps])
+
   if (robots.length === 0) {
     return <p className="text-sm text-muted-foreground">Sin operaciones de robot este dia.</p>
   }
 
   return (
     <Card>
-      <CardContent className="pt-4">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-base">Timeline Robots</CardTitle>
+        <TableExport title="Robots - Timeline Diario" headers={timelineHeaders} rows={timelineRows} />
+      </CardHeader>
+      <CardContent className="pt-0">
         <div className="grid gap-1" style={{
           gridTemplateColumns: `100px repeat(${BLOCK_LABELS.length}, 1fr)`,
         }}>

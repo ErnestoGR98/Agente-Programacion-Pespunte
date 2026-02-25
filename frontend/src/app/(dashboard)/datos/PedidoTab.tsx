@@ -5,6 +5,7 @@ import type { usePedido } from '@/lib/hooks/usePedido'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { importPedido, downloadTemplate } from '@/lib/api/fastapi'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { TableExport } from '@/components/shared/TableExport'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -286,6 +287,14 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       {/* Items table */}
       <Card>
         <CardContent className="pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Items del Pedido</span>
+            <TableExport
+              title={`Pedido ${semana}`}
+              headers={['Modelo', 'Color', 'Fabrica', 'Volumen']}
+              rows={pedido.items.map((it) => [it.modelo_num, it.color, it.fabrica, it.volumen])}
+            />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

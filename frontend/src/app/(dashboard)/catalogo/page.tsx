@@ -5,6 +5,8 @@ import { useCatalogo } from '@/lib/hooks/useCatalogo'
 import type { ModeloFull, OperacionFull } from '@/lib/hooks/useCatalogo'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { TableExport } from '@/components/shared/TableExport'
+import { exportCatalogoPDF, type CatalogModelGroup } from '@/lib/export'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,6 +60,29 @@ export default function CatalogoPage() {
     0,
   )
 
+  // Global export: all models combined
+  const globalExportHeaders = ['MODELO', 'FRACC', 'OPERACION', 'INPUT/PROCESO', 'ETAPA', 'RECURSO', 'RATE', 'ROBOTS']
+  const globalExportRows = modelos.flatMap((m) =>
+    m.operaciones.map((op) => [
+      m.modelo_num, op.fraccion, op.operacion, op.input_o_proceso, op.etapa, op.recurso, op.rate, op.robots.join(', '),
+    ] as (string | number)[])
+  )
+
+  function buildCatalogGroups(modelList: ModeloFull[]): CatalogModelGroup[] {
+    return modelList.map((m) => ({
+      modeloNum: m.modelo_num,
+      rows: m.operaciones.map((op) => [
+        op.fraccion, op.operacion, op.input_o_proceso, op.etapa, op.recurso, op.rate, op.robots.join(', '),
+      ] as (string | number)[]),
+    }))
+  }
+
+  const catalogoPDFHeaders = ['FRACC', 'OPERACION', 'INPUT/PROCESO', 'ETAPA', 'RECURSO', 'RATE', 'ROBOTS']
+
+  function handleGlobalPDF() {
+    exportCatalogoPDF('catalogo_completo', catalogoPDFHeaders, buildCatalogGroups(modelos))
+  }
+
   function confirmEditModelo(m: ModeloFull) {
     setConfirmModelo({
       open: true,
@@ -85,9 +110,12 @@ export default function CatalogoPage() {
             Modelos, fracciones y asignacion de robots
           </p>
         </div>
-        <Button size="sm" onClick={() => setModeloDialog({ open: true, modelo: null })}>
-          <Plus className="mr-1 h-3 w-3" /> Nuevo Modelo
-        </Button>
+        <div className="flex items-center gap-2">
+          <TableExport title="catalogo_completo" headers={globalExportHeaders} rows={globalExportRows} onCustomPDF={handleGlobalPDF} />
+          <Button size="sm" onClick={() => setModeloDialog({ open: true, modelo: null })}>
+            <Plus className="mr-1 h-3 w-3" /> Nuevo Modelo
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -123,6 +151,13 @@ export default function CatalogoPage() {
             catalogo={catalogo}
             onEdit={() => confirmEditModelo(m)}
             onDelete={() => confirmDeleteModelo(m)}
+            onExportPDF={() => {
+              exportCatalogoPDF(
+                `catalogo_${m.modelo_num}`,
+                catalogoPDFHeaders,
+                buildCatalogGroups([m]),
+              )
+            }}
           />
         ))
       )}
@@ -175,12 +210,13 @@ export default function CatalogoPage() {
   )
 }
 
-function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
+function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }: {
   modelo: ModeloFull
   robots: Robot[]
   catalogo: ReturnType<typeof useCatalogo>
   onEdit: () => void
   onDelete: () => void
+  onExportPDF: () => void
 }) {
   const [open, setOpen] = useState(true)
   const [rulesOpen, setRulesOpen] = useState(false)
@@ -391,6 +427,22 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                 <Pencil className="mr-1 h-3 w-3" /> Editar tabla
               </Button>
             )}
+            <div className="ml-auto">
+              <TableExport
+                title={`catalogo_${modelo.modelo_num}`}
+                headers={['FRACC', 'OPERACION', 'INPUT/PROCESO', 'ETAPA', 'RECURSO', 'RATE', 'ROBOTS']}
+                rows={modelo.operaciones.map((op) => [
+                  op.fraccion,
+                  op.operacion,
+                  op.input_o_proceso,
+                  op.etapa,
+                  op.recurso,
+                  op.rate,
+                  op.robots.join(', '),
+                ])}
+                onCustomPDF={onExportPDF}
+              />
+            </div>
           </div>
 
           <table className="w-full text-xs border-collapse">

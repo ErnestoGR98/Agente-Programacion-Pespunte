@@ -18,6 +18,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
+import { TableExport } from '@/components/shared/TableExport'
 import {
   CONSTRAINT_TYPES_TEMPORALES,
   type ConstraintType,
@@ -156,6 +157,22 @@ export function RestriccionesTab({
 
       {/* Table */}
       <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-0">
+          <CardTitle className="text-base">Restricciones</CardTitle>
+          <TableExport
+            title="Restricciones"
+            headers={['Tipo', 'Modelo', 'Alternativa', 'Parametros', 'Activa']}
+            rows={data.restricciones.map((r) => {
+              const { nota: _nota, ...rest } = (r.parametros || {}) as Record<string, unknown>
+              const display = Object.keys(rest).length > 0 ? JSON.stringify(rest) : ''
+              const paramStr = _nota ? `${display} (${_nota})` : display
+              const alternativa = r.modelo_num !== '*'
+                ? modeloItems.find((m) => m.modelo_num === r.modelo_num)?.color || ''
+                : ''
+              return [r.tipo, r.modelo_num, alternativa, paramStr, r.activa ? 'Si' : 'No']
+            })}
+          />
+        </CardHeader>
         <CardContent className="pt-4">
           <Table>
             <TableHeader>

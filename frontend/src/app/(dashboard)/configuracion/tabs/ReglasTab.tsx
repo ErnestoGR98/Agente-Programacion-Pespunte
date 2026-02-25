@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
+import { TableExport } from '@/components/shared/TableExport'
 import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType } from '@/types'
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
 
@@ -163,6 +164,19 @@ export function ReglasTab() {
 
       {/* Table */}
       <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-0">
+          <CardTitle className="text-base">Reglas</CardTitle>
+          <TableExport
+            title="Reglas Permanentes"
+            headers={['Tipo', 'Modelo', 'Parametros', 'Activa']}
+            rows={reglas.reglas.map((r) => {
+              const { nota: _nota, ...rest } = (r.parametros || {}) as Record<string, unknown>
+              const display = Object.keys(rest).length > 0 ? JSON.stringify(rest) : ''
+              const paramStr = _nota ? `${display} (${_nota})` : display
+              return [r.tipo, r.modelo_num, paramStr, r.activa ? 'Si' : 'No']
+            })}
+          />
+        </CardHeader>
         <CardContent className="pt-4">
           <Table>
             <TableHeader>

@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { TableExport } from '@/components/shared/TableExport'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -213,7 +214,14 @@ export default function CuellosPage() {
       {/* Active Constraints */}
       {activeConstraints.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Restricciones Mas Activas (Top 20)</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Restricciones Mas Activas (Top 20)</CardTitle>
+            <TableExport
+              title="Restricciones Activas"
+              headers={['Dia', 'Bloque', 'Restriccion', 'Capacidad', 'Carga', 'Uso %']}
+              rows={activeConstraints.map((c) => [c.dia, c.bloque, c.restriccion, c.capacidad, c.carga, c.uso_pct])}
+            />
+          </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
@@ -264,7 +272,14 @@ export default function CuellosPage() {
       {/* Model Workload */}
       {modelWorkloads.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Modelos por Carga de Trabajo</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Modelos por Carga de Trabajo</CardTitle>
+            <TableExport
+              title="Carga por Modelo"
+              headers={['Modelo', 'Volumen', 'Seg/Par', 'Min Total', 'HC-Horas', 'Num Ops']}
+              rows={modelWorkloads.map((m) => [m.modelo, m.volumen, Number(m.sec_par.toFixed(1)), Math.round(m.min_total), Number(m.hc_horas.toFixed(1)), m.num_ops])}
+            />
+          </CardHeader>
           <CardContent className="space-y-4">
             <Table>
               <TableHeader>

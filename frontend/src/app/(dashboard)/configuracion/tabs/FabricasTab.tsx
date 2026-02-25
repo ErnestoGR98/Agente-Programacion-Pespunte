@@ -10,6 +10,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Trash2, Plus, Building2, Truck } from 'lucide-react'
+import { TableExport } from '@/components/shared/TableExport'
 
 /** Input that keeps local state and only saves on blur */
 function EditableNameInput({
@@ -69,11 +70,16 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
     <div className="mt-4 space-y-4">
       {/* Fabricas Internas */}
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Building2 className="h-4 w-4" />
             Fabricas Internas
           </CardTitle>
+          <TableExport
+            title="Fabricas Internas"
+            headers={['Nombre']}
+            rows={internas.map((f) => [f.nombre])}
+          />
         </CardHeader>
         <CardContent>
           <Table>
@@ -122,11 +128,16 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
 
       {/* Maquilas */}
       <Card className="border-destructive/30 bg-destructive/5">
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="flex items-center gap-2 text-base text-destructive">
             <Truck className="h-4 w-4" />
             Maquilas (Produccion Externa)
           </CardTitle>
+          <TableExport
+            title="Maquilas"
+            headers={['Nombre']}
+            rows={maquilas.map((f) => [f.nombre])}
+          />
         </CardHeader>
         <CardContent>
           <Table>

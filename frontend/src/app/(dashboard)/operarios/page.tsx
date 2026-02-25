@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useOperarios, type OperarioFull } from '@/lib/hooks/useOperarios'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { TableExport } from '@/components/shared/TableExport'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -80,6 +81,22 @@ export default function OperariosPage() {
       {/* Tabla */}
       <Card>
         <CardContent className="pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Listado de Operarios</span>
+            <TableExport
+              title="Operarios"
+              headers={['Nombre', 'Fabrica', 'Recursos', 'Robots', 'Eficiencia', 'Dias', 'Activo']}
+              rows={operarios.map((op) => [
+                op.nombre,
+                op.fabrica_nombre,
+                op.recursos.join(', '),
+                op.robots.map((r) => r).join(', '),
+                `${(op.eficiencia * 100).toFixed(0)}%`,
+                op.dias.join(', '),
+                op.activo ? 'Si' : 'No',
+              ])}
+            />
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

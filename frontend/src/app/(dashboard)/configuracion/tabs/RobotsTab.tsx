@@ -12,6 +12,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
+import { TableExport } from '@/components/shared/TableExport'
 import type { Robot } from '@/types'
 
 export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguracion> }) {
@@ -20,7 +21,14 @@ export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguraci
   return (
     <div className="space-y-6 mt-4">
       <Card>
-        <CardHeader><CardTitle className="text-base">Robots Fisicos</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Robots Fisicos</CardTitle>
+          <TableExport
+            title="Robots Fisicos"
+            headers={['Nombre', 'Estado', 'Area']}
+            rows={config.robots.map((r) => [r.nombre, r.estado, r.area])}
+          />
+        </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>

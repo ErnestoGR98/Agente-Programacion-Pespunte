@@ -7,6 +7,7 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
+import { TableExport } from '@/components/shared/TableExport'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult, AsignacionMaquila } from '@/types'
 import { Truck } from 'lucide-react'
@@ -212,6 +213,26 @@ export default function ProgramaPage() {
     return DAY_ORDER.filter((d) => keys.includes(d))
   }, [result])
 
+  // Global export: all days combined
+  const globalExport = useMemo(() => {
+    if (!result?.daily_results) return { headers: [], rows: [] }
+    const allSchedules = dayNames.flatMap((d) => {
+      const dayData = result.daily_results![d]
+      if (!dayData?.schedule) return []
+      return dayData.schedule.map((s) => ({ ...s, dia: d }))
+    })
+    const maxBlocks = allSchedules.reduce((max, s) => Math.max(max, s.blocks?.length || 0), 0)
+    const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
+    const headers = ['DIA', 'MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLbls, 'TOTAL']
+    const rows = allSchedules.map((s) => [
+      s.dia, s.modelo, s.fraccion, s.operacion, s.robot || s.recurso,
+      s.operario || '-', s.rate, s.hc,
+      ...(s.blocks || []).map((v: number) => (v > 0 ? v : '')),
+      s.total,
+    ] as (string | number)[])
+    return { headers, rows }
+  }, [result, dayNames])
+
   const day = selectedDay || dayNames[0] || ''
   const dayData = result?.daily_results?.[day]
 
@@ -230,7 +251,10 @@ export default function ProgramaPage() {
           <h1 className="text-2xl font-bold">Programa Diario</h1>
           <p className="text-sm text-muted-foreground">{result.nombre}</p>
         </div>
-        <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
+        <div className="flex items-center gap-3">
+          <TableExport title="programa_completo" headers={globalExport.headers} rows={globalExport.rows} />
+          <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
+        </div>
       </div>
 
       {/* MAQUILA Banner */}
@@ -332,6 +356,27 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
     return BLOCK_LABELS.slice(0, maxBlocks || 10)
   }, [schedule])
 
+  // Export data for TableExport
+  const exportHeaders = useMemo(
+    () => ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLabels, 'TOTAL'],
+    [blockLabels]
+  )
+  const exportRows = useMemo(
+    () =>
+      schedule.map((s) => [
+        s.modelo,
+        s.fraccion,
+        s.operacion,
+        s.robot || s.recurso,
+        s.operario || '-',
+        s.rate,
+        s.hc,
+        ...(s.blocks || []).map((v) => (v > 0 ? v : '')),
+        s.total,
+      ] as (string | number)[]),
+    [schedule]
+  )
+
   function getEtapaColor(etapa: string): string {
     if (!etapa) return '#94A3B8'
     if (etapa.includes('N/A PRELIMINAR')) return STAGE_COLORS['N/A PRELIMINAR']
@@ -374,6 +419,14 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
       {/* Schedule table */}
       <Card>
         <CardContent className="pt-4 overflow-x-auto">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold">Programa — {dayName}</h3>
+            <TableExport
+              title={`Programa_${dayName}`}
+              headers={exportHeaders}
+              rows={exportRows}
+            />
+          </div>
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b">

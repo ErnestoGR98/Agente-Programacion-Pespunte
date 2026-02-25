@@ -17,6 +17,7 @@ import { DAY_ORDER } from '@/types'
 import type { WeeklyScheduleEntry } from '@/types'
 import { Truck } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
+import { TableExport } from '@/components/shared/TableExport'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -102,9 +103,17 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
 
   if (schedule.length === 0) return null
 
+  const exportHeaders = ['Fabrica', 'Modelo', ...pivot.days, 'TOTAL']
+  const exportRows = pivot.data.map((row) => [
+    row.fabrica, row.modelo, ...pivot.days.map((d) => row[d] || 0), row.total,
+  ] as (string | number)[])
+
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Asignacion Semanal</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Asignacion Semanal</CardTitle>
+        <TableExport title="asignacion_semanal" headers={exportHeaders} rows={exportRows} />
+      </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
@@ -192,9 +201,17 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
   const models = summary.models || []
   if (models.length === 0) return null
 
+  const exportHeaders = ['Modelo', 'Volumen', 'Producido', 'Pendiente', 'Completado %', 'Estado']
+  const exportRows = models.map((m) => [
+    m.codigo, m.volumen, m.producido, m.tardiness, m.pct_completado, m.tardiness > 0 ? 'INCOMPLETO' : 'OK',
+  ] as (string | number)[])
+
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Detalle por Modelo</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">Detalle por Modelo</CardTitle>
+        <TableExport title="detalle_modelos" headers={exportHeaders} rows={exportRows} />
+      </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
