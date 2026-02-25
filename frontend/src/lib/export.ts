@@ -92,6 +92,44 @@ export function exportCatalogoPDF(
 }
 
 /**
+ * Export programa as PDF with one page per day
+ */
+export interface ProgramaDayGroup {
+  day: string
+  rows: (string | number)[][]
+}
+
+export function exportProgramaPDF(
+  title: string,
+  headers: string[],
+  groups: ProgramaDayGroup[],
+) {
+  const doc = new jsPDF({ orientation: 'landscape' })
+  let first = true
+
+  for (const group of groups) {
+    if (!first) doc.addPage()
+    first = false
+
+    doc.setFontSize(16)
+    doc.text(`${title.replace(/_/g, ' ')} — ${group.day}`, 14, 15)
+    doc.setFontSize(8)
+    doc.text(new Date().toLocaleDateString('es-MX'), 14, 22)
+
+    autoTable(doc, {
+      head: [headers],
+      body: group.rows.map((r) => r.map((c) => String(c))),
+      startY: 28,
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [37, 99, 235], fontSize: 7 },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+    })
+  }
+
+  doc.save(`${title}.pdf`)
+}
+
+/**
  * Copy tabular data as JSON to clipboard
  * Returns true if successful
  */

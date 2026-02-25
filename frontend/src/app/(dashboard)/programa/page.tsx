@@ -12,6 +12,7 @@ import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult, AsignacionMaquila } from '@/types'
 import { Truck } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
+import { exportProgramaPDF, type ProgramaDayGroup } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -233,6 +234,28 @@ export default function ProgramaPage() {
     return { headers, rows }
   }, [result, dayNames])
 
+  function handleGlobalPDF() {
+    if (!result?.daily_results) return
+    const maxBlocks = dayNames.reduce((max, d) => {
+      const sched = result.daily_results![d]?.schedule || []
+      return sched.reduce((m, s) => Math.max(m, s.blocks?.length || 0), max)
+    }, 0)
+    const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
+    const headers = ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLbls, 'TOTAL']
+    const groups: ProgramaDayGroup[] = dayNames
+      .filter((d) => result.daily_results![d]?.schedule?.length)
+      .map((d) => ({
+        day: d,
+        rows: result.daily_results![d].schedule.map((s) => [
+          s.modelo, s.fraccion, s.operacion, s.robot || s.recurso,
+          s.operario || '-', s.rate, s.hc,
+          ...(s.blocks || []).map((v: number) => (v > 0 ? v : '')),
+          s.total,
+        ] as (string | number)[]),
+      }))
+    exportProgramaPDF('programa_completo', headers, groups)
+  }
+
   const day = selectedDay || dayNames[0] || ''
   const dayData = result?.daily_results?.[day]
 
@@ -252,7 +275,7 @@ export default function ProgramaPage() {
           <p className="text-sm text-muted-foreground">{result.nombre}</p>
         </div>
         <div className="flex items-center gap-3">
-          <TableExport title="programa_completo" headers={globalExport.headers} rows={globalExport.rows} />
+          <TableExport title="programa_completo" headers={globalExport.headers} rows={globalExport.rows} onCustomPDF={handleGlobalPDF} />
           <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
         </div>
       </div>
