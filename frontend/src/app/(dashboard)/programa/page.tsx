@@ -359,7 +359,7 @@ export default function ProgramaPage() {
                       {/* Assigned maquila cards */}
                       {hasOpMaquila && [...opMaquilaByFactory.entries()].flatMap(([maquila, models]) =>
                         [...models.entries()].map(([modelo, info]) => (
-                          <div key={`${maquila}-${modelo}`} className="rounded border border-destructive/20 bg-white/50 p-2">
+                          <div key={`${maquila}-${modelo}`} className="rounded border border-destructive/30 bg-destructive/10 p-2">
                             <div className="flex items-center gap-1.5 mb-1">
                               <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
                                 {maquila}
@@ -373,7 +373,7 @@ export default function ProgramaPage() {
                                 const baseModel = modelo.split(' ')[0]
                                 const name = fracToOpName.get(`${baseModel}|${f}`) || `Fraccion ${f}`
                                 return (
-                                  <li key={f} className="text-xs text-destructive/70 font-mono pl-1">
+                                  <li key={f} className="text-xs text-foreground/70 font-mono pl-1">
                                     {f}.- {name}
                                   </li>
                                 )
@@ -385,16 +385,16 @@ export default function ProgramaPage() {
 
                       {/* Unassigned maquila cards */}
                       {hasUnassignedMaquila && [...unassignedMaquilaByModel.entries()].map(([modelo, ops]) => (
-                        <div key={`unassigned-${modelo}`} className="rounded border border-amber-300/50 bg-amber-50/50 p-2">
+                        <div key={`unassigned-${modelo}`} className="rounded border border-amber-500/30 bg-amber-500/10 p-2">
                           <div className="flex items-center gap-1.5 mb-1">
-                            <Badge variant="outline" className="border-amber-400 text-amber-600 text-xs">
+                            <Badge variant="outline" className="border-amber-500/40 text-amber-500 text-xs">
                               Sin asignar
                             </Badge>
-                            <span className="text-xs text-amber-600 font-medium truncate">{modelo}</span>
+                            <span className="text-xs text-amber-500 font-medium truncate">{modelo}</span>
                           </div>
                           <ul className="list-none space-y-0">
                             {ops.map((o) => (
-                              <li key={o.fraccion} className="text-xs text-amber-600/70 font-mono pl-1">
+                              <li key={o.fraccion} className="text-xs text-foreground/70 font-mono pl-1">
                                 {o.fraccion}.- {o.operacion}
                               </li>
                             ))}
