@@ -139,7 +139,36 @@ export function exportProgramaPDF(
   const blockStart = hcIdx >= 0 ? hcIdx + 1 : -1
   const blockEnd = totalIdx >= 0 ? totalIdx : headers.length
 
-  let first = true
+  // First page: maquila section (if any group has maquilaInfo)
+  const maquilaLines = groups.find((g) => g.maquilaInfo && g.maquilaInfo.length > 0)?.maquilaInfo
+  if (maquilaLines && maquilaLines.length > 0) {
+    doc.setFontSize(16)
+    doc.text(`${title.replace(/_/g, ' ')} — Maquila`, 14, 15)
+    doc.setFontSize(8)
+    doc.text(new Date().toLocaleDateString('es-MX'), 14, 22)
+
+    let my = 30
+    doc.setFontSize(9)
+    doc.setTextColor(239, 68, 68)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Produccion Externa (Maquila)', 14, my)
+    doc.setFont('helvetica', 'normal')
+    my += 6
+
+    doc.setFontSize(8)
+    for (const line of maquilaLines) {
+      // Indented sub-items start with spaces
+      if (line.startsWith('    ')) {
+        doc.text(`      ${line.trim()}`, 18, my)
+      } else {
+        doc.text(`•  ${line}`, 16, my)
+      }
+      my += 4
+    }
+    doc.setTextColor(0, 0, 0)
+  }
+
+  let first = !maquilaLines || maquilaLines.length === 0
 
   for (const group of groups) {
     if (!first) doc.addPage()
@@ -151,22 +180,6 @@ export function exportProgramaPDF(
     doc.text(new Date().toLocaleDateString('es-MX'), 14, 22)
 
     let startY = 28
-
-    // Maquila info banner as bullet list
-    if (group.maquilaInfo && group.maquilaInfo.length > 0) {
-      doc.setFontSize(7)
-      doc.setTextColor(239, 68, 68)
-      doc.setFont('helvetica', 'bold')
-      doc.text('MAQUILA:', 14, startY)
-      doc.setFont('helvetica', 'normal')
-      startY += 4
-      for (const line of group.maquilaInfo) {
-        doc.text(`•  ${line}`, 16, startY)
-        startY += 3.5
-      }
-      doc.setTextColor(0, 0, 0)
-      startY += 1
-    }
 
     // Legend
     doc.setFontSize(6)
