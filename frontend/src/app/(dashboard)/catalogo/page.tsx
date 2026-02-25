@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useCatalogo } from '@/lib/hooks/useCatalogo'
 import type { ModeloFull, OperacionFull } from '@/lib/hooks/useCatalogo'
 import { KpiCard } from '@/components/shared/KpiCard'
@@ -19,6 +19,7 @@ import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, S
 
 const PROCESS_TYPES: ProcessType[] = ['PRELIMINARES', 'ROBOT', 'POST', 'MAQUILA', 'N/A PRELIMINAR']
 const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
+const ETAPA_OPTIONS = ['ROBOT', 'PRE-ROBOT', 'MESA', 'POST-LINEA', 'POST-PLANA-LINEA', 'ZIGZAG-LINEA', 'MAQUILA']
 
 interface EditableOp {
   id: string
@@ -28,6 +29,7 @@ interface EditableOp {
   etapa: string
   recurso: ResourceType
   rate: number
+  robots: string[]
 }
 import { ModelRulesDialog } from './ModelRulesDialog'
 import { ModeloDialog } from './ModeloDialog'
@@ -193,13 +195,18 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
   })
 
   const robotOps = modelo.operaciones.filter((o) => o.recurso === 'ROBOT').length
+  function isOpChanged(orig: OperacionFull, ed: EditableOp) {
+    return orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
+      orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
+      orig.recurso !== ed.recurso || orig.rate !== ed.rate ||
+      JSON.stringify([...orig.robots].sort()) !== JSON.stringify([...ed.robots].sort())
+  }
+
   const changedCount = Object.keys(edits).filter((id) => {
     const orig = modelo.operaciones.find((o) => o.id === id)
     const ed = edits[id]
     if (!orig || !ed) return false
-    return orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
-      orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
-      orig.recurso !== ed.recurso || orig.rate !== ed.rate
+    return isOpChanged(orig, ed)
   }).length
 
   function startEditing() {
@@ -208,7 +215,7 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
       map[op.id] = {
         id: op.id, fraccion: op.fraccion, operacion: op.operacion,
         input_o_proceso: op.input_o_proceso, etapa: op.etapa,
-        recurso: op.recurso, rate: op.rate,
+        recurso: op.recurso, rate: op.rate, robots: [...op.robots],
       }
     }
     setEdits(map)
@@ -220,19 +227,28 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
     setEdits({})
   }
 
-  function updateOp(id: string, field: keyof EditableOp, value: string | number) {
+  function updateOp(id: string, field: keyof EditableOp, value: string | number | string[]) {
     setEdits((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
+  }
+
+  function toggleRobot(opId: string, robotName: string) {
+    setEdits((prev) => {
+      const ed = prev[opId]
+      if (!ed) return prev
+      const has = ed.robots.includes(robotName)
+      const updated = has ? ed.robots.filter((r) => r !== robotName) : [...ed.robots, robotName]
+      return { ...prev, [opId]: { ...ed, robots: updated } }
+    })
   }
 
   async function saveAll() {
     setSaving(true)
+    // Build robot name→id map
+    const robotIdMap = new Map(robots.map((r) => [r.nombre, r.id]))
     for (const [id, ed] of Object.entries(edits)) {
       const orig = modelo.operaciones.find((o) => o.id === id)
-      if (!orig) continue
-      const changed = orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
-        orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
-        orig.recurso !== ed.recurso || orig.rate !== ed.rate
-      if (!changed) continue
+      if (!orig || !isOpChanged(orig, ed)) continue
+      const robotIds = ed.robots.map((name) => robotIdMap.get(name)).filter(Boolean) as string[]
       await catalogo.updateOperacion(id, modelo.id, {
         fraccion: ed.fraccion,
         operacion: ed.operacion,
@@ -241,6 +257,7 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
         recurso: ed.recurso,
         rate: ed.rate,
         sec_per_pair: ed.rate > 0 ? Math.round(3600 / ed.rate) : 0,
+        robotIds,
       })
     }
     setSaving(false)
@@ -394,12 +411,7 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                 const procesoColor = getProcesoColor(proceso)
                 const recursoColor = RESOURCE_COLORS[recurso] || '#94A3B8'
 
-                // Check if this row has been modified
-                const isModified = editing && ed && (
-                  op.fraccion !== ed.fraccion || op.operacion !== ed.operacion ||
-                  op.input_o_proceso !== ed.input_o_proceso || op.etapa !== ed.etapa ||
-                  op.recurso !== ed.recurso || op.rate !== ed.rate
-                )
+                const isModified = editing && ed && isOpChanged(op, ed)
 
                 return (
                   <tr
@@ -453,11 +465,16 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
                     {/* ETAPA */}
                     <td className="px-1 py-0.5">
                       {editing && ed ? (
-                        <Input
-                          value={ed.etapa}
-                          onChange={(e) => updateOp(op.id, 'etapa', e.target.value)}
-                          className="h-6 text-xs px-1"
-                        />
+                        <Select value={ed.etapa} onValueChange={(v) => updateOp(op.id, 'etapa', v)}>
+                          <SelectTrigger className="h-6 text-[10px] w-32 px-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ETAPA_OPTIONS.map((et) => (
+                              <SelectItem key={et} value={et} className="text-xs">{et}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : (
                         <span className="text-muted-foreground">{op.etapa}</span>
                       )}
@@ -497,7 +514,13 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
 
                     {/* ROBOTS */}
                     <td className="px-2 py-1">
-                      {op.recurso === 'ROBOT' && op.robots.length > 0 ? (
+                      {editing && ed && recurso === 'ROBOT' ? (
+                        <RobotPicker
+                          selected={ed.robots}
+                          allRobots={robots}
+                          onToggle={(name) => toggleRobot(op.id, name)}
+                        />
+                      ) : op.recurso === 'ROBOT' && op.robots.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {op.robots.map((r) => (
                             <Badge
@@ -603,5 +626,71 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete }: {
         onConfirm={confirmOp.action}
       />
     </Card>
+  )
+}
+
+function RobotPicker({ selected, allRobots, onToggle }: {
+  selected: string[]
+  allRobots: Robot[]
+  onToggle: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <div className="flex flex-wrap items-center gap-1">
+        {selected.map((name) => (
+          <Badge
+            key={name}
+            className="text-[9px] px-1.5 py-0 cursor-pointer hover:line-through"
+            style={{ backgroundColor: `${STAGE_COLORS.ROBOT}20`, color: STAGE_COLORS.ROBOT }}
+            onClick={() => onToggle(name)}
+          >
+            {name}
+          </Badge>
+        ))}
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="h-5 w-5 rounded border border-dashed border-muted-foreground/30 flex items-center justify-center text-muted-foreground hover:border-emerald-500 hover:text-emerald-500 transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 bg-card border rounded-md shadow-lg p-1 min-w-[160px] max-h-48 overflow-y-auto">
+          {allRobots.map((r) => {
+            const active = selected.includes(r.nombre)
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => onToggle(r.nombre)}
+                className={`w-full text-left text-xs px-2 py-1 rounded flex items-center gap-2 transition-colors ${
+                  active ? 'bg-emerald-500/10 text-emerald-600' : 'hover:bg-accent text-foreground'
+                }`}
+              >
+                <div className={`h-3 w-3 rounded border flex items-center justify-center ${
+                  active ? 'border-emerald-500 bg-emerald-500' : 'border-muted-foreground/30'
+                }`}>
+                  {active && <Check className="h-2 w-2 text-white" />}
+                </div>
+                {r.nombre}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
