@@ -165,7 +165,6 @@ export default function OperariosPage() {
         title="Eliminar Operario"
         description={`¿Seguro que deseas eliminar a ${deleteTarget?.nombre || ''}?`}
         onConfirm={() => { if (deleteTarget) deleteOperario(deleteTarget.id) }}
-        simple
       />
     </div>
   )

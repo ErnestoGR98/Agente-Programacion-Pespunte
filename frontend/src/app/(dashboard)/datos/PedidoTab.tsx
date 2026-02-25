@@ -583,7 +583,6 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
           if (deleteTarget.type === 'item') await pedido.deleteItem(deleteTarget.id)
           else await pedido.removeMaquilaAssignment(deleteTarget.id)
         }}
-        simple
       />
     </div>
   )

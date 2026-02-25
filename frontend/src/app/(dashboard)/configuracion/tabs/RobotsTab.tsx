@@ -101,7 +101,6 @@ export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguraci
         title="Eliminar Robot"
         description="¿Seguro que deseas eliminar este robot?"
         onConfirm={() => { if (deleteId) config.deleteRobot(deleteId) }}
-        simple
       />
     </div>
   )

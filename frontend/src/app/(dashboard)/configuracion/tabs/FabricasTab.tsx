@@ -212,7 +212,6 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
         title="Eliminar Fabrica"
         description="¿Seguro que deseas eliminar esta fabrica?"
         onConfirm={() => { if (deleteId) config.deleteFabrica(deleteId) }}
-        simple
       />
     </div>
   )

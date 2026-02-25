@@ -237,7 +237,6 @@ export function RestriccionesTab({
         title="Eliminar Restriccion"
         description="¿Seguro que deseas eliminar esta restriccion?"
         onConfirm={() => { if (deleteId) data.deleteRestriccion(deleteId) }}
-        simple
       />
     </div>
   )

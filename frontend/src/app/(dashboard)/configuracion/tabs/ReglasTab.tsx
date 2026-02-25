@@ -234,7 +234,6 @@ export function ReglasTab() {
         title="Eliminar Regla"
         description="¿Seguro que deseas eliminar esta regla?"
         onConfirm={() => { if (deleteId) reglas.deleteRegla(deleteId) }}
-        simple
       />
       <ConfirmDialog
         open={showClearAll}
@@ -244,7 +243,6 @@ export function ReglasTab() {
         onConfirm={async () => {
           for (const r of reglas.reglas) await reglas.deleteRegla(r.id)
         }}
-        simple
       />
     </div>
   )
