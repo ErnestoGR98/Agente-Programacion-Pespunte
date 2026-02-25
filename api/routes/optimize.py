@@ -242,7 +242,7 @@ def _match_models(catalogo: dict, pedido: list) -> list:
             matched.append({
                 "modelo_num": modelo_num,
                 "codigo_full": cat["codigo_full"],
-                "codigo": f"{cat.get('codigo_full', modelo_num)} {item.get('color', '')}".strip(),
+                "codigo": f"{modelo_num} {item.get('color', '')}".strip(),
                 "color": item.get("color", ""),
                 "fabrica": item.get("fabrica", ""),
                 "suela": cat.get("clave_material", ""),
