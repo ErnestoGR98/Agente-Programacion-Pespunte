@@ -12,7 +12,7 @@ import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult, AsignacionMaquila } from '@/types'
 import { Truck } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { exportProgramaPDF, type ProgramaDayGroup } from '@/lib/export'
+import { exportProgramaPDF, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -252,22 +252,28 @@ export default function ProgramaPage() {
     const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
     const headers = ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLbls, 'TOTAL']
 
-    // Build maquila summary as bullet lines
-    const maqLines: string[] = []
+    // Build maquila cards for PDF
+    const cards: MaquilaCard[] = []
     for (const [fab, models] of maquilaByFabrica) {
       for (const [m, p] of models.entries()) {
-        maqLines.push(`${fab}: ${m} — ${p.toLocaleString()} pares`)
+        cards.push({ factory: fab, modelo: m, pares: p, operations: [] })
       }
     }
     for (const [maq, models] of opMaquilaByFactory) {
       for (const [m, d] of models.entries()) {
         const baseM = m.split(' ')[0]
-        maqLines.push(`${maq}: ${m} — ${d.pares} pares`)
-        for (const f of d.fracciones) {
-          const name = fracToOpName.get(`${baseM}|${f}`) || `F${f}`
-          maqLines.push(`    ${f}.- ${name}`)
-        }
+        const ops = d.fracciones.map((f) => `${f}.- ${fracToOpName.get(`${baseM}|${f}`) || `F${f}`}`)
+        cards.push({ factory: maq, modelo: m, pares: d.pares, operations: ops })
       }
+    }
+    for (const [modelo, ops] of unassignedMaquilaByModel) {
+      cards.push({
+        factory: 'Sin asignar',
+        modelo,
+        pares: 0,
+        operations: ops.map((o) => `${o.fraccion}.- ${o.operacion}`),
+        unassigned: true,
+      })
     }
 
     const groups: ProgramaDayGroup[] = dayNames
@@ -283,7 +289,7 @@ export default function ProgramaPage() {
             s.total,
           ] as (string | number)[]),
           etapas: sched.map((s) => s.etapa || ''),
-          maquilaInfo: maqLines.length > 0 ? maqLines : undefined,
+          maquilaCards: cards.length > 0 ? cards : undefined,
         }
       })
     exportProgramaPDF('programa_completo', headers, groups)

@@ -94,11 +94,19 @@ export function exportCatalogoPDF(
 /**
  * Export programa as PDF with one page per day, colored by etapa
  */
+export interface MaquilaCard {
+  factory: string
+  modelo: string
+  pares: number
+  operations: string[]   // e.g. ["1.- Colocar forro", "2.- Cerrar talon"]
+  unassigned?: boolean
+}
+
 export interface ProgramaDayGroup {
   day: string
   rows: (string | number)[][]
   etapas: string[]       // etapa per row (same length as rows)
-  maquilaInfo?: string[] // lines to show at top of page as bullet list
+  maquilaCards?: MaquilaCard[]
 }
 
 // Stage colors matching the frontend STAGE_COLORS
@@ -139,36 +147,72 @@ export function exportProgramaPDF(
   const blockStart = hcIdx >= 0 ? hcIdx + 1 : -1
   const blockEnd = totalIdx >= 0 ? totalIdx : headers.length
 
-  // First page: maquila section (if any group has maquilaInfo)
-  const maquilaLines = groups.find((g) => g.maquilaInfo && g.maquilaInfo.length > 0)?.maquilaInfo
-  if (maquilaLines && maquilaLines.length > 0) {
+  // First page: maquila cards in columns
+  const maquilaCards = groups.find((g) => g.maquilaCards && g.maquilaCards.length > 0)?.maquilaCards
+  if (maquilaCards && maquilaCards.length > 0) {
     doc.setFontSize(16)
     doc.text(`${title.replace(/_/g, ' ')} — Maquila`, 14, 15)
     doc.setFontSize(8)
     doc.text(new Date().toLocaleDateString('es-MX'), 14, 22)
 
-    let my = 30
-    doc.setFontSize(9)
+    doc.setFontSize(10)
     doc.setTextColor(239, 68, 68)
     doc.setFont('helvetica', 'bold')
-    doc.text('Produccion Externa (Maquila)', 14, my)
+    doc.text('Produccion Externa (Maquila)', 14, 30)
     doc.setFont('helvetica', 'normal')
-    my += 6
+    doc.setTextColor(0, 0, 0)
 
-    doc.setFontSize(8)
-    for (const line of maquilaLines) {
-      // Indented sub-items start with spaces
-      if (line.startsWith('    ')) {
-        doc.text(`      ${line.trim()}`, 18, my)
-      } else {
-        doc.text(`•  ${line}`, 16, my)
+    const pageW = doc.internal.pageSize.getWidth()
+    const margin = 14
+    const gap = 6
+    const cols = Math.min(maquilaCards.length, 3)
+    const cardW = (pageW - margin * 2 - gap * (cols - 1)) / cols
+
+    let cx = margin
+    let cy = 36
+    let colIdx = 0
+
+    for (const card of maquilaCards) {
+      const isUn = card.unassigned
+      const r = isUn ? 245 : 239
+      const g = isUn ? 158 : 68
+      const b = isUn ? 11 : 68
+
+      // Card border
+      const cardH = 10 + card.operations.length * 3.5 + 2
+      doc.setDrawColor(r, g, b)
+      doc.setLineWidth(0.3)
+      doc.roundedRect(cx, cy, cardW, cardH, 1.5, 1.5, 'S')
+
+      // Header: factory + modelo
+      doc.setFontSize(7)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(r, g, b)
+      doc.text(`${card.factory}  |  ${card.modelo} — ${card.pares}p`, cx + 2, cy + 4.5)
+
+      // Operations list
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      let oy = cy + 9
+      for (const op of card.operations) {
+        doc.text(op, cx + 3, oy)
+        oy += 3.5
       }
-      my += 4
+
+      colIdx++
+      if (colIdx >= cols) {
+        colIdx = 0
+        cx = margin
+        cy += cardH + gap
+      } else {
+        cx += cardW + gap
+      }
     }
+
     doc.setTextColor(0, 0, 0)
   }
 
-  let first = !maquilaLines || maquilaLines.length === 0
+  let first = !maquilaCards || maquilaCards.length === 0
 
   for (const group of groups) {
     if (!first) doc.addPage()
