@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Trash2, Plus, Pencil } from 'lucide-react'
 import { OperarioForm } from './OperarioForm'
 import { HeadcountTable } from './HeadcountTable'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 export default function OperariosPage() {
   const {
@@ -23,6 +24,7 @@ export default function OperariosPage() {
   } = useOperarios()
   const [editing, setEditing] = useState<OperarioFull | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null)
 
   if (loading) {
     return (
@@ -141,7 +143,7 @@ export default function OperariosPage() {
                       </Button>
                       <Button
                         variant="ghost" size="icon"
-                        onClick={() => deleteOperario(op.id)}
+                        onClick={() => setDeleteTarget({ id: op.id, nombre: op.nombre })}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -156,6 +158,15 @@ export default function OperariosPage() {
 
       {/* Headcount Validation */}
       <HeadcountTable operarios={activos} dias={dias} />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+        title="Eliminar Operario"
+        description={`¿Seguro que deseas eliminar a ${deleteTarget?.nombre || ''}?`}
+        onConfirm={() => { if (deleteTarget) deleteOperario(deleteTarget.id) }}
+        simple
+      />
     </div>
   )
 }

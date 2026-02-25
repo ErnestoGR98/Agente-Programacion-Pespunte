@@ -15,12 +15,14 @@ interface Props {
   onConfirm: () => void | Promise<void>
   confirmWord?: string
   variant?: 'destructive' | 'default'
+  simple?: boolean  // true = just confirm/cancel buttons, no text input
 }
 
 export function ConfirmDialog({
   open, onOpenChange, title, description, onConfirm,
   confirmWord = 'CONFIRMAR',
   variant = 'destructive',
+  simple = false,
 }: Props) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -29,7 +31,7 @@ export function ConfirmDialog({
     if (open) setInput('')
   }, [open])
 
-  const isMatch = input.trim().toUpperCase() === confirmWord.toUpperCase()
+  const isMatch = simple || input.trim().toUpperCase() === confirmWord.toUpperCase()
 
   async function handleConfirm() {
     if (!isMatch) return
@@ -47,16 +49,20 @@ export function ConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Escribe <span className="font-mono font-bold">{confirmWord}</span> para confirmar:
-          </p>
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={confirmWord}
-            className="h-8 font-mono"
-            autoFocus
-          />
+          {!simple && (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Escribe <span className="font-mono font-bold">{confirmWord}</span> para confirmar:
+              </p>
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={confirmWord}
+                className="h-8 font-mono"
+                autoFocus
+              />
+            </>
+          )}
           <div className="flex gap-2">
             <Button
               size="sm"

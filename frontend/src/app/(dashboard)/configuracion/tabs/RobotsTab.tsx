@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { Robot } from '@/types'
 
 export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguracion> }) {
   const [newName, setNewName] = useState('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   return (
     <div className="space-y-6 mt-4">
@@ -68,7 +70,7 @@ export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguraci
                     </Select>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => config.deleteRobot(r.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -92,6 +94,15 @@ export function RobotsTab({ config }: { config: ReturnType<typeof useConfiguraci
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null) }}
+        title="Eliminar Robot"
+        description="¿Seguro que deseas eliminar este robot?"
+        onConfirm={() => { if (deleteId) config.deleteRobot(deleteId) }}
+        simple
+      />
     </div>
   )
 }

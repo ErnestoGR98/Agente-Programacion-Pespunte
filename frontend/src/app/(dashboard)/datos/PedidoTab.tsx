@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Trash2, Plus, Download, CheckCircle, Loader2, Truck, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 function getISOWeek(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
@@ -40,6 +41,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'item' | 'maquila'; id: string } | null>(null)
 
   const semana = `sem_${week}_${year}`
 
@@ -352,7 +354,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                         />
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="icon" onClick={() => pedido.deleteItem(it.id)}>
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ type: 'item', id: it.id })}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>
@@ -493,7 +495,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                           <td className="px-2 py-1.5">
                                             <button
                                               className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                                              onClick={() => pedido.removeMaquilaAssignment(asig.id)}
+                                              onClick={() => setDeleteTarget({ type: 'maquila', id: asig.id })}
                                             >
                                               <Trash2 className="h-3.5 w-3.5" />
                                             </button>
@@ -568,6 +570,21 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
           <CheckCircle className="mr-1 h-3 w-3" /> Cargar al Optimizador
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+        title={deleteTarget?.type === 'item' ? 'Eliminar Item' : 'Eliminar Asignacion Maquila'}
+        description={deleteTarget?.type === 'item'
+          ? '¿Seguro que deseas eliminar este item del pedido?'
+          : '¿Seguro que deseas eliminar esta asignacion de maquila?'}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          if (deleteTarget.type === 'item') await pedido.deleteItem(deleteTarget.id)
+          else await pedido.removeMaquilaAssignment(deleteTarget.id)
+        }}
+        simple
+      />
     </div>
   )
 }

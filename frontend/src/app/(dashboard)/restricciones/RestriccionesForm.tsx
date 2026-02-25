@@ -18,6 +18,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { TableExport } from '@/components/shared/TableExport'
 import {
   CONSTRAINT_TYPES_TEMPORALES,
@@ -38,6 +39,7 @@ export function RestriccionesTab({
   semana: string | null
 }) {
   const [showForm, setShowForm] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [tipo, setTipo] = useState<ConstraintType>('PRIORIDAD')
   const [modelo, setModelo] = useState('*')
   const [params, setParams] = useState<Record<string, unknown>>({})
@@ -211,7 +213,7 @@ export function RestriccionesTab({
                     />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => data.deleteRestriccion(r.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -228,6 +230,15 @@ export function RestriccionesTab({
           </Table>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null) }}
+        title="Eliminar Restriccion"
+        description="¿Seguro que deseas eliminar esta restriccion?"
+        onConfirm={() => { if (deleteId) data.deleteRestriccion(deleteId) }}
+        simple
+      />
     </div>
   )
 }

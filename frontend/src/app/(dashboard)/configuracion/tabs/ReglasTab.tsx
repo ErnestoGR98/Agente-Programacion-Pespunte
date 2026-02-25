@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { Trash2, Plus } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType } from '@/types'
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
 
@@ -33,6 +34,8 @@ export function ReglasTab() {
   const [modelo, setModelo] = useState('')
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [nota, setNota] = useState('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [showClearAll, setShowClearAll] = useState(false)
   const [modeloItems, setModeloItems] = useState<{ modelo_num: string; color: string }[]>([])
 
   const loadModelos = useCallback(async () => {
@@ -93,9 +96,7 @@ export function ReglasTab() {
         </Button>
         {reglas.reglas.length > 0 && (
           <Button size="sm" variant="ghost" className="text-destructive"
-            onClick={async () => {
-              for (const r of reglas.reglas) await reglas.deleteRegla(r.id)
-            }}
+            onClick={() => setShowClearAll(true)}
           >
             <Trash2 className="mr-1 h-3 w-3" /> Limpiar todas
           </Button>
@@ -209,7 +210,7 @@ export function ReglasTab() {
                     />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => reglas.deleteRegla(r.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(r.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -226,6 +227,25 @@ export function ReglasTab() {
           </Table>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null) }}
+        title="Eliminar Regla"
+        description="¿Seguro que deseas eliminar esta regla?"
+        onConfirm={() => { if (deleteId) reglas.deleteRegla(deleteId) }}
+        simple
+      />
+      <ConfirmDialog
+        open={showClearAll}
+        onOpenChange={setShowClearAll}
+        title="Limpiar Todas las Reglas"
+        description="¿Seguro que deseas eliminar TODAS las reglas? Esta accion no se puede deshacer."
+        onConfirm={async () => {
+          for (const r of reglas.reglas) await reglas.deleteRegla(r.id)
+        }}
+        simple
+      />
     </div>
   )
 }

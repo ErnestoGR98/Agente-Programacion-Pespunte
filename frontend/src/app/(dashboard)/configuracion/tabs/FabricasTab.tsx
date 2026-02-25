@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Trash2, Plus, Building2, Truck } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 /** Input that keeps local state and only saves on blur */
 function EditableNameInput({
@@ -55,6 +56,7 @@ function EditableNameInput({
 export function FabricasTab({ config }: { config: ReturnType<typeof useConfiguracion> }) {
   const [newName, setNewName] = useState('')
   const [newEsMaquila, setNewEsMaquila] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const internas = useMemo(() => config.fabricas.filter((f) => !f.es_maquila), [config.fabricas])
   const maquilas = useMemo(() => config.fabricas.filter((f) => f.es_maquila), [config.fabricas])
@@ -108,7 +110,7 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
                     >
                       <Truck className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => config.deleteFabrica(f.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(f.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -166,7 +168,7 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
                     >
                       <Building2 className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => config.deleteFabrica(f.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(f.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -203,6 +205,15 @@ export function FabricasTab({ config }: { config: ReturnType<typeof useConfigura
           <Plus className="mr-1 h-3 w-3" /> Agregar
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null) }}
+        title="Eliminar Fabrica"
+        description="¿Seguro que deseas eliminar esta fabrica?"
+        onConfirm={() => { if (deleteId) config.deleteFabrica(deleteId) }}
+        simple
+      />
     </div>
   )
 }
