@@ -128,24 +128,29 @@ def main():
     sb_delete("operarios", "id=neq.00000000-0000-0000-0000-000000000000")
     print(f"  Deleted {len(existing)} operarios")
 
-    # 2. Update robots.tipo
-    print("\n2. Updating robots.tipo...")
+    # 2. Update robot_tipos junction table
+    print("\n2. Updating robot_tipos...")
+    sb_delete("robot_tipos", "id=neq.00000000-0000-0000-0000-000000000000")
     robots = sb_get("robots", "select=id,nombre")
     for rb in robots:
         nombre = rb["nombre"]
+        tipos = []
         if nombre.startswith("2A-"):
-            tipo = "DOBLE_ACCION"
+            # 2A-3020 robots are both 3020 and DOBLE_ACCION
+            tipos = ["DOBLE_ACCION"]
+            if "3020" in nombre:
+                tipos.append("3020")
         elif nombre.startswith("3020"):
-            tipo = "3020"
+            tipos = ["3020"]
         elif nombre.startswith("6040"):
-            tipo = "6040"
+            tipos = ["6040"]
         elif nombre.startswith("CHACHE"):
-            tipo = "CHACHE"
-        else:
-            tipo = None
-        if tipo:
-            sb_patch("robots", f"id=eq.{rb['id']}", {"tipo": tipo})
-            print(f"  {nombre} -> tipo={tipo}")
+            tipos = ["CHACHE"]
+        if tipos:
+            sb_post("robot_tipos", [
+                {"robot_id": rb["id"], "tipo": t} for t in tipos
+            ])
+            print(f"  {nombre} -> tipos={tipos}")
 
     # 3. Insert operarios
     print(f"\n3. Inserting {len(OPERARIOS_DATA)} operarios...")

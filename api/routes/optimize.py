@@ -216,7 +216,6 @@ _PRELIM_SKILLS = {
 _SKILL_TO_ROBOT_TIPO = {
     'ROBOT_3020': '3020', 'ROBOT_CHACHE': 'CHACHE',
     'ROBOT_DOBLE_ACCION': 'DOBLE_ACCION', 'ROBOT_6040': '6040',
-    'ROBOT_2AG': '2AG',
 }
 
 
@@ -224,12 +223,15 @@ def _load_operarios() -> list:
     """Carga operarios con habilidades y deriva recursos/robots."""
     rows = _sb_get("operarios", "select=*&activo=eq.true&order=nombre")
 
-    # Build robot-type lookup: {'3020': ['3020-M1', ...], ...}
-    all_robots = _sb_get("robots", "select=nombre,tipo&estado=eq.ACTIVO")
+    # Build robot-type lookup from junction table: {'3020': ['3020-M1', ...], ...}
+    all_robots = _sb_get("robots", "select=id,nombre&estado=eq.ACTIVO")
+    all_robot_tipos = _sb_get("robot_tipos", "select=robot_id,tipo")
+    robot_name_by_id = {r["id"]: r["nombre"] for r in all_robots}
     robot_by_tipo: dict[str, list[str]] = {}
-    for rb in all_robots:
-        if rb.get("tipo"):
-            robot_by_tipo.setdefault(rb["tipo"], []).append(rb["nombre"])
+    for rt in all_robot_tipos:
+        rname = robot_name_by_id.get(rt["robot_id"])
+        if rname:
+            robot_by_tipo.setdefault(rt["tipo"], []).append(rname)
 
     result = []
     for r in rows:

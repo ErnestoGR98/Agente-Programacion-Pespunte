@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useConfiguracion } from '@/lib/hooks/useConfiguracion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
-import { RobotsTab } from './tabs/RobotsTab'
+import { MaquinasTab } from './tabs/MaquinasTab'
 import { CapacidadesTab } from './tabs/CapacidadesTab'
 import { FabricasTab } from './tabs/FabricasTab'
 import { DiasTab } from './tabs/DiasTab'
@@ -13,7 +13,7 @@ import { ReglasTab } from './tabs/ReglasTab'
 
 export default function ConfiguracionPage() {
   const config = useConfiguracion()
-  const [activeTab, setActiveTab] = useState('robots')
+  const [activeTab, setActiveTab] = useState('recursos')
 
   if (config.loading) {
     return (
@@ -33,7 +33,7 @@ export default function ConfiguracionPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="robots">Robots</TabsTrigger>
+          <TabsTrigger value="recursos">Recursos</TabsTrigger>
           <TabsTrigger value="capacidades">Capacidades</TabsTrigger>
           <TabsTrigger value="fabricas">Fabricas</TabsTrigger>
           <TabsTrigger value="dias">Dias / Plantilla</TabsTrigger>
@@ -41,7 +41,7 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="reglas">Reglas</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="robots"><RobotsTab config={config} /></TabsContent>
+        <TabsContent value="recursos"><MaquinasTab config={config} /></TabsContent>
         <TabsContent value="capacidades"><CapacidadesTab config={config} /></TabsContent>
         <TabsContent value="fabricas"><FabricasTab config={config} /></TabsContent>
         <TabsContent value="dias"><DiasTab config={config} /></TabsContent>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import type {
-  Robot, RobotAlias, Fabrica, CapacidadRecurso,
+  Robot, RobotAlias, MaquinaTipo, Fabrica, CapacidadRecurso,
   DiaLaboral, Horario, PesoPriorizacion, ParametroOptimizacion,
 } from '@/types'
 
@@ -20,7 +20,7 @@ export function useConfiguracion() {
 
   const load = useCallback(async (initial = false) => {
     if (initial) setLoading(true)
-    const [r, a, f, c, d, h, p, pm] = await Promise.all([
+    const [r, a, f, c, d, h, p, pm, rt] = await Promise.all([
       supabase.from('robots').select('*').order('orden'),
       supabase.from('robot_aliases').select('*'),
       supabase.from('fabricas').select('*').order('orden'),
@@ -29,8 +29,17 @@ export function useConfiguracion() {
       supabase.from('horarios').select('*'),
       supabase.from('pesos_priorizacion').select('*'),
       supabase.from('parametros_optimizacion').select('*'),
+      supabase.from('robot_tipos').select('*'),
     ])
-    if (r.data) setRobots(r.data)
+    if (r.data) {
+      const tiposData = rt.data || []
+      setRobots(r.data.map((rob) => ({
+        ...rob,
+        tipos: tiposData
+          .filter((t: { robot_id: string }) => t.robot_id === rob.id)
+          .map((t: { tipo: string }) => t.tipo) as MaquinaTipo[],
+      })) as Robot[])
+    }
     if (a.data) setAliases(a.data)
     if (f.data) setFabricas(f.data)
     if (c.data) setCapacidades(c.data)
@@ -43,15 +52,41 @@ export function useConfiguracion() {
 
   useEffect(() => { load(true) }, [load])
 
-  // --- Robots ---
+  // --- Robots / Maquinas ---
   async function updateRobot(id: string, data: Partial<Robot>) {
     await supabase.from('robots').update(data).eq('id', id)
     await load()
   }
 
-  async function addRobot(nombre: string, tipo?: string) {
+  async function addRobot(nombre: string, tipos?: MaquinaTipo[]) {
     const maxOrden = robots.length > 0 ? Math.max(...robots.map(r => r.orden)) + 1 : 0
-    await supabase.from('robots').insert({ nombre, orden: maxOrden, ...(tipo ? { tipo } : {}) })
+    const { data } = await supabase.from('robots').insert({ nombre, orden: maxOrden }).select('id').single()
+    if (data && tipos && tipos.length > 0) {
+      await supabase.from('robot_tipos').insert(
+        tipos.map((t) => ({ robot_id: data.id, tipo: t }))
+      )
+    }
+    await load()
+  }
+
+  async function toggleTipo(robotId: string, tipo: MaquinaTipo, active: boolean) {
+    if (active) {
+      await supabase.from('robot_tipos').insert({ robot_id: robotId, tipo })
+    } else {
+      await supabase.from('robot_tipos').delete().eq('robot_id', robotId).eq('tipo', tipo)
+    }
+    await load()
+  }
+
+  async function setBaseTipo(robotId: string, newBase: MaquinaTipo | null, baseGroup: MaquinaTipo[]) {
+    // Remove all existing base tipos from this group
+    for (const bv of baseGroup) {
+      await supabase.from('robot_tipos').delete().eq('robot_id', robotId).eq('tipo', bv)
+    }
+    // Add new base if provided
+    if (newBase) {
+      await supabase.from('robot_tipos').insert({ robot_id: robotId, tipo: newBase })
+    }
     await load()
   }
 
@@ -121,7 +156,7 @@ export function useConfiguracion() {
   return {
     loading,
     robots, aliases, fabricas, capacidades, dias, horarios, pesos, parametros,
-    updateRobot, addRobot, deleteRobot,
+    updateRobot, addRobot, deleteRobot, toggleTipo, setBaseTipo,
     addAlias, deleteAlias,
     updateFabrica, addFabrica, deleteFabrica,
     updateCapacidad,

@@ -22,22 +22,65 @@ export type RobotArea = 'PESPUNTE' | 'AVIOS'
 
 // --- Tablas de Configuración ---
 
-export type RobotTipo = '3020' | 'DOBLE_ACCION' | '6040' | 'CHACHE' | '2AG'
+export type MaquinaTipo =
+  // Robot base types
+  | '3020' | '6040' | 'CHACHE'
+  // Maquina preliminar base types
+  | 'MAQ_PINTURA' | 'REMACH_NEUMATICA' | 'REMACH_MECANICA' | 'PERFORADORA_JACK'
+  // Maquina pespunte base types
+  | 'PLANA' | 'POSTE' | 'ZIGZAG' | 'RIBETE' | 'CODO'
+  // Modificadores (aditivos)
+  | 'DOBLE_ACCION' | '2AG'
 
-export const ROBOT_TIPOS: { value: RobotTipo; label: string }[] = [
+/** @deprecated usa MaquinaTipo */
+export type RobotTipo = MaquinaTipo
+
+type TipoEntry = { value: MaquinaTipo; label: string }
+
+/** Tipos base de robot (mutuamente excluyentes) */
+export const ROBOT_TIPOS_BASE: TipoEntry[] = [
   { value: '3020', label: '3020' },
-  { value: 'DOBLE_ACCION', label: 'Doble Accion (2A)' },
   { value: '6040', label: '6040' },
   { value: 'CHACHE', label: 'Chache (4530)' },
-  { value: '2AG', label: '2 Agujas (2AG)' },
 ]
+
+/** Modificadores robot: solo 2A */
+export const ROBOT_TIPOS_MODS: TipoEntry[] = [
+  { value: 'DOBLE_ACCION', label: '2A' },
+]
+
+/** Tipos base de maquina preliminar (mutuamente excluyentes) */
+export const PRELIMINAR_TIPOS_BASE: TipoEntry[] = [
+  { value: 'MAQ_PINTURA', label: 'Maq. Pintura' },
+  { value: 'REMACH_NEUMATICA', label: 'Remach. Neumatica' },
+  { value: 'REMACH_MECANICA', label: 'Remach. Mecanica' },
+  { value: 'PERFORADORA_JACK', label: 'Perforadora Jack' },
+]
+
+/** Tipos base de maquina pespunte convencional (mutuamente excluyentes) */
+export const MAQUINA_TIPOS_BASE: TipoEntry[] = [
+  { value: 'PLANA', label: 'Plana-Recta' },
+  { value: 'POSTE', label: 'Poste' },
+  { value: 'ZIGZAG', label: 'Zigzag' },
+  { value: 'RIBETE', label: 'Ribete' },
+  { value: 'CODO', label: 'Codo' },
+]
+
+/** Modificadores maquina pespunte: 2A y 2AG */
+export const MAQUINA_TIPOS_MODS: TipoEntry[] = [
+  { value: 'DOBLE_ACCION', label: '2A' },
+  { value: '2AG', label: '2AG' },
+]
+
+/** Todos los tipos (para exports, etc.) */
+export const ROBOT_TIPOS = [...ROBOT_TIPOS_BASE, ...ROBOT_TIPOS_MODS]
 
 export interface Robot {
   id: string
   nombre: string
   estado: RobotEstado
   area: RobotArea
-  tipo: RobotTipo | null
+  tipos: MaquinaTipo[]
   orden: number
   created_at: string
 }
@@ -405,8 +448,8 @@ export type SkillType =
   // Preliminar (9)
   | 'ARMADO_PALETS' | 'PISTOLA' | 'HEBILLAS' | 'DESHEBRADOS' | 'ALIMENTAR_LINEA'
   | 'MAQ_PINTURA' | 'REMACH_NEUMATICA' | 'REMACH_MECANICA' | 'PERFORADORA_JACK'
-  // Robot (5)
-  | 'ROBOT_3020' | 'ROBOT_CHACHE' | 'ROBOT_DOBLE_ACCION' | 'ROBOT_6040' | 'ROBOT_2AG'
+  // Robot (4) — no hay robots 2AG, solo 2A
+  | 'ROBOT_3020' | 'ROBOT_CHACHE' | 'ROBOT_DOBLE_ACCION' | 'ROBOT_6040'
   // Pespunte Convencional (6)
   | 'ZIGZAG' | 'PLANA_RECTA' | 'DOS_AGUJAS' | 'POSTE_CONV' | 'RIBETE' | 'CODO'
 
@@ -422,7 +465,12 @@ export const SKILL_GROUPS: Record<string, { label: string; color: string; skills
   ROBOT: {
     label: 'Robots',
     color: '#10B981', // emerald
-    skills: ['ROBOT_3020', 'ROBOT_CHACHE', 'ROBOT_DOBLE_ACCION', 'ROBOT_6040', 'ROBOT_2AG'],
+    skills: ['ROBOT_3020', 'ROBOT_CHACHE', 'ROBOT_6040'],
+  },
+  ROBOT_MOD: {
+    label: 'Modificadores Robot',
+    color: '#059669', // emerald-dark
+    skills: ['ROBOT_DOBLE_ACCION'],
   },
   PESPUNTE_CONV: {
     label: 'Pespunte Convencional',
@@ -443,9 +491,8 @@ export const SKILL_LABELS: Record<SkillType, string> = {
   PERFORADORA_JACK: 'Perforadora Jack',
   ROBOT_3020: '3020',
   ROBOT_CHACHE: 'Chache (4530)',
-  ROBOT_DOBLE_ACCION: 'Doble Accion (2A)',
   ROBOT_6040: '6040',
-  ROBOT_2AG: '2 Agujas (2AG)',
+  ROBOT_DOBLE_ACCION: 'Doble Accion (2A)',
   ZIGZAG: 'Zigzag',
   PLANA_RECTA: 'Plana-Recta',
   DOS_AGUJAS: '2 Agujas',
@@ -460,7 +507,8 @@ export function deriveRecursos(skills: SkillType[]): ResourceType[] {
   const recursos: ResourceType[] = []
   const PRELIM: SkillType[] = SKILL_GROUPS.PRELIMINAR.skills
   if (PRELIM.some((s) => set.has(s))) recursos.push('MESA')
-  if (SKILL_GROUPS.ROBOT.skills.some((s) => set.has(s))) recursos.push('ROBOT')
+  const robotSkills = [...SKILL_GROUPS.ROBOT.skills, ...SKILL_GROUPS.ROBOT_MOD.skills]
+  if (robotSkills.some((s) => set.has(s))) recursos.push('ROBOT')
   if (set.has('PLANA_RECTA')) recursos.push('PLANA')
   if (set.has('POSTE_CONV')) recursos.push('POSTE')
   return recursos
