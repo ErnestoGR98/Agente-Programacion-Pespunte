@@ -343,57 +343,52 @@ export default function ProgramaPage() {
                   </div>
                 )}
 
-                {/* Operation-level assigned maquila */}
-                {hasOpMaquila && (
+                {/* Operation-level maquila — grid layout */}
+                {(hasOpMaquila || hasUnassignedMaquila) && (
                   <div className={hasFabricaMaquila ? 'mt-2 pt-2 border-t border-destructive/20' : 'mt-2'}>
-                    <p className="text-xs font-medium text-destructive/70 mb-1">
-                      Operaciones Asignadas:
-                    </p>
-                    <div className="space-y-2">
-                      {[...opMaquilaByFactory.entries()].map(([maquila, models]) => (
-                        <div key={maquila}>
-                          {[...models.entries()].map(([modelo, info]) => (
-                            <div key={modelo} className="mb-1">
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
-                                  {maquila}
-                                </Badge>
-                                <span className="text-xs text-destructive font-medium">
-                                  {modelo} — {info.pares} pares
-                                </span>
-                              </div>
-                              <ul className="ml-6 mt-0.5 list-none space-y-0">
-                                {info.fracciones.map((f) => {
-                                  const baseModel = modelo.split(' ')[0]
-                                  const name = fracToOpName.get(`${baseModel}|${f}`) || `Fraccion ${f}`
-                                  return (
-                                    <li key={f} className="text-xs text-destructive/70 font-mono">
-                                      {f}.- {name}
-                                    </li>
-                                  )
-                                })}
-                              </ul>
+                    {hasOpMaquila && (
+                      <p className="text-xs font-medium text-destructive/70 mb-2">Operaciones Asignadas:</p>
+                    )}
+                    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {/* Assigned maquila cards */}
+                      {hasOpMaquila && [...opMaquilaByFactory.entries()].flatMap(([maquila, models]) =>
+                        [...models.entries()].map(([modelo, info]) => (
+                          <div key={`${maquila}-${modelo}`} className="rounded border border-destructive/20 bg-white/50 p-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
+                                {maquila}
+                              </Badge>
+                              <span className="text-xs text-destructive font-medium truncate">
+                                {modelo} — {info.pares}p
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                            <ul className="list-none space-y-0">
+                              {info.fracciones.map((f) => {
+                                const baseModel = modelo.split(' ')[0]
+                                const name = fracToOpName.get(`${baseModel}|${f}`) || `Fraccion ${f}`
+                                return (
+                                  <li key={f} className="text-xs text-destructive/70 font-mono pl-1">
+                                    {f}.- {name}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </div>
+                        ))
+                      )}
 
-                {/* Unassigned MAQUILA operations (from catalog, not yet assigned) */}
-                {hasUnassignedMaquila && (
-                  <div className={(hasFabricaMaquila || hasOpMaquila) ? 'mt-2 pt-2 border-t border-destructive/20' : 'mt-2'}>
-                    <p className="text-xs font-medium text-amber-600 mb-1">
-                      Sin Asignar Maquila (ir a Datos &gt; Pedido):
-                    </p>
-                    <div className="space-y-1">
-                      {[...unassignedMaquilaByModel.entries()].map(([modelo, ops]) => (
-                        <div key={modelo}>
-                          <span className="text-xs text-amber-600 font-mono font-medium">{modelo}</span>
-                          <ul className="ml-4 mt-0.5 list-none space-y-0">
+                      {/* Unassigned maquila cards */}
+                      {hasUnassignedMaquila && [...unassignedMaquilaByModel.entries()].map(([modelo, ops]) => (
+                        <div key={`unassigned-${modelo}`} className="rounded border border-amber-300/50 bg-amber-50/50 p-2">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Badge variant="outline" className="border-amber-400 text-amber-600 text-xs">
+                              Sin asignar
+                            </Badge>
+                            <span className="text-xs text-amber-600 font-medium truncate">{modelo}</span>
+                          </div>
+                          <ul className="list-none space-y-0">
                             {ops.map((o) => (
-                              <li key={o.fraccion} className="text-xs text-amber-600/70 font-mono">
+                              <li key={o.fraccion} className="text-xs text-amber-600/70 font-mono pl-1">
                                 {o.fraccion}.- {o.operacion}
                               </li>
                             ))}
