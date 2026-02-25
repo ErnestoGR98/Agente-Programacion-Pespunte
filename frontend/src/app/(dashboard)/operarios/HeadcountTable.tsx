@@ -6,6 +6,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import type { ResourceType, DayName } from '@/types'
+import { deriveRecursos } from '@/types'
 
 export function HeadcountTable({
   operarios,
@@ -20,7 +21,10 @@ export function HeadcountTable({
     const disponibles = operarios.filter((o) => (o.dias || []).includes(d.nombre as DayName))
     const byResource: Record<string, number> = {}
     for (const rt of resourceTypes) {
-      byResource[rt] = disponibles.filter((o) => (o.recursos || []).includes(rt)).length
+      byResource[rt] = disponibles.filter((o) => {
+        const recursos = deriveRecursos(o.habilidades || [])
+        return recursos.includes(rt)
+      }).length
     }
     return {
       dia: d.nombre,

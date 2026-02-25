@@ -209,22 +209,56 @@ def _load_avance(semana: str) -> dict:
     return modelos
 
 
+_PRELIM_SKILLS = {
+    'ARMADO_PALETS', 'PISTOLA', 'HEBILLAS', 'DESHEBRADOS', 'ALIMENTAR_LINEA',
+    'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK',
+}
+_SKILL_TO_ROBOT_TIPO = {
+    'ROBOT_3020': '3020', 'ROBOT_CHACHE': 'CHACHE',
+    'ROBOT_DOBLE_ACCION': 'DOBLE_ACCION', 'ROBOT_6040': '6040',
+    'ROBOT_2AG': '2AG',
+}
+
+
 def _load_operarios() -> list:
-    """Carga operarios con sus relaciones."""
-    rows = _sb_get("operarios", "select=*,fabricas(nombre)&activo=eq.true&order=nombre")
+    """Carga operarios con habilidades y deriva recursos/robots."""
+    rows = _sb_get("operarios", "select=*&activo=eq.true&order=nombre")
+
+    # Build robot-type lookup: {'3020': ['3020-M1', ...], ...}
+    all_robots = _sb_get("robots", "select=nombre,tipo&estado=eq.ACTIVO")
+    robot_by_tipo: dict[str, list[str]] = {}
+    for rb in all_robots:
+        if rb.get("tipo"):
+            robot_by_tipo.setdefault(rb["tipo"], []).append(rb["nombre"])
+
     result = []
     for r in rows:
         op_id = r["id"]
-        recursos = _sb_get("operario_recursos", f"select=recurso&operario_id=eq.{op_id}")
-        robots = _sb_get("operario_robots", f"select=robots(nombre)&operario_id=eq.{op_id}")
+        habs = _sb_get("operario_habilidades", f"select=habilidad&operario_id=eq.{op_id}")
         dias = _sb_get("operario_dias", f"select=dia&operario_id=eq.{op_id}")
+        skills = {x["habilidad"] for x in habs}
+
+        # Derive recursos_habilitados from skills
+        recursos: set[str] = set()
+        if skills & _PRELIM_SKILLS:
+            recursos.add('MESA')
+        if 'PLANA_RECTA' in skills:
+            recursos.add('PLANA')
+        if 'POSTE_CONV' in skills:
+            recursos.add('POSTE')
+
+        # Derive robots_habilitados from robot-type skills
+        robots_hab: list[str] = []
+        for skill, tipo in _SKILL_TO_ROBOT_TIPO.items():
+            if skill in skills:
+                recursos.add('ROBOT')
+                robots_hab.extend(robot_by_tipo.get(tipo, []))
 
         result.append({
             "id": op_id,
             "nombre": r["nombre"],
-            "fabrica": (r.get("fabricas") or {}).get("nombre", ""),
-            "recursos_habilitados": [x["recurso"] for x in recursos],
-            "robots_habilitados": [x["robots"]["nombre"] for x in robots if x.get("robots")],
+            "recursos_habilitados": list(recursos),
+            "robots_habilitados": robots_hab,
             "eficiencia": float(r["eficiencia"]),
             "dias_disponibles": [x["dia"] for x in dias],
             "activo": True,

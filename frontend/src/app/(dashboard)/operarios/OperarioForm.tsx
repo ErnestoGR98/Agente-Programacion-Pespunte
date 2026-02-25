@@ -7,41 +7,44 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { RESOURCE_TYPES, type ResourceType, type DayName } from '@/types'
+import { SKILL_GROUPS, SKILL_LABELS, type SkillType, type DayName } from '@/types'
 
 export function OperarioForm({
   operario,
-  fabricas,
-  robotsList,
   onSave,
   onCancel,
 }: {
   operario: OperarioFull | null
-  fabricas: { id: string; nombre: string }[]
-  robotsList: { id: string; nombre: string }[]
   onSave: (data: {
     id?: string; nombre: string; fabrica_id: string | null
     eficiencia: number; activo: boolean
-    recursos: ResourceType[]; robot_ids: string[]; dias: DayName[]
+    habilidades: SkillType[]; dias: DayName[]
   }) => Promise<void>
   onCancel: () => void
 }) {
   const [nombre, setNombre] = useState(operario?.nombre || '')
   const [eficiencia, setEficiencia] = useState(operario?.eficiencia || 1.0)
   const [activo, setActivo] = useState(operario?.activo ?? true)
-  const [recursos, setRecursos] = useState<ResourceType[]>(operario?.recursos || [])
+  const [habilidades, setHabilidades] = useState<SkillType[]>(operario?.habilidades || [])
   const [sabado, setSabado] = useState(operario?.dias?.includes('Sab') ?? false)
   const [saving, setSaving] = useState(false)
 
-  function toggleResource(r: ResourceType) {
-    setRecursos((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r])
+  function toggleSkill(s: SkillType) {
+    setHabilidades((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])
+  }
+
+  function toggleGroup(groupSkills: SkillType[]) {
+    const allSelected = groupSkills.every((s) => habilidades.includes(s))
+    if (allSelected) {
+      setHabilidades((prev) => prev.filter((s) => !groupSkills.includes(s)))
+    } else {
+      setHabilidades((prev) => [...new Set([...prev, ...groupSkills])])
+    }
   }
 
   async function handleSubmit() {
     if (!nombre.trim()) return
     setSaving(true)
-    // Auto-assign all robots if ROBOT skill selected
-    const robotIdsToSave = recursos.includes('ROBOT') ? robotsList.map((r) => r.id) : []
     const dias: DayName[] = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie']
     if (sabado) dias.push('Sab')
     await onSave({
@@ -50,8 +53,7 @@ export function OperarioForm({
       fabrica_id: null,
       eficiencia,
       activo,
-      recursos,
-      robot_ids: robotIdsToSave,
+      habilidades,
       dias,
     })
     setSaving(false)
@@ -81,16 +83,44 @@ export function OperarioForm({
           </div>
         </div>
 
-        <div className="space-y-1">
-          <Label className="text-xs">Recursos Habilitados</Label>
-          <div className="flex flex-wrap gap-2">
-            {RESOURCE_TYPES.filter(r => r !== 'GENERAL').map((r) => (
-              <label key={r} className="flex items-center gap-1 text-xs">
-                <Checkbox checked={recursos.includes(r)} onCheckedChange={() => toggleResource(r)} />
-                {r}
-              </label>
-            ))}
-          </div>
+        {/* Habilidades agrupadas */}
+        <div className="space-y-3">
+          <Label className="text-xs font-semibold">Habilidades</Label>
+          {Object.entries(SKILL_GROUPS).map(([key, group]) => {
+            const allSelected = group.skills.every((s) => habilidades.includes(s))
+            const someSelected = group.skills.some((s) => habilidades.includes(s))
+            return (
+              <div key={key} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={allSelected}
+                    className={someSelected && !allSelected ? 'opacity-50' : ''}
+                    onCheckedChange={() => toggleGroup(group.skills)}
+                  />
+                  <span
+                    className="text-xs font-medium px-1.5 py-0.5 rounded"
+                    style={{ backgroundColor: group.color + '20', color: group.color }}
+                  >
+                    {group.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({group.skills.filter((s) => habilidades.includes(s)).length}/{group.skills.length})
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 ml-6">
+                  {group.skills.map((s) => (
+                    <label key={s} className="flex items-center gap-1 text-xs">
+                      <Checkbox
+                        checked={habilidades.includes(s)}
+                        onCheckedChange={() => toggleSkill(s)}
+                      />
+                      {SKILL_LABELS[s]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
         </div>
 
         <div className="flex items-center gap-6">
@@ -116,7 +146,7 @@ export function OperarioForm({
               setNombre('')
               setEficiencia(1.0)
               setActivo(true)
-              setRecursos([])
+              setHabilidades([])
               setSabado(false)
             }}
           >

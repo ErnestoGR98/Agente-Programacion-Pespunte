@@ -16,10 +16,11 @@ import { Trash2, Plus, Pencil } from 'lucide-react'
 import { OperarioForm } from './OperarioForm'
 import { HeadcountTable } from './HeadcountTable'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { SKILL_GROUPS, SKILL_LABELS } from '@/types'
 
 export default function OperariosPage() {
   const {
-    loading, operarios, fabricas, robotsList, dias,
+    loading, operarios, dias,
     toggleActivo, deleteOperario, saveOperario,
   } = useOperarios()
   const [editing, setEditing] = useState<OperarioFull | null>(null)
@@ -42,6 +43,13 @@ export default function OperariosPage() {
 
   const activos = operarios.filter((o) => o.activo)
   const inactivos = operarios.filter((o) => !o.activo)
+
+  function skillSummary(op: OperarioFull) {
+    return Object.entries(SKILL_GROUPS).map(([, g]) => {
+      const count = g.skills.filter((s) => op.habilidades.includes(s)).length
+      return count > 0 ? `${g.label.slice(0, 6)}: ${count}` : null
+    }).filter(Boolean).join(' | ')
+  }
 
   return (
     <div className="space-y-6">
@@ -69,8 +77,6 @@ export default function OperariosPage() {
       {showForm && (
         <OperarioForm
           operario={editing}
-          fabricas={fabricas}
-          robotsList={robotsList}
           onSave={async (data) => {
             await saveOperario(data)
             setShowForm(false)
@@ -87,10 +93,10 @@ export default function OperariosPage() {
             <span className="text-sm font-medium">Listado de Operarios</span>
             <TableExport
               title="Operarios"
-              headers={['Nombre', 'Recursos', 'Eficiencia', 'Sabado', 'Activo']}
+              headers={['Nombre', 'Habilidades', 'Eficiencia', 'Sabado', 'Activo']}
               rows={operarios.map((op) => [
                 op.nombre,
-                op.recursos.join(', '),
+                op.habilidades.map((h) => SKILL_LABELS[h]).join(', '),
                 `${(op.eficiencia * 100).toFixed(0)}%`,
                 op.dias.includes('Sab') ? 'Si' : 'No',
                 op.activo ? 'Si' : 'No',
@@ -101,7 +107,7 @@ export default function OperariosPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nombre</TableHead>
-                <TableHead>Recursos</TableHead>
+                <TableHead>Habilidades</TableHead>
                 <TableHead>Eficiencia</TableHead>
                 <TableHead>Sabado</TableHead>
                 <TableHead>Activo</TableHead>
@@ -114,9 +120,20 @@ export default function OperariosPage() {
                   <TableCell className="font-medium">{op.nombre}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {op.recursos.map((r) => (
-                        <Badge key={r} variant="secondary" className="text-xs">{r}</Badge>
-                      ))}
+                      {Object.entries(SKILL_GROUPS).map(([key, group]) => {
+                        const count = group.skills.filter((s) => op.habilidades.includes(s)).length
+                        if (count === 0) return null
+                        return (
+                          <Badge
+                            key={key}
+                            variant="secondary"
+                            className="text-xs"
+                            style={{ backgroundColor: group.color + '20', color: group.color }}
+                          >
+                            {group.label.slice(0, 6)} {count}/{group.skills.length}
+                          </Badge>
+                        )
+                      })}
                     </div>
                   </TableCell>
                   <TableCell>{(op.eficiencia * 100).toFixed(0)}%</TableCell>

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import type { Operario, Fabrica, Robot, DiaLaboral, ResourceType, DayName } from '@/types'
+import type { Fabrica, Robot, DiaLaboral, ResourceType, DayName, SkillType } from '@/types'
+import { deriveRecursos } from '@/types'
 
 export interface OperarioFull {
   id: string
@@ -11,9 +12,10 @@ export interface OperarioFull {
   fabrica_nombre: string
   eficiencia: number
   activo: boolean
-  recursos: ResourceType[]
-  robots: string[]         // robot nombres
-  robot_ids: string[]      // robot ids
+  habilidades: SkillType[]
+  recursos: ResourceType[]  // derived from habilidades
+  robots: string[]           // robot nombres (legacy, derived)
+  robot_ids: string[]        // robot ids (legacy, derived)
   dias: DayName[]
 }
 
@@ -45,36 +47,34 @@ export function useOperarios() {
 
     // Load junction tables for all operarios
     const opIds = ops.map((o: { id: string }) => o.id)
-    const [recRes, robRelRes, diasRelRes] = await Promise.all([
-      supabase.from('operario_recursos').select('*').in('operario_id', opIds),
-      supabase.from('operario_robots').select('*, robots(nombre)').in('operario_id', opIds),
+    const [habRes, diasRelRes] = await Promise.all([
+      supabase.from('operario_habilidades').select('*').in('operario_id', opIds),
       supabase.from('operario_dias').select('*').in('operario_id', opIds),
     ])
 
-    const recursos = recRes.data || []
-    const robotRels = robRelRes.data || []
+    const habilidades = habRes.data || []
     const diasRels = diasRelRes.data || []
 
-    const full: OperarioFull[] = ops.map((o: Record<string, unknown>) => ({
-      id: o.id as string,
-      nombre: o.nombre as string,
-      fabrica_id: o.fabrica_id as string | null,
-      fabrica_nombre: ((o.fabricas as { nombre: string } | null)?.nombre) || '',
-      eficiencia: Number(o.eficiencia),
-      activo: o.activo as boolean,
-      recursos: recursos
-        .filter((r: { operario_id: string }) => r.operario_id === o.id)
-        .map((r: { recurso: ResourceType }) => r.recurso),
-      robots: robotRels
-        .filter((r: { operario_id: string }) => r.operario_id === o.id)
-        .map((r: { robots: { nombre: string } }) => r.robots.nombre),
-      robot_ids: robotRels
-        .filter((r: { operario_id: string }) => r.operario_id === o.id)
-        .map((r: { robot_id: string }) => r.robot_id),
-      dias: diasRels
-        .filter((d: { operario_id: string }) => d.operario_id === o.id)
-        .map((d: { dia: DayName }) => d.dia),
-    }))
+    const full: OperarioFull[] = ops.map((o: Record<string, unknown>) => {
+      const opHabs = habilidades
+        .filter((h: { operario_id: string }) => h.operario_id === o.id)
+        .map((h: { habilidad: SkillType }) => h.habilidad)
+      return {
+        id: o.id as string,
+        nombre: o.nombre as string,
+        fabrica_id: o.fabrica_id as string | null,
+        fabrica_nombre: ((o.fabricas as { nombre: string } | null)?.nombre) || '',
+        eficiencia: Number(o.eficiencia),
+        activo: o.activo as boolean,
+        habilidades: opHabs,
+        recursos: deriveRecursos(opHabs),
+        robots: [],
+        robot_ids: [],
+        dias: diasRels
+          .filter((d: { operario_id: string }) => d.operario_id === o.id)
+          .map((d: { dia: DayName }) => d.dia),
+      }
+    })
 
     setOperarios(full)
     setLoading(false)
@@ -98,14 +98,12 @@ export function useOperarios() {
     fabrica_id: string | null
     eficiencia: number
     activo: boolean
-    recursos: ResourceType[]
-    robot_ids: string[]
+    habilidades: SkillType[]
     dias: DayName[]
   }) {
     let opId = data.id
 
     if (opId) {
-      // Update existing
       await supabase.from('operarios').update({
         nombre: data.nombre,
         fabrica_id: data.fabrica_id,
@@ -113,7 +111,6 @@ export function useOperarios() {
         activo: data.activo,
       }).eq('id', opId)
     } else {
-      // Insert new
       const { data: inserted } = await supabase.from('operarios').insert({
         nombre: data.nombre,
         fabrica_id: data.fabrica_id,
@@ -125,18 +122,12 @@ export function useOperarios() {
     }
 
     // Replace junction tables
-    await supabase.from('operario_recursos').delete().eq('operario_id', opId)
-    await supabase.from('operario_robots').delete().eq('operario_id', opId)
+    await supabase.from('operario_habilidades').delete().eq('operario_id', opId)
     await supabase.from('operario_dias').delete().eq('operario_id', opId)
 
-    if (data.recursos.length > 0) {
-      await supabase.from('operario_recursos').insert(
-        data.recursos.map((r) => ({ operario_id: opId, recurso: r }))
-      )
-    }
-    if (data.robot_ids.length > 0) {
-      await supabase.from('operario_robots').insert(
-        data.robot_ids.map((r) => ({ operario_id: opId, robot_id: r }))
+    if (data.habilidades.length > 0) {
+      await supabase.from('operario_habilidades').insert(
+        data.habilidades.map((h) => ({ operario_id: opId, habilidad: h }))
       )
     }
     if (data.dias.length > 0) {

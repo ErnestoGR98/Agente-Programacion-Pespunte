@@ -388,6 +388,73 @@ export const RESOURCE_COLORS: Record<string, string> = {
   GENERAL: '#94A3B8',
 }
 
+// --- Habilidades Granulares (20 skills) ---
+
+export type SkillType =
+  // Preliminar (9)
+  | 'ARMADO_PALETS' | 'PISTOLA' | 'HEBILLAS' | 'DESHEBRADOS' | 'ALIMENTAR_LINEA'
+  | 'MAQ_PINTURA' | 'REMACH_NEUMATICA' | 'REMACH_MECANICA' | 'PERFORADORA_JACK'
+  // Robot (5)
+  | 'ROBOT_3020' | 'ROBOT_CHACHE' | 'ROBOT_DOBLE_ACCION' | 'ROBOT_6040' | 'ROBOT_2AG'
+  // Pespunte Convencional (6)
+  | 'ZIGZAG' | 'PLANA_RECTA' | 'DOS_AGUJAS' | 'POSTE_CONV' | 'RIBETE' | 'CODO'
+
+export const SKILL_GROUPS: Record<string, { label: string; color: string; skills: SkillType[] }> = {
+  PRELIMINAR: {
+    label: 'Preliminares',
+    color: '#F59E0B', // amber
+    skills: [
+      'ARMADO_PALETS', 'PISTOLA', 'HEBILLAS', 'DESHEBRADOS', 'ALIMENTAR_LINEA',
+      'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK',
+    ],
+  },
+  ROBOT: {
+    label: 'Robots',
+    color: '#10B981', // emerald
+    skills: ['ROBOT_3020', 'ROBOT_CHACHE', 'ROBOT_DOBLE_ACCION', 'ROBOT_6040', 'ROBOT_2AG'],
+  },
+  PESPUNTE_CONV: {
+    label: 'Pespunte Convencional',
+    color: '#3B82F6', // blue
+    skills: ['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'],
+  },
+}
+
+export const SKILL_LABELS: Record<SkillType, string> = {
+  ARMADO_PALETS: 'Armado de Palets',
+  PISTOLA: 'Uso de Pistola',
+  HEBILLAS: 'Armado de Hebillas',
+  DESHEBRADOS: 'Deshebrados',
+  ALIMENTAR_LINEA: 'Alimentar Linea',
+  MAQ_PINTURA: 'Maq. Pintura',
+  REMACH_NEUMATICA: 'Remach. Neumatica',
+  REMACH_MECANICA: 'Remach. Mecanica',
+  PERFORADORA_JACK: 'Perforadora Jack',
+  ROBOT_3020: '3020',
+  ROBOT_CHACHE: 'Chache (4530)',
+  ROBOT_DOBLE_ACCION: 'Doble Accion (2A)',
+  ROBOT_6040: '6040',
+  ROBOT_2AG: '2 Agujas (2AG)',
+  ZIGZAG: 'Zigzag',
+  PLANA_RECTA: 'Plana-Recta',
+  DOS_AGUJAS: '2 Agujas',
+  POSTE_CONV: 'Poste',
+  RIBETE: 'Ribete',
+  CODO: 'Codo',
+}
+
+/** Derive resource types from skills (for optimizer compatibility) */
+export function deriveRecursos(skills: SkillType[]): ResourceType[] {
+  const set = new Set(skills)
+  const recursos: ResourceType[] = []
+  const PRELIM: SkillType[] = SKILL_GROUPS.PRELIMINAR.skills
+  if (PRELIM.some((s) => set.has(s))) recursos.push('MESA')
+  if (SKILL_GROUPS.ROBOT.skills.some((s) => set.has(s))) recursos.push('ROBOT')
+  if (set.has('PLANA_RECTA')) recursos.push('PLANA')
+  if (set.has('POSTE_CONV')) recursos.push('POSTE')
+  return recursos
+}
+
 // --- Constantes compartidas ---
 
 export const BLOCK_LABELS = [
