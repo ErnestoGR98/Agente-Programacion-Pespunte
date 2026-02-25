@@ -49,9 +49,9 @@ export function useConfiguracion() {
     await load()
   }
 
-  async function addRobot(nombre: string) {
+  async function addRobot(nombre: string, tipo?: string) {
     const maxOrden = robots.length > 0 ? Math.max(...robots.map(r => r.orden)) + 1 : 0
-    await supabase.from('robots').insert({ nombre, orden: maxOrden })
+    await supabase.from('robots').insert({ nombre, orden: maxOrden, ...(tipo ? { tipo } : {}) })
     await load()
   }
 

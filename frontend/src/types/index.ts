@@ -22,11 +22,22 @@ export type RobotArea = 'PESPUNTE' | 'AVIOS'
 
 // --- Tablas de Configuración ---
 
+export type RobotTipo = '3020' | 'DOBLE_ACCION' | '6040' | 'CHACHE' | '2AG'
+
+export const ROBOT_TIPOS: { value: RobotTipo; label: string }[] = [
+  { value: '3020', label: '3020' },
+  { value: 'DOBLE_ACCION', label: 'Doble Accion (2A)' },
+  { value: '6040', label: '6040' },
+  { value: 'CHACHE', label: 'Chache (4530)' },
+  { value: '2AG', label: '2 Agujas (2AG)' },
+]
+
 export interface Robot {
   id: string
   nombre: string
   estado: RobotEstado
   area: RobotArea
+  tipo: RobotTipo | null
   orden: number
   created_at: string
 }
