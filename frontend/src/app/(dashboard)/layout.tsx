@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
+import { ChatWidget } from '@/components/shared/ChatWidget'
 import { wakeUpAPI } from '@/lib/api/fastapi'
 
 export default function DashboardLayout({
@@ -24,6 +25,7 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+      <ChatWidget />
     </div>
   )
 }

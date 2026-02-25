@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/useAppStore'
 import {
-  Database, ShieldAlert, MessageSquare, Users, Settings,
+  Database, ShieldAlert, Users, Settings,
   CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen,
   Sun, Moon,
 } from 'lucide-react'
@@ -37,7 +37,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Herramientas',
     items: [
-      { href: '/asistente', label: 'Asistente', icon: MessageSquare, minStep: 0 },
       { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
     ],
   },
