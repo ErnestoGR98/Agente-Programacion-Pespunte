@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import type { usePedido } from '@/lib/hooks/usePedido'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { importPedido, downloadTemplate } from '@/lib/api/fastapi'
@@ -70,10 +70,10 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
 
   async function handleAddItem() {
     if (!newModelo || newVolumen <= 0) return
-    if (!pedido.currentPedidoId) {
-      const id = await pedido.createPedido(semana)
-      if (!id) return
-      await pedido.loadPedido(id)
+    let pid = pedido.currentPedidoId
+    if (!pid) {
+      pid = await pedido.createPedido(semana)
+      if (!pid) return
     }
     await pedido.addItem({
       modelo_num: newModelo,
@@ -81,7 +81,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       clave_material: '',
       fabrica: newFabrica,
       volumen: newVolumen,
-    })
+    }, pid)
     setNewModelo('')
     setNewColor('')
     setNewVolumen(100)
@@ -305,8 +305,8 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                 const allAssigned = hasMaquila && itemAsigs.length > 0
 
                 return (
-                  <>
-                    <TableRow key={it.id}>
+                  <Fragment key={it.id}>
+                    <TableRow>
                       <TableCell className="font-mono">
                         <span className="flex items-center gap-2">
                           {(() => {
@@ -534,7 +534,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
               {pedido.items.length === 0 && (

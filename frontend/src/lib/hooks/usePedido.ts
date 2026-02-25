@@ -103,13 +103,14 @@ export function usePedido() {
     await loadBase()
   }
 
-  async function addItem(item: Omit<PedidoItem, 'id' | 'pedido_id'>) {
-    if (!currentPedidoId) return
+  async function addItem(item: Omit<PedidoItem, 'id' | 'pedido_id'>, pedidoId?: string) {
+    const pid = pedidoId || currentPedidoId
+    if (!pid) return
     await supabase.from('pedido_items').insert({
       ...item,
-      pedido_id: currentPedidoId,
+      pedido_id: pid,
     })
-    await loadPedido(currentPedidoId)
+    await loadPedido(pid)
   }
 
   async function updateItem(id: string, data: Partial<PedidoItem>) {
