@@ -259,7 +259,11 @@ export default function ProgramaPage() {
       maqParts.push(`${fab}: ${items}`)
     }
     for (const [maq, models] of opMaquilaByFactory) {
-      const items = Array.from(models.entries()).map(([m, d]) => `${m} ${d.pares}p (${d.fracciones.map((f) => fracToOpName.get(`${m}|${f}`) || `F${f}`).join(', ')})`).join(', ')
+      const items = Array.from(models.entries()).map(([m, d]) => {
+        const baseM = m.split(' ')[0]
+        const opList = d.fracciones.map((f) => `${f}.- ${fracToOpName.get(`${baseM}|${f}`) || `F${f}`}`).join(', ')
+        return `${m} ${d.pares}p (${opList})`
+      }).join(', ')
       maqParts.push(`${maq}: ${items}`)
     }
     const maquilaText = maqParts.join('  |  ')
@@ -343,16 +347,31 @@ export default function ProgramaPage() {
                     <p className="text-xs font-medium text-destructive/70 mb-1">
                       Operaciones Asignadas:
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {[...opMaquilaByFactory.entries()].map(([maquila, models]) => (
-                        <div key={maquila} className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
-                            {maquila}
-                          </Badge>
+                        <div key={maquila}>
                           {[...models.entries()].map(([modelo, info]) => (
-                            <span key={modelo} className="text-xs text-destructive/70 font-mono">
-                              {modelo}: {info.pares} pares ({info.fracciones.map((f) => fracToOpName.get(`${modelo}|${f}`) || `F${f}`).join(', ')})
-                            </span>
+                            <div key={modelo} className="mb-1">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="border-destructive/40 text-destructive text-xs">
+                                  {maquila}
+                                </Badge>
+                                <span className="text-xs text-destructive font-medium">
+                                  {modelo} — {info.pares} pares
+                                </span>
+                              </div>
+                              <ul className="ml-6 mt-0.5 list-none space-y-0">
+                                {info.fracciones.map((f) => {
+                                  const baseModel = modelo.split(' ')[0]
+                                  const name = fracToOpName.get(`${baseModel}|${f}`) || `Fraccion ${f}`
+                                  return (
+                                    <li key={f} className="text-xs text-destructive/70 font-mono">
+                                      {f}.- {name}
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                            </div>
                           ))}
                         </div>
                       ))}
@@ -368,11 +387,15 @@ export default function ProgramaPage() {
                     </p>
                     <div className="space-y-1">
                       {[...unassignedMaquilaByModel.entries()].map(([modelo, ops]) => (
-                        <div key={modelo} className="flex items-center gap-2 flex-wrap">
+                        <div key={modelo}>
                           <span className="text-xs text-amber-600 font-mono font-medium">{modelo}</span>
-                          <span className="text-xs text-amber-600/70">
-                            F{ops.map((o) => o.fraccion).join(', F')} — {ops.map((o) => o.operacion).join(', ')}
-                          </span>
+                          <ul className="ml-4 mt-0.5 list-none space-y-0">
+                            {ops.map((o) => (
+                              <li key={o.fraccion} className="text-xs text-amber-600/70 font-mono">
+                                {o.fraccion}.- {o.operacion}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       ))}
                     </div>
