@@ -242,17 +242,35 @@ export default function ProgramaPage() {
     }, 0)
     const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
     const headers = ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLbls, 'TOTAL']
+
+    // Build maquila summary text
+    const maqParts: string[] = []
+    for (const [fab, models] of maquilaByFabrica) {
+      const items = Array.from(models.entries()).map(([m, p]) => `${m} ${p}p`).join(', ')
+      maqParts.push(`${fab}: ${items}`)
+    }
+    for (const [maq, models] of opMaquilaByFactory) {
+      const items = Array.from(models.entries()).map(([m, d]) => `${m} ${d.pares}p (F${d.fracciones.join(',')})`).join(', ')
+      maqParts.push(`${maq}: ${items}`)
+    }
+    const maquilaText = maqParts.join('  |  ')
+
     const groups: ProgramaDayGroup[] = dayNames
       .filter((d) => result.daily_results![d]?.schedule?.length)
-      .map((d) => ({
-        day: d,
-        rows: result.daily_results![d].schedule.map((s) => [
-          s.modelo, s.fraccion, s.operacion, s.robot || s.recurso,
-          s.operario || '-', s.rate, s.hc,
-          ...(s.blocks || []).map((v: number) => (v > 0 ? v : '')),
-          s.total,
-        ] as (string | number)[]),
-      }))
+      .map((d) => {
+        const sched = result.daily_results![d].schedule
+        return {
+          day: d,
+          rows: sched.map((s) => [
+            s.modelo, s.fraccion, s.operacion, s.robot || s.recurso,
+            s.operario || '-', s.rate, s.hc,
+            ...(s.blocks || []).map((v: number) => (v > 0 ? v : '')),
+            s.total,
+          ] as (string | number)[]),
+          etapas: sched.map((s) => s.etapa || ''),
+          maquilaInfo: maquilaText || undefined,
+        }
+      })
     exportProgramaPDF('programa_completo', headers, groups)
   }
 

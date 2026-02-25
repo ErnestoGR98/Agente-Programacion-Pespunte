@@ -192,16 +192,22 @@ def chat_endpoint(req: ChatRequest):
     system = SYSTEM_PROMPT + "\n\n--- DATOS ACTUALES ---\n" + context
 
     # Llamar a Claude API
-    from anthropic import Anthropic
+    from anthropic import Anthropic, APIError
 
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    response = client.messages.create(
-        model=req.model,
-        max_tokens=2048,
-        system=system,
-        messages=messages,
-    )
-
-    return ChatResponse(response=response.content[0].text)
+    try:
+        response = client.messages.create(
+            model=req.model,
+            max_tokens=2048,
+            system=system,
+            messages=messages,
+        )
+        return ChatResponse(response=response.content[0].text)
+    except APIError as e:
+        print(f"[CHAT] Anthropic API error: {e.status_code} {e.message}")
+        raise HTTPException(e.status_code or 500, f"Claude API: {e.message}")
+    except Exception as e:
+        print(f"[CHAT] Error: {e}")
+        raise HTTPException(500, f"Error al llamar Claude: {str(e)}")
