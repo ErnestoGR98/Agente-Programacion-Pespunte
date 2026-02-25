@@ -261,7 +261,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                   <SelectValue placeholder="Fabrica..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {pedido.fabricas.map((f) => (
+                  {pedido.fabricas.filter((f) => f.nombre.startsWith('FABRICA')).map((f) => (
                     <SelectItem key={f.id} value={f.nombre}>{f.nombre}</SelectItem>
                   ))}
                 </SelectContent>
