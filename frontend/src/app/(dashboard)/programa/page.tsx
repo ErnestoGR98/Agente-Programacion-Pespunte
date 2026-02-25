@@ -57,24 +57,24 @@ export default function ProgramaPage() {
   useEffect(() => {
     if (!result) { setCatalogMaquilaOps([]); return }
 
-    // Collect unique model codes from the result
-    const modelCodes = new Set<string>()
+    // Collect unique base model numbers from the result (strip color suffix)
+    const modelNums = new Set<string>()
     if (result.weekly_schedule) {
-      for (const e of result.weekly_schedule) modelCodes.add(e.Modelo)
+      for (const e of result.weekly_schedule) modelNums.add(e.Modelo.split(' ')[0])
     }
     if (result.daily_results) {
       for (const dayData of Object.values(result.daily_results)) {
-        for (const s of dayData.schedule || []) modelCodes.add(s.modelo)
+        for (const s of dayData.schedule || []) modelNums.add(s.modelo.split(' ')[0])
       }
     }
-    if (modelCodes.size === 0) { setCatalogMaquilaOps([]); return }
+    if (modelNums.size === 0) { setCatalogMaquilaOps([]); return }
 
     // Query catalog for MAQUILA operations of these models
     supabase
       .from('catalogo_operaciones')
       .select('fraccion, operacion, catalogo_modelos!inner(modelo_num)')
       .eq('recurso', 'MAQUILA')
-      .in('catalogo_modelos.modelo_num', [...modelCodes])
+      .in('catalogo_modelos.modelo_num', [...modelNums])
       .order('fraccion')
       .then(({ data }) => {
         setCatalogMaquilaOps(
