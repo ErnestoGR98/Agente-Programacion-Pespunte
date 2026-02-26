@@ -301,19 +301,27 @@ function ComplementarySection({
   const total = items.length
   const activos = items.filter((r) => r.estado === 'ACTIVO').length
 
-  function countByType(tipo: MaquinaTipo) {
-    return items.filter((r) => r.tipos.includes(tipo)).length
-  }
-
   async function addOne(tipo: MaquinaTipo, label: string) {
-    const n = countByType(tipo) + 1
+    const n = items.filter((r) => r.tipos.includes(tipo)).length + 1
     await config.addRobot(`${label} ${n}`, [tipo])
   }
 
   function removeOne(tipo: MaquinaTipo) {
     const matching = items.filter((r) => r.tipos.includes(tipo))
-    if (matching.length > 0) {
-      onDelete(matching[matching.length - 1].id)
+    if (matching.length > 0) onDelete(matching[matching.length - 1].id)
+  }
+
+  /** Set how many of a type are FUERA DE SERVICIO. Marks the last N as inactive. */
+  async function setFueraCount(tipo: MaquinaTipo, fueraCount: number) {
+    const matching = items.filter((r) => r.tipos.includes(tipo))
+    const clamped = Math.max(0, Math.min(fueraCount, matching.length))
+    const activoTarget = matching.length - clamped
+    // Make first activoTarget ACTIVO, rest FUERA DE SERVICIO
+    for (let i = 0; i < matching.length; i++) {
+      const desired = i < activoTarget ? 'ACTIVO' : 'FUERA DE SERVICIO'
+      if (matching[i].estado !== desired) {
+        await config.updateRobot(matching[i].id, { estado: desired })
+      }
     }
   }
 
@@ -341,64 +349,80 @@ function ComplementarySection({
           })}
         />
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {allTypes.map((t) => {
-            const matching = items.filter((r) => r.tipos.includes(t.value))
-            const count = matching.length
-            return (
-              <div key={t.value} className="rounded-lg border p-3 space-y-2">
-                <div className="text-sm font-medium">{t.label}</div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    disabled={count === 0}
-                    onClick={() => removeOne(t.value)}
-                  >
-                    <Minus className="h-3 w-3" />
-                  </Button>
-                  <span className="text-2xl font-bold w-8 text-center">{count}</span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => addOne(t.value, t.label)}
-                  >
-                    <Plus className="h-3 w-3" />
-                  </Button>
-                </div>
-                {matching.length > 0 && (
-                  <div className="space-y-1 pt-1 border-t">
-                    {matching.map((r, i) => (
-                      <div key={r.id} className="flex items-center justify-between text-xs">
-                        <span className={r.estado !== 'ACTIVO' ? 'text-muted-foreground line-through' : ''}>
-                          #{i + 1}
-                        </span>
-                        <Select
-                          value={r.estado}
-                          onValueChange={(v) => config.updateRobot(r.id, { estado: v as Robot['estado'] })}
-                        >
-                          <SelectTrigger className="h-6 w-36 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="ACTIVO">ACTIVO</SelectItem>
-                            <SelectItem value="FUERA DE SERVICIO">FUERA DE SERVICIO</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Tipo</TableHead>
+              <TableHead className="text-center w-24">Total</TableHead>
+              <TableHead className="text-center w-24">Activos</TableHead>
+              <TableHead className="text-center w-32">F. Servicio</TableHead>
+              <TableHead className="w-24"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {allTypes.map((t) => {
+              const matching = items.filter((r) => r.tipos.includes(t.value))
+              const act = matching.filter((r) => r.estado === 'ACTIVO').length
+              const fuera = matching.length - act
+              return (
+                <TableRow key={t.value}>
+                  <TableCell>
+                    <Input
+                      defaultValue={t.label}
+                      className="h-8 font-medium w-48"
+                      onBlur={(e) => {
+                        const newLabel = e.target.value.trim()
+                        if (!newLabel || newLabel === t.label) return
+                        const newValue = newLabel.toUpperCase().replace(/\s+/g, '_') as MaquinaTipo
+                        if (newValue !== t.value) config.renameTipo(t.value, newValue)
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    />
+                  </TableCell>
+                  <TableCell className="text-center text-lg font-bold">{matching.length}</TableCell>
+                  <TableCell className="text-center text-emerald-500 font-semibold">{act}</TableCell>
+                  <TableCell className="text-center">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={matching.length}
+                      value={fuera}
+                      onChange={(e) => setFueraCount(t.value, parseInt(e.target.value) || 0)}
+                      className="h-7 w-16 text-center mx-auto"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={matching.length === 0}
+                        onClick={() => removeOne(t.value)}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => addOne(t.value, t.label)}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+        <div className="mt-3">
+          <Button size="sm" variant="outline" onClick={handleAddTipo}>
+            <Plus className="mr-1 h-3 w-3" /> Nuevo tipo
+          </Button>
         </div>
-        <Button size="sm" variant="outline" onClick={handleAddTipo}>
-          <Plus className="mr-1 h-3 w-3" /> Nuevo tipo
-        </Button>
       </CardContent>
     </Card>
   )

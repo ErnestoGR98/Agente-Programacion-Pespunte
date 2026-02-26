@@ -119,6 +119,11 @@ export function useConfiguracion() {
     await load()
   }
 
+  async function renameTipo(oldTipo: MaquinaTipo, newTipo: MaquinaTipo) {
+    await supabase.from('robot_tipos').update({ tipo: newTipo }).eq('tipo', oldTipo)
+    await load()
+  }
+
   async function deleteRobot(id: string) {
     await supabase.from('robots').delete().eq('id', id)
     await load()
@@ -185,7 +190,7 @@ export function useConfiguracion() {
   return {
     loading,
     robots, aliases, fabricas, capacidades, derivedCapacidades, dias, horarios, pesos, parametros,
-    updateRobot, addRobot, deleteRobot, toggleTipo, setBaseTipo,
+    updateRobot, addRobot, deleteRobot, toggleTipo, setBaseTipo, renameTipo,
     addAlias, deleteAlias,
     updateFabrica, addFabrica, deleteFabrica,
     updateDia,

@@ -450,6 +450,7 @@ export function ChatWidget() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               disabled={sending}
               className="text-sm"
+              data-no-uppercase
             />
             <Button
               size="icon"
