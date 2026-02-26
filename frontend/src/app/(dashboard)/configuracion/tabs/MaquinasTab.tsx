@@ -153,7 +153,13 @@ function MaquinaSection({
               </TableHeader>
               <TableBody>
                 {items.map((r) => (
-                  <TableRow key={r.id} className={r.estado !== 'ACTIVO' ? 'opacity-50' : ''}>
+                  <TableRow
+                    key={r.id}
+                    className={[
+                      r.estado !== 'ACTIVO' ? 'opacity-50' : '',
+                      r.area !== 'PESPUNTE' ? 'border-l-4 border-l-amber-400 bg-amber-100/80 dark:bg-amber-900/30' : '',
+                    ].join(' ')}
+                  >
                     <TableCell>
                       <Input
                         defaultValue={r.nombre}
@@ -440,6 +446,19 @@ export function MaquinasTab({ config }: { config: Config }) {
 
   return (
     <div className="space-y-6 mt-4">
+      {/* Leyenda de colores */}
+      <div className="flex items-center gap-4 text-xs text-muted-foreground border rounded-md px-3 py-1.5 w-fit">
+        <span className="font-medium">Leyenda:</span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-4 h-3 rounded-sm border-l-4 border-l-amber-400 bg-amber-50 dark:bg-amber-950/40" />
+          Área AVIOS / No pertenece a PESPUNTE
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-4 h-3 rounded-sm opacity-50 bg-muted" />
+          Fuera de servicio
+        </span>
+      </div>
+
       {/* Robots */}
       <MaquinaSection
         title="Robots"
