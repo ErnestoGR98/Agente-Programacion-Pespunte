@@ -285,13 +285,12 @@ function ComplementarySection({
   items,
   baseTypes,
   config,
-  onDelete,
 }: {
   items: Robot[]
   baseTypes: { value: MaquinaTipo; label: string }[]
   config: Config
-  onDelete: (id: string) => void
 }) {
+  const [deleteTipo, setDeleteTipo] = useState<{ value: MaquinaTipo; label: string; count: number } | null>(null)
   // Merge hardcoded base types + any custom types found in data
   const baseValues = new Set(baseTypes.map((t) => t.value))
   const customTypes: { value: MaquinaTipo; label: string }[] = []
@@ -314,7 +313,14 @@ function ComplementarySection({
 
   function removeOne(tipo: MaquinaTipo) {
     const matching = items.filter((r) => r.tipos.includes(tipo))
-    if (matching.length > 0) onDelete(matching[matching.length - 1].id)
+    if (matching.length > 0) config.deleteRobot(matching[matching.length - 1].id)
+  }
+
+  async function deleteAllOfTipo(tipo: MaquinaTipo) {
+    const matching = items.filter((r) => r.tipos.includes(tipo))
+    for (const r of matching) {
+      await config.deleteRobot(r.id)
+    }
   }
 
   /** Set how many of a type are FUERA DE SERVICIO. Marks the last N as inactive. */
@@ -417,6 +423,14 @@ function ComplementarySection({
                       >
                         <Plus className="h-3 w-3" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setDeleteTipo({ value: t.value, label: t.label, count: matching.length })}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -430,6 +444,14 @@ function ComplementarySection({
           </Button>
         </div>
       </CardContent>
+
+      <ConfirmDialog
+        open={!!deleteTipo}
+        onOpenChange={(open) => { if (!open) setDeleteTipo(null) }}
+        title="Eliminar Tipo Completo"
+        description={deleteTipo ? `¿Seguro que deseas eliminar "${deleteTipo.label}" y todas sus ${deleteTipo.count} máquina(s)?` : ''}
+        onConfirm={() => { if (deleteTipo) deleteAllOfTipo(deleteTipo.value) }}
+      />
     </Card>
   )
 }
@@ -474,7 +496,6 @@ export function MaquinasTab({ config }: { config: Config }) {
         items={prelimItems}
         baseTypes={PRELIMINAR_TIPOS_BASE}
         config={config}
-        onDelete={setDeleteId}
       />
 
       {/* Maquinas Pespunte Convencional */}

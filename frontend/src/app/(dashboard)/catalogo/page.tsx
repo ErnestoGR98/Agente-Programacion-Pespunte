@@ -10,8 +10,9 @@ import { exportCatalogoPDF, type CatalogModelGroup } from '@/lib/export'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { Robot } from '@/types'
-import { STAGE_COLORS, RESOURCE_COLORS } from '@/types'
+import { Checkbox } from '@/components/ui/checkbox'
+import type { Robot, MaquinaTipo } from '@/types'
+import { STAGE_COLORS, RESOURCE_COLORS, ROBOT_TIPOS_BASE, ROBOT_TIPOS_MODS, MAQUINA_TIPOS_BASE, MAQUINA_TIPOS_MODS } from '@/types'
 import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -54,9 +55,36 @@ export default function CatalogoPage() {
     )
   }
 
+  // Derive extra resource types from complementary machines
+  const knownMachineTipos = new Set([
+    ...ROBOT_TIPOS_BASE.map((t) => t.value),
+    ...ROBOT_TIPOS_MODS.map((t) => t.value),
+    ...MAQUINA_TIPOS_BASE.map((t) => t.value),
+    ...MAQUINA_TIPOS_MODS.map((t) => t.value),
+  ])
+  const extraRecursos: string[] = []
+  for (const r of robots) {
+    for (const t of r.tipos || []) {
+      if (!knownMachineTipos.has(t) && !RESOURCE_TYPES.includes(t as ResourceType) && !extraRecursos.includes(t)) {
+        extraRecursos.push(t)
+      }
+    }
+  }
+  // Also include custom recursos already used in existing operations (split comma-separated)
+  for (const m of modelos) {
+    for (const op of m.operaciones) {
+      for (const r of op.recurso.split(',').map((s) => s.trim()).filter(Boolean)) {
+        if (!RESOURCE_TYPES.includes(r as ResourceType) && !extraRecursos.includes(r)) {
+          extraRecursos.push(r)
+        }
+      }
+    }
+  }
+  const allRecursos = [...RESOURCE_TYPES, ...extraRecursos]
+
   const totalOps = modelos.reduce((sum, m) => sum + m.operaciones.length, 0)
   const robotOps = modelos.reduce(
-    (sum, m) => sum + m.operaciones.filter((o) => o.recurso === 'ROBOT').length,
+    (sum, m) => sum + m.operaciones.filter((o) => o.recurso.includes('ROBOT')).length,
     0,
   )
 
@@ -149,6 +177,7 @@ export default function CatalogoPage() {
             modelo={m}
             robots={robots}
             catalogo={catalogo}
+            allRecursos={allRecursos}
             onEdit={() => confirmEditModelo(m)}
             onDelete={() => confirmDeleteModelo(m)}
             onExportPDF={() => {
@@ -210,9 +239,10 @@ export default function CatalogoPage() {
   )
 }
 
-function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }: {
+function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, onExportPDF }: {
   modelo: ModeloFull
   robots: Robot[]
+  allRecursos: string[]
   catalogo: ReturnType<typeof useCatalogo>
   onEdit: () => void
   onDelete: () => void
@@ -231,7 +261,11 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
   })
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-  const robotOps = modelo.operaciones.filter((o) => o.recurso === 'ROBOT').length
+  // Merge base etapas + custom ones from existing operations
+  const customEtapas = modelo.operaciones.map((o) => o.etapa).filter((e) => e && !ETAPA_OPTIONS.includes(e))
+  const allEtapas = [...ETAPA_OPTIONS, ...new Set(customEtapas)]
+
+  const robotOps = modelo.operaciones.filter((o) => o.recurso.includes('ROBOT')).length
   function isOpChanged(orig: OperacionFull, ed: EditableOp) {
     return orig.fraccion !== ed.fraccion || orig.operacion !== ed.operacion ||
       orig.input_o_proceso !== ed.input_o_proceso || orig.etapa !== ed.etapa ||
@@ -462,9 +496,10 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
               {modelo.operaciones.map((op) => {
                 const ed = edits[op.id]
                 const proceso = editing && ed ? ed.input_o_proceso : op.input_o_proceso
-                const recurso = editing && ed ? ed.recurso : op.recurso
+                const recursoRaw = editing && ed ? ed.recurso : op.recurso
+                const recursoList = recursoRaw.split(',').map((s) => s.trim()).filter(Boolean)
                 const procesoColor = getProcesoColor(proceso)
-                const recursoColor = RESOURCE_COLORS[recurso] || '#94A3B8'
+                const recursoColor = RESOURCE_COLORS[recursoList[0]] || '#94A3B8'
 
                 const isModified = editing && ed && isOpChanged(op, ed)
 
@@ -520,14 +555,25 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
                     {/* ETAPA */}
                     <td className="px-1 py-0.5">
                       {editing && ed ? (
-                        <Select value={ed.etapa} onValueChange={(v) => updateOp(op.id, 'etapa', v)}>
+                        <Select
+                          value={ed.etapa}
+                          onValueChange={(v) => {
+                            if (v === '_NEW') {
+                              const label = window.prompt('Nombre de la nueva etapa:')?.trim()
+                              if (label) updateOp(op.id, 'etapa', label.toUpperCase().replace(/\s+/g, '-'))
+                              return
+                            }
+                            updateOp(op.id, 'etapa', v)
+                          }}
+                        >
                           <SelectTrigger className="h-6 text-[10px] w-32 px-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {ETAPA_OPTIONS.map((et) => (
+                            {allEtapas.map((et) => (
                               <SelectItem key={et} value={et} className="text-xs">{et}</SelectItem>
                             ))}
+                            <SelectItem value="_NEW" className="text-primary font-medium text-xs">+ Nueva etapa</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -538,20 +584,33 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
                     {/* RECURSO */}
                     <td className="px-1 py-0.5">
                       {editing && ed ? (
-                        <Select value={ed.recurso} onValueChange={(v) => updateOp(op.id, 'recurso', v)}>
-                          <SelectTrigger className="h-6 text-[10px] w-24 px-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {RESOURCE_TYPES.map((r) => (
-                              <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                          {allRecursos.map((r) => (
+                            <label key={r} className="flex items-center gap-0.5 text-[10px]">
+                              <Checkbox
+                                className="h-3 w-3"
+                                checked={ed.recurso.split(',').includes(r)}
+                                onCheckedChange={(checked) => {
+                                  const curr = ed.recurso.split(',').filter(Boolean)
+                                  const next = checked ? [...curr, r] : curr.filter((x) => x !== r)
+                                  updateOp(op.id, 'recurso', next.join(','))
+                                }}
+                              />
+                              {r}
+                            </label>
+                          ))}
+                        </div>
                       ) : (
-                        <Badge variant="outline" className="text-[10px]" style={{ borderColor: recursoColor, color: recursoColor }}>
-                          {op.recurso}
-                        </Badge>
+                        <div className="flex flex-wrap gap-0.5">
+                          {recursoList.map((r) => {
+                            const color = RESOURCE_COLORS[r] || '#94A3B8'
+                            return (
+                              <Badge key={r} variant="outline" className="text-[10px]" style={{ borderColor: color, color }}>
+                                {r}
+                              </Badge>
+                            )
+                          })}
+                        </div>
                       )}
                     </td>
 
@@ -569,13 +628,13 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
 
                     {/* ROBOTS */}
                     <td className="px-2 py-1">
-                      {editing && ed && recurso === 'ROBOT' ? (
+                      {editing && ed && recursoList.includes('ROBOT') ? (
                         <RobotPicker
                           selected={ed.robots}
                           allRobots={robots}
                           onToggle={(name) => toggleRobot(op.id, name)}
                         />
-                      ) : op.recurso === 'ROBOT' && op.robots.length > 0 ? (
+                      ) : op.recurso.includes('ROBOT') && op.robots.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {op.robots.map((r) => (
                             <Badge
@@ -587,7 +646,7 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
                             </Badge>
                           ))}
                         </div>
-                      ) : op.recurso === 'ROBOT' ? (
+                      ) : op.recurso.includes('ROBOT') ? (
                         <span className="text-[10px] text-destructive">Sin robot</span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">-</span>
@@ -639,6 +698,8 @@ function ModeloCard({ modelo, robots, catalogo, onEdit, onDelete, onExportPDF }:
         operacion={null}
         robots={robots}
         nextFraccion={modelo.operaciones.length > 0 ? Math.max(...modelo.operaciones.map((o) => o.fraccion)) + 1 : 1}
+        existingEtapas={allEtapas}
+        existingRecursos={allRecursos}
         onSave={async (data) => {
           await catalogo.addOperacion(modelo.id, {
             fraccion: data.fraccion,

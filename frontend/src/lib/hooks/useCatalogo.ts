@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import type { ProcessType, ResourceType, Robot } from '@/types'
+import type { ProcessType, ResourceType, Robot, MaquinaTipo } from '@/types'
 
 export interface OperacionFull {
   id: string
@@ -35,15 +35,25 @@ export function useCatalogo() {
   const load = useCallback(async () => {
     setLoading(true)
 
-    const [modRes, opsRes, robRes] = await Promise.all([
+    const [modRes, opsRes, robRes, tiposRes] = await Promise.all([
       supabase.from('catalogo_modelos').select('*').order('modelo_num'),
       supabase.from('catalogo_operaciones').select('*').order('fraccion'),
       supabase.from('robots').select('*').eq('estado', 'ACTIVO').order('orden'),
+      supabase.from('robot_tipos').select('*'),
     ])
 
     const mods = modRes.data || []
     const ops = opsRes.data || []
-    const robs = robRes.data || []
+    const rawRobs = robRes.data || []
+    const tiposData = tiposRes.data || []
+
+    // Attach tipos to each robot
+    const robs: Robot[] = rawRobs.map((rob) => ({
+      ...rob,
+      tipos: tiposData
+        .filter((t: { robot_id: string }) => t.robot_id === rob.id)
+        .map((t: { tipo: string }) => t.tipo) as MaquinaTipo[],
+    })) as Robot[]
     setRobots(robs)
 
     // Fetch robot assignments for all operations

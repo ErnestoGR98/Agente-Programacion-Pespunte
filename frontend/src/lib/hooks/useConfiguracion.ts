@@ -5,32 +5,50 @@ import { supabase } from '@/lib/supabase/client'
 import type {
   Robot, RobotAlias, MaquinaTipo, Fabrica, CapacidadRecurso,
   DiaLaboral, Horario, PesoPriorizacion, ParametroOptimizacion,
-  ResourceType,
 } from '@/types'
 import {
-  ROBOT_TIPOS_BASE, PRELIMINAR_TIPOS_BASE,
+  ROBOT_TIPOS_BASE, ROBOT_TIPOS_MODS, PRELIMINAR_TIPOS_BASE,
+  MAQUINA_TIPOS_MODS,
 } from '@/types'
 
 // Sets for category classification
 const ROBOT_BASE_SET = new Set(ROBOT_TIPOS_BASE.map((t) => t.value))
 const PRELIM_BASE_SET = new Set(PRELIMINAR_TIPOS_BASE.map((t) => t.value))
+const MODIFIER_SET = new Set([
+  ...ROBOT_TIPOS_MODS.map((t) => t.value),
+  ...MAQUINA_TIPOS_MODS.map((t) => t.value),
+])
+const AGGREGATED_SET = new Set([...ROBOT_BASE_SET, ...PRELIM_BASE_SET])
 
 /** Compute resource capacities from registered machines + fabricas + operarios.
- *  Solo cuentan maquinas con area = PESPUNTE (las de AVIOS solo se prestan en emergencia). */
+ *  Includes all unique machine tipos plus aggregate ROBOT/MESA/MAQUILA/GENERAL. */
 function computeCapacidades(
   machines: Robot[],
   fabricas: Fabrica[],
   operariosCount: number,
-): Record<ResourceType, number> {
-  const available = machines.filter((m) => m.estado === 'ACTIVO' && m.area === 'PESPUNTE')
-  return {
-    ROBOT: available.filter((m) => m.tipos.some((t) => ROBOT_BASE_SET.has(t))).length,
-    MESA: available.filter((m) => m.tipos.some((t) => PRELIM_BASE_SET.has(t))).length,
-    PLANA: available.filter((m) => m.tipos.includes('PLANA')).length,
-    POSTE: available.filter((m) => m.tipos.includes('POSTE')).length,
+): Record<string, number> {
+  const pespunte = machines.filter((m) => m.estado === 'ACTIVO' && m.area === 'PESPUNTE')
+  const allActive = machines.filter((m) => m.estado === 'ACTIVO')
+
+  const result: Record<string, number> = {
+    ROBOT: pespunte.filter((m) => m.tipos.some((t) => ROBOT_BASE_SET.has(t))).length,
+    MESA: pespunte.filter((m) => m.tipos.some((t) => PRELIM_BASE_SET.has(t))).length,
+    PLANA: pespunte.filter((m) => m.tipos.includes('PLANA')).length,
+    POSTE: pespunte.filter((m) => m.tipos.includes('POSTE')).length,
     MAQUILA: fabricas.filter((f) => f.es_maquila).length,
     GENERAL: operariosCount,
   }
+
+  // Add each unique tipo not already represented (skip modifiers and aggregated types)
+  for (const m of allActive) {
+    for (const t of m.tipos) {
+      if (!MODIFIER_SET.has(t) && !AGGREGATED_SET.has(t) && !(t in result)) {
+        result[t] = allActive.filter((x) => x.tipos.includes(t)).length
+      }
+    }
+  }
+
+  return result
 }
 
 export function useConfiguracion() {

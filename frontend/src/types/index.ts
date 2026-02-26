@@ -4,7 +4,7 @@
 
 // --- Enums ---
 
-export type ResourceType = 'MESA' | 'ROBOT' | 'PLANA' | 'POSTE' | 'MAQUILA' | 'GENERAL'
+export type ResourceType = 'MESA' | 'ROBOT' | 'PLANA' | 'POSTE' | 'MAQUILA' | 'GENERAL' | (string & {})
 
 export type ProcessType = 'PRELIMINARES' | 'ROBOT' | 'POST' | 'MAQUILA' | 'N/A PRELIMINAR'
 
