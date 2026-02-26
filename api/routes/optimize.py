@@ -57,6 +57,61 @@ def _sb_post(table: str, data: dict) -> dict:
     return result[0] if isinstance(result, list) and result else result
 
 
+# --- Tipos base por categoria (mismos que en frontend types/index.ts) ---
+_ROBOT_BASE_TIPOS = {'3020', '6040', 'CHACHE'}
+_PRELIM_BASE_TIPOS = {'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK'}
+
+
+def _compute_resource_capacity() -> dict[str, int]:
+    """Deriva capacidades de recursos a partir de maquinas, fabricas y operarios registrados.
+    Solo cuentan maquinas con area=PESPUNTE (las de AVIOS solo se prestan en emergencia)."""
+    machines = _sb_get("robots", "select=id,estado,area")
+    tipos = _sb_get("robot_tipos", "select=robot_id,tipo")
+    fabricas = _sb_get("fabricas", "select=es_maquila")
+    op_count_resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/operarios?select=id&activo=eq.true",
+        headers={**_sb_headers(), "Prefer": "count=exact"},
+    )
+    op_count = int(op_count_resp.headers.get("content-range", "0/0").split("/")[-1] or 0)
+
+    # Build tipo set per machine — solo ACTIVO + area PESPUNTE
+    available_ids = {
+        m["id"] for m in machines
+        if m["estado"] == "ACTIVO" and m.get("area") == "PESPUNTE"
+    }
+    machine_tipos: dict[str, set[str]] = {}
+    for t in tipos:
+        if t["robot_id"] in available_ids:
+            machine_tipos.setdefault(t["robot_id"], set()).add(t["tipo"])
+
+    robot = 0
+    mesa = 0
+    plana = 0
+    poste = 0
+    for mid, ts in machine_tipos.items():
+        if ts & _ROBOT_BASE_TIPOS:
+            robot += 1
+        if ts & _PRELIM_BASE_TIPOS:
+            mesa += 1
+        if 'PLANA' in ts:
+            plana += 1
+        if 'POSTE' in ts:
+            poste += 1
+
+    maquila = sum(1 for f in fabricas if f.get("es_maquila"))
+
+    cap = {
+        "ROBOT": robot,
+        "MESA": mesa,
+        "PLANA": plana,
+        "POSTE": poste,
+        "MAQUILA": maquila,
+        "GENERAL": op_count,
+    }
+    print(f"[OPT] resource_capacity (derived): {cap}")
+    return cap
+
+
 # --- Helpers para cargar datos de Supabase ---
 
 def _load_params() -> dict:
@@ -75,9 +130,8 @@ def _load_params() -> dict:
         for d in dias
     ]
 
-    # Capacidades
-    caps = _sb_get("capacidades_recurso", "select=tipo,pares_hora")
-    resource_capacity = {c["tipo"]: c["pares_hora"] for c in caps}
+    # Capacidades — derivadas de recursos registrados
+    resource_capacity = _compute_resource_capacity()
 
     # Parametros optimizador
     opt_params = _sb_get("parametros_optimizacion", "select=nombre,valor")
@@ -363,12 +417,12 @@ def run_optimization(req: OptimizeRequest):
         )
 
     resource_cap = params.get("resource_capacity", {})
-    print(f"[OPT] capacidades_recurso: {resource_cap}")
+    print(f"[OPT] resource_capacity (derived): {resource_cap}")
     if not resource_cap:
         raise HTTPException(
             400,
-            "Tabla 'capacidades_recurso' esta vacia. "
-            "Ejecuta el seed SQL de la migracion inicial.",
+            "No hay recursos registrados (robots, maquinas, operarios). "
+            "Registra recursos en Configuracion > Recursos.",
         )
 
     print(f"[OPT] catalogo: {len(catalogo)} modelos")

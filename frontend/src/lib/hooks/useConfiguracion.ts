@@ -1,11 +1,37 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import type {
   Robot, RobotAlias, MaquinaTipo, Fabrica, CapacidadRecurso,
   DiaLaboral, Horario, PesoPriorizacion, ParametroOptimizacion,
+  ResourceType,
 } from '@/types'
+import {
+  ROBOT_TIPOS_BASE, PRELIMINAR_TIPOS_BASE,
+} from '@/types'
+
+// Sets for category classification
+const ROBOT_BASE_SET = new Set(ROBOT_TIPOS_BASE.map((t) => t.value))
+const PRELIM_BASE_SET = new Set(PRELIMINAR_TIPOS_BASE.map((t) => t.value))
+
+/** Compute resource capacities from registered machines + fabricas + operarios.
+ *  Solo cuentan maquinas con area = PESPUNTE (las de AVIOS solo se prestan en emergencia). */
+function computeCapacidades(
+  machines: Robot[],
+  fabricas: Fabrica[],
+  operariosCount: number,
+): Record<ResourceType, number> {
+  const available = machines.filter((m) => m.estado === 'ACTIVO' && m.area === 'PESPUNTE')
+  return {
+    ROBOT: available.filter((m) => m.tipos.some((t) => ROBOT_BASE_SET.has(t))).length,
+    MESA: available.filter((m) => m.tipos.some((t) => PRELIM_BASE_SET.has(t))).length,
+    PLANA: available.filter((m) => m.tipos.includes('PLANA')).length,
+    POSTE: available.filter((m) => m.tipos.includes('POSTE')).length,
+    MAQUILA: fabricas.filter((f) => f.es_maquila).length,
+    GENERAL: operariosCount,
+  }
+}
 
 export function useConfiguracion() {
   const [robots, setRobots] = useState<Robot[]>([])
@@ -16,11 +42,12 @@ export function useConfiguracion() {
   const [horarios, setHorarios] = useState<Horario[]>([])
   const [pesos, setPesos] = useState<PesoPriorizacion[]>([])
   const [parametros, setParametros] = useState<ParametroOptimizacion[]>([])
+  const [operariosCount, setOperariosCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async (initial = false) => {
     if (initial) setLoading(true)
-    const [r, a, f, c, d, h, p, pm, rt] = await Promise.all([
+    const [r, a, f, c, d, h, p, pm, rt, opCount] = await Promise.all([
       supabase.from('robots').select('*').order('orden'),
       supabase.from('robot_aliases').select('*'),
       supabase.from('fabricas').select('*').order('orden'),
@@ -30,23 +57,25 @@ export function useConfiguracion() {
       supabase.from('pesos_priorizacion').select('*'),
       supabase.from('parametros_optimizacion').select('*'),
       supabase.from('robot_tipos').select('*'),
+      supabase.from('operarios').select('id', { count: 'exact', head: true }).eq('activo', true),
     ])
-    if (r.data) {
-      const tiposData = rt.data || []
-      setRobots(r.data.map((rob) => ({
-        ...rob,
-        tipos: tiposData
-          .filter((t: { robot_id: string }) => t.robot_id === rob.id)
-          .map((t: { tipo: string }) => t.tipo) as MaquinaTipo[],
-      })) as Robot[])
-    }
+    const tiposData = rt.data || []
+    const parsedRobots = r.data ? r.data.map((rob) => ({
+      ...rob,
+      tipos: tiposData
+        .filter((t: { robot_id: string }) => t.robot_id === rob.id)
+        .map((t: { tipo: string }) => t.tipo) as MaquinaTipo[],
+    })) as Robot[] : []
+    setRobots(parsedRobots)
     if (a.data) setAliases(a.data)
-    if (f.data) setFabricas(f.data)
+    const parsedFabricas = f.data || []
+    setFabricas(parsedFabricas)
     if (c.data) setCapacidades(c.data)
     if (d.data) setDias(d.data)
     if (h.data) setHorarios(h.data)
     if (p.data) setPesos(p.data)
     if (pm.data) setParametros(pm.data)
+    setOperariosCount(opCount.count || 0)
     setLoading(false)
   }, [])
 
@@ -123,11 +152,11 @@ export function useConfiguracion() {
     await load()
   }
 
-  // --- Capacidades ---
-  async function updateCapacidad(id: string, pares_hora: number) {
-    await supabase.from('capacidades_recurso').update({ pares_hora }).eq('id', id)
-    await load()
-  }
+  // --- Capacidades derivadas ---
+  const derivedCapacidades = useMemo(
+    () => computeCapacidades(robots, fabricas, operariosCount),
+    [robots, fabricas, operariosCount],
+  )
 
   // --- Dias ---
   async function updateDia(id: string, data: Partial<DiaLaboral>) {
@@ -155,11 +184,10 @@ export function useConfiguracion() {
 
   return {
     loading,
-    robots, aliases, fabricas, capacidades, dias, horarios, pesos, parametros,
+    robots, aliases, fabricas, capacidades, derivedCapacidades, dias, horarios, pesos, parametros,
     updateRobot, addRobot, deleteRobot, toggleTipo, setBaseTipo,
     addAlias, deleteAlias,
     updateFabrica, addFabrica, deleteFabrica,
-    updateCapacidad,
     updateDia,
     updateHorario,
     updatePeso,
