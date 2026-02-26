@@ -31,6 +31,8 @@ export type MaquinaTipo =
   | 'PLANA' | 'POSTE' | 'ZIGZAG' | 'RIBETE' | 'CODO'
   // Modificadores (aditivos)
   | 'DOBLE_ACCION' | '2AG'
+  // Custom types (user-defined complementary machines)
+  | (string & {})
 
 /** @deprecated usa MaquinaTipo */
 export type RobotTipo = MaquinaTipo

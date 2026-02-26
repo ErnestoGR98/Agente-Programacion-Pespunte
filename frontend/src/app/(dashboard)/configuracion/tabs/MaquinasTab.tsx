@@ -13,7 +13,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Trash2, Plus } from 'lucide-react'
+import { Trash2, Plus, Minus } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
@@ -29,11 +29,26 @@ const ROBOT_BASE_VALUES = ROBOT_TIPOS_BASE.map((t) => t.value)
 const PRELIM_BASE_VALUES = PRELIMINAR_TIPOS_BASE.map((t) => t.value)
 const MAQUINA_BASE_VALUES = MAQUINA_TIPOS_BASE.map((t) => t.value)
 
-function getCategoria(r: Robot): 'robot' | 'preliminar' | 'pespunte' | 'sin_tipo' {
+const KNOWN_ROBOT_OR_PESPUNTE = new Set([...ROBOT_BASE_VALUES, ...MAQUINA_BASE_VALUES])
+
+function getCategoria(r: Robot): 'robot' | 'complementaria' | 'pespunte' | 'sin_tipo' {
   if (r.tipos.some((t) => ROBOT_BASE_VALUES.includes(t))) return 'robot'
-  if (r.tipos.some((t) => PRELIM_BASE_VALUES.includes(t))) return 'preliminar'
   if (r.tipos.some((t) => MAQUINA_BASE_VALUES.includes(t))) return 'pespunte'
+  // Any machine with tipos that aren't robot/pespunte goes to complementarias
+  if (r.tipos.length > 0 && r.tipos.some((t) => !KNOWN_ROBOT_OR_PESPUNTE.has(t))) return 'complementaria'
   return 'sin_tipo'
+}
+
+/** Prompt user for a new tipo name and return the normalized value, or null if cancelled/duplicate. */
+function promptNewTipo(existing: { value: MaquinaTipo }[]): { value: MaquinaTipo; label: string } | null {
+  const label = window.prompt('Nombre del nuevo tipo:')?.trim()
+  if (!label) return null
+  const value = label.toUpperCase().replace(/\s+/g, '_') as MaquinaTipo
+  if (existing.some((t) => t.value === value)) {
+    window.alert('Ese tipo ya existe.')
+    return null
+  }
+  return { value, label }
 }
 
 function MaquinaSection({
@@ -56,10 +71,41 @@ function MaquinaSection({
   const [newMods, setNewMods] = useState<MaquinaTipo[]>([])
 
   const activos = items.filter((r) => r.estado === 'ACTIVO').length
-  const baseValues = baseTypes.map((t) => t.value)
+
+  // Detect custom base types from data
+  const baseSet = new Set(baseTypes.map((t) => t.value))
+  const modSet = new Set(mods.map((m) => m.value))
+  const customBase: { value: MaquinaTipo; label: string }[] = []
+  for (const r of items) {
+    for (const t of r.tipos) {
+      if (!baseSet.has(t) && !modSet.has(t) && !customBase.some((c) => c.value === t)) {
+        customBase.push({ value: t, label: t.replace(/_/g, ' ') })
+      }
+    }
+  }
+  const allBaseTypes = [...baseTypes, ...customBase]
+  const allBaseValues = allBaseTypes.map((t) => t.value)
 
   function getBase(r: Robot): MaquinaTipo | '' {
-    return r.tipos.find((t) => baseValues.includes(t)) || ''
+    return r.tipos.find((t) => allBaseValues.includes(t)) || ''
+  }
+
+  function handleTipoChange(robotId: string, v: string) {
+    if (v === '_NEW') {
+      const nt = promptNewTipo(allBaseTypes)
+      if (nt) config.setBaseTipo(robotId, nt.value, allBaseValues)
+      return
+    }
+    config.setBaseTipo(robotId, v === '_NONE' ? null : v as MaquinaTipo, allBaseValues)
+  }
+
+  function handleNewBaseTipo(v: string) {
+    if (v === '_NEW') {
+      const nt = promptNewTipo(allBaseTypes)
+      if (nt) setNewBase(nt.value)
+      return
+    }
+    setNewBase(v === '_NONE' ? '' : v as MaquinaTipo)
   }
 
   return (
@@ -76,7 +122,7 @@ function MaquinaSection({
             title={title}
             headers={['Nombre', 'Estado', 'Area', 'Tipo', ...mods.map((m) => m.label)]}
             rows={items.map((r) => {
-              const base = baseTypes.find((t) => r.tipos.includes(t.value))
+              const base = allBaseTypes.find((t) => r.tipos.includes(t.value))
               return [
                 r.nombre, r.estado, r.area, base?.label || '',
                 ...mods.map((m) => r.tipos.includes(m.value) ? 'Si' : ''),
@@ -108,7 +154,17 @@ function MaquinaSection({
               <TableBody>
                 {items.map((r) => (
                   <TableRow key={r.id} className={r.estado !== 'ACTIVO' ? 'opacity-50' : ''}>
-                    <TableCell className="font-mono text-sm">{r.nombre}</TableCell>
+                    <TableCell>
+                      <Input
+                        defaultValue={r.nombre}
+                        className="h-8 font-mono text-sm w-32"
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v && v !== r.nombre) config.updateRobot(r.id, { nombre: v })
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Select
                         value={r.estado}
@@ -136,16 +192,15 @@ function MaquinaSection({
                     <TableCell>
                       <Select
                         value={getBase(r) || '_NONE'}
-                        onValueChange={(v) =>
-                          config.setBaseTipo(r.id, v === '_NONE' ? null : v as MaquinaTipo, baseValues)
-                        }
+                        onValueChange={(v) => handleTipoChange(r.id, v)}
                       >
                         <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_NONE">Sin tipo</SelectItem>
-                          {baseTypes.map((t) => (
+                          {allBaseTypes.map((t) => (
                             <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                           ))}
+                          <SelectItem value="_NEW" className="text-primary font-medium">+ Nuevo tipo</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>
@@ -178,13 +233,14 @@ function MaquinaSection({
           onChange={(e) => setNewName(e.target.value)}
           className="h-8 w-48"
         />
-        <Select value={newBase || '_NONE'} onValueChange={(v) => setNewBase(v === '_NONE' ? '' : v as MaquinaTipo)}>
+        <Select value={newBase || '_NONE'} onValueChange={handleNewBaseTipo}>
           <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="_NONE">Sin tipo</SelectItem>
-            {baseTypes.map((t) => (
+            {allBaseTypes.map((t) => (
               <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
             ))}
+            <SelectItem value="_NEW" className="text-primary font-medium">+ Nuevo tipo</SelectItem>
           </SelectContent>
         </Select>
         {mods.map((m) => (
@@ -219,6 +275,135 @@ function MaquinaSection({
   )
 }
 
+function ComplementarySection({
+  items,
+  baseTypes,
+  config,
+  onDelete,
+}: {
+  items: Robot[]
+  baseTypes: { value: MaquinaTipo; label: string }[]
+  config: Config
+  onDelete: (id: string) => void
+}) {
+  // Merge hardcoded base types + any custom types found in data
+  const baseValues = new Set(baseTypes.map((t) => t.value))
+  const customTypes: { value: MaquinaTipo; label: string }[] = []
+  for (const r of items) {
+    for (const t of r.tipos) {
+      if (!baseValues.has(t) && !customTypes.some((c) => c.value === t)) {
+        customTypes.push({ value: t, label: t.replace(/_/g, ' ') })
+      }
+    }
+  }
+  const allTypes = [...baseTypes, ...customTypes]
+
+  const total = items.length
+  const activos = items.filter((r) => r.estado === 'ACTIVO').length
+
+  function countByType(tipo: MaquinaTipo) {
+    return items.filter((r) => r.tipos.includes(tipo)).length
+  }
+
+  async function addOne(tipo: MaquinaTipo, label: string) {
+    const n = countByType(tipo) + 1
+    await config.addRobot(`${label} ${n}`, [tipo])
+  }
+
+  function removeOne(tipo: MaquinaTipo) {
+    const matching = items.filter((r) => r.tipos.includes(tipo))
+    if (matching.length > 0) {
+      onDelete(matching[matching.length - 1].id)
+    }
+  }
+
+  function handleAddTipo() {
+    const nt = promptNewTipo(allTypes)
+    if (nt) config.addRobot(`${nt.label} 1`, [nt.value])
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          Máquinas Complementarias
+          <Badge variant="secondary" className="text-xs">
+            {activos}/{total} activos
+          </Badge>
+        </CardTitle>
+        <TableExport
+          title="Máquinas Complementarias"
+          headers={['Tipo', 'Total', 'Activos', 'Fuera de Servicio']}
+          rows={allTypes.map((t) => {
+            const matching = items.filter((r) => r.tipos.includes(t.value))
+            const act = matching.filter((r) => r.estado === 'ACTIVO').length
+            return [t.label, matching.length, act, matching.length - act]
+          })}
+        />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {allTypes.map((t) => {
+            const matching = items.filter((r) => r.tipos.includes(t.value))
+            const count = matching.length
+            return (
+              <div key={t.value} className="rounded-lg border p-3 space-y-2">
+                <div className="text-sm font-medium">{t.label}</div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-7 w-7"
+                    disabled={count === 0}
+                    onClick={() => removeOne(t.value)}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <span className="text-2xl font-bold w-8 text-center">{count}</span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => addOne(t.value, t.label)}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+                {matching.length > 0 && (
+                  <div className="space-y-1 pt-1 border-t">
+                    {matching.map((r, i) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs">
+                        <span className={r.estado !== 'ACTIVO' ? 'text-muted-foreground line-through' : ''}>
+                          #{i + 1}
+                        </span>
+                        <Select
+                          value={r.estado}
+                          onValueChange={(v) => config.updateRobot(r.id, { estado: v as Robot['estado'] })}
+                        >
+                          <SelectTrigger className="h-6 w-36 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ACTIVO">ACTIVO</SelectItem>
+                            <SelectItem value="FUERA DE SERVICIO">FUERA DE SERVICIO</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <Button size="sm" variant="outline" onClick={handleAddTipo}>
+          <Plus className="mr-1 h-3 w-3" /> Nuevo tipo
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function MaquinasTab({ config }: { config: Config }) {
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
@@ -226,7 +411,7 @@ export function MaquinasTab({ config }: { config: Config }) {
     const cat = getCategoria(r)
     return cat === 'robot' || cat === 'sin_tipo'
   })
-  const prelimItems = config.robots.filter((r) => getCategoria(r) === 'preliminar')
+  const prelimItems = config.robots.filter((r) => getCategoria(r) === 'complementaria')
   const pespunteItems = config.robots.filter((r) => getCategoria(r) === 'pespunte')
 
   return (
@@ -241,12 +426,10 @@ export function MaquinasTab({ config }: { config: Config }) {
         onDelete={setDeleteId}
       />
 
-      {/* Maquinas Preliminar */}
-      <MaquinaSection
-        title="Maquinas Preliminar"
+      {/* Máquinas Complementarias */}
+      <ComplementarySection
         items={prelimItems}
         baseTypes={PRELIMINAR_TIPOS_BASE}
-        mods={[]}
         config={config}
         onDelete={setDeleteId}
       />

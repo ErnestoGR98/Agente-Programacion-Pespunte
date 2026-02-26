@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useTheme } from 'next-themes'
+import { useState, useEffect } from 'react'
 
 interface NavItem {
   href: string
@@ -57,6 +58,8 @@ export function Sidebar() {
   const appStep = useAppStore((s) => s.appStep)
   const { user, signOut } = useAuth()
   const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   return (
     <aside className="flex h-screen w-56 flex-col border-r bg-card">
@@ -143,9 +146,9 @@ export function Sidebar() {
         <button
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-          title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+          title={mounted ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : ''}
         >
-          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {mounted ? (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <div className="h-4 w-4" />}
         </button>
       </div>
 
