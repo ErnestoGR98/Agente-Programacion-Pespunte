@@ -3,12 +3,17 @@ Endpoint del asistente LLM (Claude API).
 
 Recibe mensajes del chat, construye contexto desde Supabase,
 y retorna la respuesta del modelo.
+Soporta attachments: imagenes (Claude Vision) y Excel (openpyxl).
 """
 
 import os
+import io
+import base64
 import requests
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import openpyxl
 
 from llm_assistant import SYSTEM_PROMPT, build_context
 
@@ -162,9 +167,19 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
 
 # --- Request/Response models ---
 
+class ChatAttachment(BaseModel):
+    type: str  # "image" or "excel"
+    filename: str
+    mime_type: str
+    data: Optional[str] = None  # base64
+    preview: Optional[str] = None
+    size: int = 0
+
+
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
+    attachments: Optional[list[ChatAttachment]] = None
 
 
 class ChatRequest(BaseModel):
@@ -176,6 +191,64 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+
+
+# --- Helpers para attachments ---
+
+def _parse_excel_base64(data_b64: str, filename: str, max_rows: int = 50, max_cols: int = 20) -> str:
+    """Parsea un Excel base64 y retorna representacion de texto."""
+    try:
+        raw = base64.b64decode(data_b64)
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+
+        sections = []
+        for sheet_name in wb.sheetnames[:3]:
+            ws = wb[sheet_name]
+            rows = []
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i >= max_rows:
+                    rows.append(f"... ({ws.max_row - max_rows} filas mas)")
+                    break
+                cells = [str(c if c is not None else "") for c in row[:max_cols]]
+                rows.append(" | ".join(cells))
+
+            if rows:
+                sections.append(f"Hoja '{sheet_name}':\n" + "\n".join(rows))
+
+        wb.close()
+        return "\n\n".join(sections) if sections else "Archivo vacio"
+    except Exception as e:
+        return f"Error al parsear Excel: {str(e)}"
+
+
+def _build_message_content(msg: ChatMessage) -> dict:
+    """Construye un mensaje para la API de Claude, manejando attachments multimodal."""
+    if not msg.attachments:
+        return {"role": msg.role, "content": msg.content}
+
+    content_blocks = []
+
+    for att in msg.attachments:
+        if att.type == "image" and att.data:
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": att.mime_type,
+                    "data": att.data,
+                },
+            })
+        elif att.type == "excel" and att.data:
+            excel_text = _parse_excel_base64(att.data, att.filename)
+            content_blocks.append({
+                "type": "text",
+                "text": f"[Archivo Excel: {att.filename}]\n{excel_text}",
+            })
+
+    if msg.content:
+        content_blocks.append({"type": "text", "text": msg.content})
+
+    return {"role": msg.role, "content": content_blocks if content_blocks else msg.content}
 
 
 # --- Endpoint ---
@@ -195,12 +268,16 @@ def chat_endpoint(req: ChatRequest):
     from anthropic import Anthropic, APIError
 
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
+
+    # Build messages with multimodal support
+    has_attachments = any(m.attachments for m in req.messages if m.attachments)
+    messages = [_build_message_content(m) for m in req.messages]
+    max_tokens = 4096 if has_attachments else 2048
 
     try:
         response = client.messages.create(
             model=req.model,
-            max_tokens=2048,
+            max_tokens=max_tokens,
             system=system,
             messages=messages,
         )

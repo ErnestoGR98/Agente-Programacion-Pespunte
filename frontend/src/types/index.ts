@@ -388,9 +388,21 @@ export interface OptimizeResponse {
   saved_as: string
 }
 
+export interface ChatAttachment {
+  type: 'image' | 'excel'
+  filename: string
+  mime_type: string
+  /** Base64 data — solo en sesion activa, NO se guarda en DB */
+  data?: string
+  /** Preview texto para Excel (primeras filas) */
+  preview?: string
+  size: number
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  attachments?: ChatAttachment[]
 }
 
 export interface ChatRequest {
