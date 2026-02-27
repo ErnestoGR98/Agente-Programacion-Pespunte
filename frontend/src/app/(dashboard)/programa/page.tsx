@@ -10,7 +10,8 @@ import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import type { DailyResult, AsignacionMaquila } from '@/types'
-import { Truck } from 'lucide-react'
+import { Truck, ArrowDownWideNarrow } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { exportProgramaPDF, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
 
@@ -417,7 +418,27 @@ export default function ProgramaPage() {
 
 function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: DailyResult; maquilaModelos: Set<string> }) {
   const catImages = useCatalogoImages()
-  const schedule = data.schedule || []
+  const rawSchedule = data.schedule || []
+  const [cascadeSort, setCascadeSort] = useState(false)
+
+  const schedule = useMemo(() => {
+    if (!cascadeSort) return rawSchedule
+    return [...rawSchedule].sort((a, b) => {
+      const firstA = (a.blocks || []).findIndex((v) => v > 0)
+      const firstB = (b.blocks || []).findIndex((v) => v > 0)
+      const startA = firstA === -1 ? 999 : firstA
+      const startB = firstB === -1 ? 999 : firstB
+      if (startA !== startB) return startA - startB
+      // Secondary: last active block (earlier end first)
+      const lastA = (a.blocks || []).findLastIndex((v) => v > 0)
+      const lastB = (b.blocks || []).findLastIndex((v) => v > 0)
+      if (lastA !== lastB) return lastA - lastB
+      // Tertiary: modelo + fraccion
+      const mCmp = a.modelo.localeCompare(b.modelo)
+      if (mCmp !== 0) return mCmp
+      return a.fraccion - b.fraccion
+    })
+  }, [rawSchedule, cascadeSort])
 
   const totalPares = data.total_pares || 0
   const tardiness = data.total_tardiness || 0
@@ -496,7 +517,18 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
       <Card>
         <CardContent className="pt-4 overflow-x-auto">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold">Programa — {dayName}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Programa — {dayName}</h3>
+              <Button
+                variant={cascadeSort ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => setCascadeSort((v) => !v)}
+              >
+                <ArrowDownWideNarrow className="h-3.5 w-3.5" />
+                Cascada
+              </Button>
+            </div>
             <TableExport
               title={`Programa_${dayName}`}
               headers={exportHeaders}
