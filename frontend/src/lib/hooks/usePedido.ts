@@ -65,6 +65,7 @@ export function usePedido() {
       .select('*')
       .eq('pedido_id', pedidoId)
       .order('modelo_num')
+      .order('color')
     setItems(itemsData || [])
 
     // Load maquila assignments for all items
