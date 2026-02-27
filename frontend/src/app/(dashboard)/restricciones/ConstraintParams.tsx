@@ -67,7 +67,7 @@ export function ConstraintParams({
   }, [tipo, loadRobots])
 
   useEffect(() => {
-    if (tipo === 'PRECEDENCIA') loadFracciones()
+    if (tipo === 'PRECEDENCIA_OPERACION') loadFracciones()
   }, [tipo, loadFracciones])
 
   function set(key: string, value: unknown) {
@@ -334,7 +334,7 @@ export function ConstraintParams({
           </div>
         </div>
       )
-    case 'PRECEDENCIA': {
+    case 'PRECEDENCIA_OPERACION': {
       const fracsOrigen = (params.fracciones_origen as number[]) || []
       const fracsDest = (params.fracciones_destino as number[]) || []
 

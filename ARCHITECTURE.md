@@ -24,8 +24,8 @@ Documentacion interna para desarrolladores y agentes IA. Describe el flujo de da
 │  ┌──────────────────────────────────────────────────┐   │
 │  │           Next.js 16 (Vercel)                    │   │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │   │
-│  │  │ Zustand   │ │ Hooks    │ │ Views (10 tabs)  │ │   │
-│  │  │ appStep   │ │ usePedido│ │ datos, resumen,  │ │   │
+│  │  │ Zustand   │ │ Hooks    │ │ Views (12 pages) │ │   │
+│  │  │ appStep   │ │ usePedido│ │ datos, catalogo, │ │   │
 │  │  │ result    │ │ useConfig│ │ programa, robots │ │   │
 │  │  └─────┬─────┘ └────┬────┘ └────────┬─────────┘ │   │
 │  │        │             │               │           │   │
@@ -75,10 +75,15 @@ Documentacion interna para desarrolladores y agentes IA. Describe el flujo de da
 ### 1. Configuracion (Supabase directo)
 ```
 Frontend hooks → Supabase tables
-  useConfiguracion → robots, capacidades_recurso, dias_laborales, pesos_priorizacion, parametros_optimizacion
-  useOperarios     → operarios, operario_recursos, operario_robots, operario_dias
-  useRestricciones → restricciones
-  usePedido        → pedidos, pedido_items
+  useConfiguracion    → robots, capacidades_recurso, dias_laborales, pesos_priorizacion, parametros_optimizacion
+  useOperarios        → operarios, operario_habilidades, operario_robots, operario_dias
+  useRestricciones    → restricciones (temporales: PRIORIDAD, MAQUILA, etc.)
+  useReglas           → restricciones (permanentes: PRECEDENCIA_OPERACION, LOTE_MINIMO_CUSTOM, SECUENCIA, AGRUPAR_MODELOS)
+  usePedido           → pedidos, pedido_items
+  useCatalogo         → catalogo_modelos, catalogo_operaciones, catalogo_operacion_robots
+  useCatalogoImages   → modelo_imagen (imagenes de modelos)
+  useAvance           → avance, avance_detalle
+  useAuth             → autenticacion usuario
 ```
 
 ### 2. Importacion Excel (via API)
@@ -134,7 +139,7 @@ Response: {response: "texto"}
 
 ## Base de Datos
 
-Schema completo en `supabase/migrations/001_initial_schema.sql`.
+Schema en 10 migraciones: `supabase/migrations/001_initial_schema.sql` a `010_recurso_text.sql`.
 
 ### Enums PostgreSQL
 
@@ -142,7 +147,7 @@ Schema completo en `supabase/migrations/001_initial_schema.sql`.
 |------|---------|
 | `resource_type` | MESA, ROBOT, PLANA, POSTE, MAQUILA, GENERAL |
 | `process_type` | PRELIMINARES, ROBOT, POST, MAQUILA, N/A PRELIMINAR |
-| `constraint_type` | 13 tipos (ver Iter 3) |
+| `constraint_type` | 13 tipos: 9 temporales + 4 permanentes (ver Iter 3) |
 | `day_name` | Sab, Lun, Mar, Mie, Jue, Vie |
 | `robot_estado` | ACTIVO, FUERA DE SERVICIO |
 | `robot_area` | PESPUNTE, AVIOS |
@@ -167,10 +172,11 @@ CATALOGO
 └── modelo_fabrica            → modelo_id (FK) ↔ fabrica_id (FK)
 
 OPERARIOS
-├── operarios          → nombre, fabrica_id (FK), eficiencia [0.5-1.5], activo
-├── operario_recursos  → operario_id ↔ recurso (enum)  [many-to-many]
-├── operario_robots    → operario_id ↔ robot_id        [many-to-many]
-└── operario_dias      → operario_id ↔ dia (enum)      [many-to-many]
+├── operarios              → nombre, fabrica_id (FK), eficiencia [0.5-1.5], activo
+├── operario_habilidades   → operario_id ↔ habilidad (enum, 20 skills)  [many-to-many]
+├── operario_recursos      → operario_id ↔ recurso (legacy)  [many-to-many]
+├── operario_robots        → operario_id ↔ robot_id           [many-to-many]
+└── operario_dias          → operario_id ↔ dia (enum)         [many-to-many]
 
 PRODUCCION
 ├── pedidos        → nombre (unique, ej: "sem_8_2026")
@@ -187,7 +193,7 @@ PRODUCCION
 
 - `catalogo_operaciones.modelo_id` → `catalogo_modelos.id` (CASCADE)
 - `catalogo_operacion_robots` es el join table entre operaciones y robots
-- `operarios` tiene 3 tablas satellites: `operario_recursos`, `operario_robots`, `operario_dias`
+- `operarios` tiene 4 tablas satellites: `operario_habilidades` (20 skills granulares), `operario_recursos` (legacy), `operario_robots`, `operario_dias`
 - `resultados` guarda todo el output como JSONB (weekly_schedule, weekly_summary, daily_results) + snapshots del input para reproducibilidad
 - `resultados` tiene versionado: `base_name` + `version` (UNIQUE), nombre = `{base_name}_v{version}`
 
@@ -405,7 +411,7 @@ unassigned: [{modelo, fraccion, operacion, recurso, total_pares, parcial}]
 
 ### Iter 4 - Asistente LLM (`llm_assistant.py`)
 
-- **Modelo**: Claude (configurable, default `claude-sonnet-4-5-20250929`)
+- **Modelo**: Claude (configurable, default `claude-sonnet-4-5-20250514`)
 - **System prompt**: dominio de pespunte (pares, modelos, fracciones, robots, bloques)
 - **Contexto dinamico**: `build_context(state)` serializa pedido, resumen semanal, schedule, resultados diarios, restricciones, avance, parametros
 - **API route**: `routes/assistant.py` construye state desde Supabase antes de llamar a Claude
@@ -434,9 +440,10 @@ src/app/
     │
     │  --- Vistas pre-optimizacion ---
     ├── datos/            # Pedido semanal + catalogo (PedidoTab + CatalogoTab)
-    ├── restricciones/    # Reglas de negocio (RestriccionesForm + ConstraintParams)
+    ├── catalogo/         # Gestion catalogo (imagenes, alternativas, maquinas)
+    ├── restricciones/    # Restricciones temporales (RestriccionesForm + ConstraintParams)
     ├── operarios/        # Gestion operarios (OperarioForm + HeadcountTable)
-    ├── configuracion/    # 5 tabs: Robots, Capacidades, Fabricas, Dias, Pesos
+    ├── configuracion/    # 6 tabs: Robots, Capacidades, Fabricas, Dias, Pesos, Reglas
     ├── asistente/        # Chat con Claude
     │
     │  --- Vistas post-optimizacion ---
@@ -462,13 +469,18 @@ currentSemana: string | null
 - Step 1: + Restricciones, Operarios, Asistente
 - Step 2: + Resumen, Programa, Utilizacion, Robots, Cuellos
 
-### Hooks de datos
+### Hooks de datos (9 hooks en `lib/hooks/`)
 
 Cada hook encapsula CRUD a Supabase para un dominio:
 - `useConfiguracion()` → robots, capacidades, dias, pesos, parametros
-- `useOperarios()` → operarios + relaciones (recursos, robots, dias)
+- `useOperarios()` → operarios + relaciones (habilidades, robots, dias)
 - `usePedido()` → pedidos + items
-- `useRestricciones()` → restricciones
+- `useRestricciones()` → restricciones temporales (semanales)
+- `useReglas()` → restricciones permanentes (PRECEDENCIA_OPERACION, LOTE_MINIMO_CUSTOM, SECUENCIA, AGRUPAR_MODELOS)
+- `useCatalogo()` → catalogo_modelos + operaciones + robots
+- `useCatalogoImages()` → imagenes de modelos
+- `useAvance()` → avance de produccion semanal
+- `useAuth()` → autenticacion de usuario
 
 ### Cliente API (`lib/api/fastapi.ts`)
 
@@ -483,19 +495,30 @@ wakeUpAPI()           → GET  /api/health (warm up Render free tier)
 
 ### Tipos TypeScript (`types/index.ts`)
 
-Todos los tipos del dominio en un solo archivo (~370 LOC):
+Todos los tipos del dominio en un solo archivo (~554 LOC):
 - Enums: `ResourceType`, `ProcessType`, `ConstraintType`, `DayName`, `RobotEstado`, `RobotArea`
 - Tablas: `Robot`, `Fabrica`, `CatalogoModelo`, `CatalogoOperacion`, `Operario`, `Pedido`, `PedidoItem`, `Restriccion`, `Avance`, `Resultado`
 - Optimization: `WeeklyScheduleEntry`, `WeeklySummary`, `DailyResult`, `DailyScheduleEntry`
 - API: `OptimizeRequest`, `OptimizeResponse`, `ChatRequest`, `ChatResponse`
 - Constantes compartidas: `BLOCK_LABELS`, `DEFAULT_CAPACITIES`, `CHART_COLORS`, `HEATMAP_COLORS`, `RESOURCE_COLORS`, `STAGE_COLORS`
 
-### Componentes compartidos
+### Componentes compartidos (10 en `components/shared/`)
+
+- `CascadeEditor.tsx` - Editor visual de reglas de precedencia (drag-drop, resize, group boundaries)
+- `ChatWidget.tsx` - Widget de chat reutilizable
+- `ConfirmDialog.tsx` - Dialogo de confirmacion generico
+- `DaySelector.tsx` - Select de dia (usado en programa, utilizacion, robots)
+- `KpiCard.tsx` - Card de metrica reutilizable
+- `ModeloImg.tsx` - Renderizador de imagenes de modelo
+- `OperationNode.tsx` - Nodo de operacion para grafos
+- `PrecedenceGraph.tsx` - Visualizacion de grafo de precedencias
+- `TableExport.tsx` - Exportacion de tablas a Excel/CSV
+- `ThemeProvider.tsx` - Proveedor de tema claro/oscuro
+
+### Componentes de layout
 
 - `components/layout/Sidebar.tsx` - Navegacion lateral con tabs condicionales por appStep
 - `components/layout/TopBar.tsx` - Selector de resultado (versionado), boton optimizar
-- `components/shared/KpiCard.tsx` - Card de metrica reutilizable
-- `components/shared/DaySelector.tsx` - Select de dia (usado en programa, utilizacion, robots)
 
 ---
 
@@ -545,3 +568,11 @@ Todos los tipos del dominio en un solo archivo (~370 LOC):
 9. **Versionado resultados**: cada optimizacion crea una version nueva (`_v1`, `_v2`, ...) para el mismo `base_name`. El TopBar permite seleccionar entre versiones.
 
 10. **Day order**: Sab (0), Lun (1), Mar (2), Mie (3), Jue (4), Vie (5). El sabado va primero porque la semana de produccion empieza el sabado anterior.
+
+11. **Restricciones temporales vs permanentes**: Las 13 constraint_types se dividen en temporales (9 tipos, gestionadas en `/restricciones`, asociadas a una semana) y permanentes (4 tipos: PRECEDENCIA_OPERACION, LOTE_MINIMO_CUSTOM, SECUENCIA, AGRUPAR_MODELOS, gestionadas en `/configuracion` > tab Reglas via CascadeEditor).
+
+12. **CascadeEditor**: Editor visual de reglas de precedencia en `components/shared/CascadeEditor.tsx`. Usa un grid derivado con BFS (depth) + DFS (chains). Soporta drag-drop entre columnas, resize de celdas (rowSpan) para conectar multiples padres, y separadores visuales entre grupos independientes de operaciones. El algoritmo `buildChainWithBranches` coloca la cadena principal primero y luego las ramas, y `findOwnerSource` usa deteccion por zona (padre mas cercano arriba).
+
+13. **Supabase error handling**: El cliente Supabase retorna `{data, error}` — siempre verificar y hacer throw explicitamente. No asumir que lanza excepciones automaticamente.
+
+14. **operario_habilidades**: Migracion 007 agrego 20 habilidades granulares (9 PRELIMINAR, 5 ROBOT, 6 PESPUNTE CONVENCIONAL) que reemplazan el approach generico de `operario_recursos`.

@@ -48,12 +48,13 @@ pespunte-agent/
 │   │   ├── app/
 │   │   │   ├── layout.tsx        # Root layout (fonts, globals.css)
 │   │   │   ├── page.tsx          # Landing page
-│   │   │   └── (dashboard)/      # Route group (todas las vistas)
+│   │   │   └── (dashboard)/      # Route group (12 vistas)
 │   │   │       ├── layout.tsx    # Sidebar + TopBar + wakeUpAPI
 │   │   │       ├── datos/        # Pedido semanal + catalogo
-│   │   │       ├── restricciones/# Reglas de negocio
+│   │   │       ├── catalogo/     # Gestion catalogo (imagenes, alternativas)
+│   │   │       ├── restricciones/# Restricciones temporales
 │   │   │       ├── operarios/    # Gestion de personal
-│   │   │       ├── configuracion/# Robots, capacidades, dias, pesos
+│   │   │       ├── configuracion/# 6 tabs: Robots, Capacidades, Fabricas, Dias, Pesos, Reglas
 │   │   │       ├── asistente/    # Chat con Claude
 │   │   │       ├── resumen/      # Resumen semanal (post-optimizacion)
 │   │   │       ├── programa/     # Programa diario detallado
@@ -62,19 +63,28 @@ pespunte-agent/
 │   │   │       └── cuellos/      # Alertas y cuellos de botella
 │   │   ├── components/
 │   │   │   ├── layout/           # Sidebar.tsx, TopBar.tsx
-│   │   │   ├── shared/           # KpiCard.tsx, DaySelector.tsx
+│   │   │   ├── shared/           # CascadeEditor, KpiCard, DaySelector, ChatWidget, +7 mas
 │   │   │   └── ui/               # shadcn components
 │   │   ├── lib/
 │   │   │   ├── api/fastapi.ts    # Cliente HTTP para la API
-│   │   │   ├── hooks/            # useConfiguracion, useOperarios, usePedido, useRestricciones
+│   │   │   ├── hooks/            # 9 hooks: useConfiguracion, useOperarios, usePedido, useRestricciones, useReglas, useCatalogo, useCatalogoImages, useAvance, useAuth
 │   │   │   ├── store/useAppStore.ts  # Zustand (appStep, currentResult)
 │   │   │   └── supabase/client.ts    # Browser client Supabase
-│   │   └── types/index.ts        # Todos los tipos TypeScript + constantes
+│   │   └── types/index.ts        # Todos los tipos TypeScript + constantes (~554 LOC)
 │   └── package.json
 │
 ├── supabase/
-│   └── migrations/
-│       └── 001_initial_schema.sql  # Schema completo + seed data
+│   └── migrations/               # 10 migraciones (001 a 010)
+│       ├── 001_initial_schema.sql  # Schema base: 22 tablas, 6 enums
+│       ├── 002_chat_messages.sql   # Chat con LLM
+│       ├── 003_user_isolation.sql  # RLS policies
+│       ├── 004_maquila_distribution.sql
+│       ├── 005_modelo_imagen.sql   # Imagenes de modelos
+│       ├── 006_alternativas_imagenes.sql
+│       ├── 007_habilidades.sql     # 20 skills granulares para operarios
+│       ├── 008_robot_tipos.sql
+│       ├── 009_chat_attachments.sql
+│       └── 010_recurso_text.sql    # resource_type enum → text
 │
 ├── data/                         # Datos locales (gitignored)
 │   └── template_pespunte_v2.xlsx # Template Excel consolidado
@@ -87,7 +97,7 @@ pespunte-agent/
 ### Prerequisitos
 - Node.js 18+
 - Python 3.11+
-- Cuenta Supabase (proyecto creado con la migracion `001_initial_schema.sql`)
+- Cuenta Supabase (proyecto creado con las 10 migraciones en `supabase/migrations/`)
 
 ### Frontend
 
@@ -130,13 +140,15 @@ Ver [ARCHITECTURE.md](ARCHITECTURE.md) para detalles tecnicos.
 
 ## Flujo de Uso
 
-1. **Configurar** - Robots, capacidades, dias, pesos (tab Configuracion)
+1. **Configurar** - Robots, capacidades, dias, pesos, reglas permanentes (tab Configuracion, 6 sub-tabs)
 2. **Importar catalogo** - Excel con modelos y operaciones (tab Datos > Catalogo)
-3. **Crear pedido** - Manual o importar Excel (tab Datos > Pedido)
-4. **Agregar restricciones** - Prioridades, maquila, delays (tab Restricciones)
-5. **Optimizar** - Boton "Optimizar" en TopBar
-6. **Analizar** - Resumen semanal, programa diario, utilizacion HC, robots, cuellos de botella
-7. **Consultar** - Asistente LLM para preguntas sobre los resultados
+3. **Gestionar catalogo** - Imagenes, alternativas, maquinas complementarias (tab Catalogo)
+4. **Crear pedido** - Manual o importar Excel (tab Datos > Pedido)
+5. **Agregar restricciones** - Prioridades, maquila, delays, fechas limite (tab Restricciones)
+6. **Definir reglas** - Precedencias de operacion via editor visual CascadeEditor (tab Configuracion > Reglas)
+7. **Optimizar** - Boton "Optimizar" en TopBar
+8. **Analizar** - Resumen semanal, programa diario, utilizacion HC, robots, cuellos de botella
+9. **Consultar** - Asistente LLM para preguntas sobre los resultados
 
 ## Deploy
 

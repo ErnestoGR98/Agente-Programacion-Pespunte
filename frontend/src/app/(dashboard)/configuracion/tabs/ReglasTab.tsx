@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useReglas } from '@/lib/hooks/useReglas'
 import { supabase } from '@/lib/supabase/client'
+import type { OperacionFull } from '@/lib/hooks/useCatalogo'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,11 +17,12 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Trash2, Plus } from 'lucide-react'
+import { Trash2, Plus, Wand2 } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType } from '@/types'
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
+import { CascadeEditor } from '@/components/shared/CascadeEditor'
 
 interface CatalogoModelo {
   modelo_num: string
@@ -30,13 +32,14 @@ interface CatalogoModelo {
 export function ReglasTab() {
   const reglas = useReglas()
   const [showForm, setShowForm] = useState(false)
-  const [tipo, setTipo] = useState<ConstraintType>('PRECEDENCIA')
+  const [tipo, setTipo] = useState<ConstraintType>('PRECEDENCIA_OPERACION')
   const [modelo, setModelo] = useState('')
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [nota, setNota] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showClearAll, setShowClearAll] = useState(false)
   const [modeloItems, setModeloItems] = useState<{ modelo_num: string; color: string }[]>([])
+  const [operaciones, setOperaciones] = useState<OperacionFull[]>([])
 
   const loadModelos = useCallback(async () => {
     const { data: modelos } = await supabase
@@ -53,11 +56,133 @@ export function ReglasTab() {
 
   useEffect(() => { loadModelos() }, [loadModelos])
 
+  // Load operaciones for graph when modelo changes (PRECEDENCIA)
+  const loadOperaciones = useCallback(async () => {
+    if (!modelo || modelo === '*') { setOperaciones([]); return }
+    const { data: mod } = await supabase
+      .from('catalogo_modelos')
+      .select('id')
+      .eq('modelo_num', modelo)
+      .single()
+    if (!mod) { setOperaciones([]); return }
+    const { data: ops } = await supabase
+      .from('catalogo_operaciones')
+      .select('id, fraccion, operacion, input_o_proceso, etapa, recurso, recurso_raw, rate, sec_per_pair')
+      .eq('modelo_id', mod.id)
+      .order('fraccion')
+    if (ops) {
+      // Load robots for each operation
+      const opIds = ops.map((o: { id: string }) => o.id)
+      const { data: robotLinks } = await supabase
+        .from('catalogo_operaciones_robots')
+        .select('operacion_id, robot_id')
+        .in('operacion_id', opIds)
+      const robotMap = new Map<string, string[]>()
+      for (const link of (robotLinks || [])) {
+        const list = robotMap.get(link.operacion_id) || []
+        list.push(link.robot_id)
+        robotMap.set(link.operacion_id, list)
+      }
+      setOperaciones(ops.map((o: Record<string, unknown>) => ({
+        ...o,
+        robots: robotMap.get(o.id as string) || [],
+      })) as OperacionFull[])
+    }
+  }, [modelo])
+
+  useEffect(() => {
+    if (tipo === 'PRECEDENCIA_OPERACION') loadOperaciones()
+  }, [tipo, loadOperaciones])
+
   // Tipos donde el modelo se especifica en los parametros
   const TIPOS_SIN_MODELO: ConstraintType[] = [
     'SECUENCIA', 'AGRUPAR_MODELOS',
   ]
   const hideModelo = TIPOS_SIN_MODELO.includes(tipo)
+
+  // Whether to show the graph for PRECEDENCIA
+  const showGraph = tipo === 'PRECEDENCIA_OPERACION' && modelo && modelo !== '*' && operaciones.length > 0
+
+  // Filter precedencia rules for the selected model (for graph)
+  const precedenciasForModel = useMemo(
+    () => reglas.reglas.filter((r) => r.tipo === 'PRECEDENCIA_OPERACION' && r.modelo_num === modelo),
+    [reglas.reglas, modelo],
+  )
+
+  // --- Graph callbacks ---
+  async function graphCreatePrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo') {
+    await reglas.addRegla({
+      tipo: 'PRECEDENCIA_OPERACION',
+      modelo_num: modelo,
+      activa: true,
+      parametros: {
+        fracciones_origen: fracsOrig,
+        fracciones_destino: fracsDest,
+        buffer_pares: buffer,
+      },
+    })
+  }
+
+  async function graphUpdateBuffer(id: string, buffer: number | 'todo') {
+    const regla = reglas.reglas.find((r) => r.id === id)
+    if (!regla) return
+    const parametros = { ...regla.parametros as Record<string, unknown>, buffer_pares: buffer }
+    const { error } = await supabase.from('restricciones').update({ parametros }).eq('id', id)
+    if (error) {
+      console.error('[ReglasTab] graphUpdateBuffer failed:', error)
+      throw error
+    }
+    await reglas.reload()
+  }
+
+  async function graphAutoGenerate() {
+    // Group fracciones by input_o_proceso
+    const groups = new Map<string, number[]>()
+    for (const op of operaciones) {
+      const list = groups.get(op.input_o_proceso) || []
+      list.push(op.fraccion)
+      groups.set(op.input_o_proceso, list)
+    }
+    const ordered = [...groups.entries()]
+      .map(([proceso, fracs]) => ({
+        proceso,
+        fracs: fracs.sort((a, b) => a - b),
+        avgFrac: fracs.reduce((a, b) => a + b, 0) / fracs.length,
+      }))
+      .sort((a, b) => a.avgFrac - b.avgFrac)
+
+    const existingKeys = new Set(
+      precedenciasForModel.map((r) => {
+        const p = r.parametros as Record<string, unknown>
+        const orig = ((p.fracciones_origen as number[]) || []).join(',')
+        const dest = ((p.fracciones_destino as number[]) || []).join(',')
+        return `${orig}->${dest}`
+      })
+    )
+
+    const newRows = []
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const key = `${ordered[i].fracs.join(',')}->${ordered[i + 1].fracs.join(',')}`
+      if (!existingKeys.has(key)) {
+        newRows.push({
+          semana: null,
+          tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
+          modelo_num: modelo,
+          activa: true,
+          parametros: {
+            fracciones_origen: ordered[i].fracs,
+            fracciones_destino: ordered[i + 1].fracs,
+            buffer_pares: 0,
+            nota: `${ordered[i].proceso} -> ${ordered[i + 1].proceso}`,
+          },
+        })
+      }
+    }
+    if (newRows.length > 0) {
+      await supabase.from('restricciones').insert(newRows)
+      await reglas.reload()
+    }
+  }
 
   async function handleAdd() {
     const parametros = nota ? { ...params, nota } : params
@@ -108,7 +233,7 @@ export function ReglasTab() {
         <Card>
           <CardHeader><CardTitle className="text-base">Nueva Regla</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className={`grid gap-4 ${hideModelo ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            <div className={`grid gap-4 ${hideModelo ? 'grid-cols-2' : (tipo === 'PRECEDENCIA_OPERACION' ? 'grid-cols-2' : 'grid-cols-3')}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Tipo</Label>
                 <Select value={tipo} onValueChange={(v) => {
@@ -140,25 +265,50 @@ export function ReglasTab() {
                   </Select>
                 </div>
               )}
-              <div className="space-y-1">
-                <Label className="text-xs">Nota</Label>
-                <Input value={nota} onChange={(e) => setNota(e.target.value)} className="h-8" />
+              {!showGraph && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Nota</Label>
+                  <Input value={nota} onChange={(e) => setNota(e.target.value)} className="h-8" />
+                </div>
+              )}
+            </div>
+
+            {/* PRECEDENCIA → Cascade editor with drag-and-drop */}
+            {showGraph ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={graphAutoGenerate}>
+                    <Wand2 className="mr-1 h-3 w-3" /> Auto-generar por bloques
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Arrastra operaciones a las cascadas. Haz clic en una flecha para editar buffer o eliminar.
+                  </span>
+                </div>
+                <CascadeEditor
+                  operaciones={operaciones}
+                  reglas={precedenciasForModel}
+                  onConnect={graphCreatePrecedencia}
+                  onDeleteEdge={reglas.deleteRegla}
+                  onUpdateBuffer={graphUpdateBuffer}
+                />
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Dynamic params for non-PRECEDENCIA or when no model selected */}
+                <ConstraintParams
+                  tipo={tipo}
+                  params={params}
+                  setParams={setParams}
+                  modeloItems={modeloItems}
+                  selectedModelo={hideModelo ? undefined : modelo}
+                />
 
-            {/* Dynamic params — pass selectedModelo for fraccion dropdowns */}
-            <ConstraintParams
-              tipo={tipo}
-              params={params}
-              setParams={setParams}
-              modeloItems={modeloItems}
-              selectedModelo={hideModelo ? undefined : modelo}
-            />
-
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleAdd}>Agregar</Button>
-              <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
-            </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleAdd}>Agregar</Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       )}

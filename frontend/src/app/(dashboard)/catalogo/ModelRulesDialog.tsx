@@ -17,7 +17,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Trash2, Wand2, Loader2 } from 'lucide-react'
+import { Trash2, Wand2, Loader2, TableProperties, GitBranch } from 'lucide-react'
+import { PrecedenceGraph } from '@/components/shared/PrecedenceGraph'
 
 interface Props {
   open: boolean
@@ -30,6 +31,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
   const [reglas, setReglas] = useState<Restriccion[]>([])
   const [loading, setLoading] = useState(false)
   const [loteMinimo, setLoteMinimo] = useState('')
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -51,7 +53,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
     if (open) load()
   }, [open, load])
 
-  const precedencias = reglas.filter((r) => r.tipo === 'PRECEDENCIA')
+  const precedencias = reglas.filter((r) => r.tipo === 'PRECEDENCIA_OPERACION')
   const loteRegla = reglas.find((r) => r.tipo === 'LOTE_MINIMO_CUSTOM')
 
   // Auto-generate block precedence rules from process stages
@@ -90,7 +92,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
       if (!existingKeys.has(key)) {
         newRows.push({
           semana: null,
-          tipo: 'PRECEDENCIA' as ConstraintType,
+          tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
           modelo_num: modeloNum,
           activa: true,
           parametros: {
@@ -157,11 +159,48 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
     setLoteMinimo('')
   }
 
+  async function createPrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo') {
+    await supabase.from('restricciones').insert({
+      semana: null,
+      tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
+      modelo_num: modeloNum,
+      activa: true,
+      parametros: {
+        fracciones_origen: fracsOrig,
+        fracciones_destino: fracsDest,
+        buffer_pares: buffer,
+      },
+    })
+    await load()
+  }
+
+  const isGraph = viewMode === 'graph'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className={`${isGraph ? 'max-w-5xl' : 'max-w-2xl'} max-h-[85vh] overflow-y-auto transition-all`}>
         <DialogHeader>
-          <DialogTitle className="font-mono">Reglas — {modeloNum}</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="font-mono">Reglas — {modeloNum}</DialogTitle>
+            <div className="flex items-center gap-1 border rounded-md p-0.5">
+              <Button
+                size="sm"
+                variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+                className="h-7 px-2 text-xs"
+                onClick={() => setViewMode('table')}
+              >
+                <TableProperties className="h-3.5 w-3.5 mr-1" /> Tabla
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === 'graph' ? 'secondary' : 'ghost'}
+                className="h-7 px-2 text-xs"
+                onClick={() => setViewMode('graph')}
+              >
+                <GitBranch className="h-3.5 w-3.5 mr-1" /> Grafo
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
 
         {loading ? (
@@ -182,108 +221,121 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
               )}
             </div>
 
-            {/* Block precedence rules */}
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Precedencia por Bloques</h3>
-              <p className="text-xs text-muted-foreground mb-2">
-                Todas las fracciones del bloque origen deben completarse antes de iniciar el bloque destino.
-                Las fracciones dentro de un mismo bloque pueden correr en paralelo.
-              </p>
-              {precedencias.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-20">Activa</TableHead>
-                      <TableHead>Bloque Origen</TableHead>
-                      <TableHead>Bloque Destino</TableHead>
-                      <TableHead className="w-44">Buffer (pares)</TableHead>
-                      <TableHead className="w-12"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {precedencias.map((r) => {
-                      const p = r.parametros as Record<string, unknown>
-                      const fracsOrig = (p.fracciones_origen as number[]) || []
-                      const fracsDest = (p.fracciones_destino as number[]) || []
-                      const bufferRaw = p.buffer_pares
-                      const isTodo = bufferRaw === 'todo'
-                      const bufferNum = isTodo ? 0 : Number(bufferRaw || 0)
-                      const nota = String(p.nota || '')
-
-                      function fracLabel(frac: number) {
-                        const op = operaciones.find((o) => o.fraccion === frac)
-                        return op ? `F${frac} ${op.operacion}` : `F${frac}`
-                      }
-
-                      return (
-                        <TableRow key={r.id} className={!r.activa ? 'opacity-50' : ''}>
-                          <TableCell>
-                            <Checkbox
-                              checked={r.activa}
-                              onCheckedChange={(v) => toggleActiva(r.id, v === true)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {fracsOrig.map((f) => (
-                                <Badge key={f} variant="outline" className="text-[10px] font-mono">
-                                  {fracLabel(f)}
-                                </Badge>
-                              ))}
-                            </div>
-                            {nota && <span className="text-[10px] text-muted-foreground">{nota}</span>}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {fracsDest.map((f) => (
-                                <Badge key={f} variant="outline" className="text-[10px] font-mono">
-                                  {fracLabel(f)}
-                                </Badge>
-                              ))}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Select
-                                value={isTodo ? 'todo' : 'numero'}
-                                onValueChange={(v) => updateBuffer(r.id, v === 'todo' ? 'todo' : 0)}
-                              >
-                                <SelectTrigger className="h-7 w-20 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="todo">Todo</SelectItem>
-                                  <SelectItem value="numero">Num</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              {!isTodo && (
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  className="h-7 w-20 text-xs"
-                                  defaultValue={bufferNum}
-                                  onBlur={(e) => {
-                                    const val = parseInt(e.target.value)
-                                    if (!isNaN(val) && val !== bufferNum) updateBuffer(r.id, val)
-                                  }}
-                                />
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteRegla(r.id)}>
-                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                            </Button>
-                          </TableCell>
+            {/* Graph view */}
+            {isGraph ? (
+              <PrecedenceGraph
+                operaciones={operaciones}
+                reglas={precedencias}
+                onConnect={createPrecedencia}
+                onDeleteEdge={deleteRegla}
+                onUpdateBuffer={updateBuffer}
+              />
+            ) : (
+              <>
+                {/* Block precedence rules — Table view */}
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Precedencia por Bloques</h3>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Todas las fracciones del bloque origen deben completarse antes de iniciar el bloque destino.
+                    Las fracciones dentro de un mismo bloque pueden correr en paralelo.
+                  </p>
+                  {precedencias.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-20">Activa</TableHead>
+                          <TableHead>Bloque Origen</TableHead>
+                          <TableHead>Bloque Destino</TableHead>
+                          <TableHead className="w-44">Buffer (pares)</TableHead>
+                          <TableHead className="w-12"></TableHead>
                         </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-xs text-muted-foreground py-4 text-center">
-                  Sin reglas de bloque. Usa &quot;Auto-generar por bloques&quot; para crear desde las etapas del catalogo.
-                </p>
-              )}
-            </div>
+                      </TableHeader>
+                      <TableBody>
+                        {precedencias.map((r) => {
+                          const p = r.parametros as Record<string, unknown>
+                          const fracsOrig = (p.fracciones_origen as number[]) || []
+                          const fracsDest = (p.fracciones_destino as number[]) || []
+                          const bufferRaw = p.buffer_pares
+                          const isTodo = bufferRaw === 'todo'
+                          const bufferNum = isTodo ? 0 : Number(bufferRaw || 0)
+                          const nota = String(p.nota || '')
+
+                          function fracLabel(frac: number) {
+                            const op = operaciones.find((o) => o.fraccion === frac)
+                            return op ? `F${frac} ${op.operacion}` : `F${frac}`
+                          }
+
+                          return (
+                            <TableRow key={r.id} className={!r.activa ? 'opacity-50' : ''}>
+                              <TableCell>
+                                <Checkbox
+                                  checked={r.activa}
+                                  onCheckedChange={(v) => toggleActiva(r.id, v === true)}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {fracsOrig.map((f) => (
+                                    <Badge key={f} variant="outline" className="text-[10px] font-mono">
+                                      {fracLabel(f)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                                {nota && <span className="text-[10px] text-muted-foreground">{nota}</span>}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {fracsDest.map((f) => (
+                                    <Badge key={f} variant="outline" className="text-[10px] font-mono">
+                                      {fracLabel(f)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1">
+                                  <Select
+                                    value={isTodo ? 'todo' : 'numero'}
+                                    onValueChange={(v) => updateBuffer(r.id, v === 'todo' ? 'todo' : 0)}
+                                  >
+                                    <SelectTrigger className="h-7 w-20 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="todo">Todo</SelectItem>
+                                      <SelectItem value="numero">Num</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {!isTodo && (
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      className="h-7 w-20 text-xs"
+                                      defaultValue={bufferNum}
+                                      onBlur={(e) => {
+                                        const val = parseInt(e.target.value)
+                                        if (!isNaN(val) && val !== bufferNum) updateBuffer(r.id, val)
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteRegla(r.id)}>
+                                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <p className="text-xs text-muted-foreground py-4 text-center">
+                      Sin reglas de bloque. Usa &quot;Auto-generar por bloques&quot; para crear desde las etapas del catalogo.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Lote minimo */}
             <div>

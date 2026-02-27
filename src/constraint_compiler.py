@@ -418,5 +418,5 @@ _HANDLERS = {
     "AGRUPAR_MODELOS": _handle_agrupar_modelos,
     "AJUSTE_VOLUMEN": _handle_ajuste_volumen,
     "LOTE_MINIMO_CUSTOM": _handle_lote_minimo,
-    "PRECEDENCIA": _handle_precedencia,
+    "PRECEDENCIA_OPERACION": _handle_precedencia,
 }
