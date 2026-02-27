@@ -74,6 +74,7 @@ export function usePedido() {
         .from('asignaciones_maquila')
         .select('*')
         .in('pedido_item_id', itemIds)
+        .order('maquila')
       setAsignaciones(asigData || [])
     } else {
       setAsignaciones([])
