@@ -213,6 +213,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     target_m = m_idx
                     break
             if target_m is None:
+                print(f"    [PREC] modelo {modelo_code} no encontrado en models_day, skip")
                 continue
 
             # buffer=-1 means "todo": all origin pairs must finish before
@@ -227,7 +228,10 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             idx_dest = [frac_to_op[(target_m, f)]
                         for f in fracs_dest if (target_m, f) in frac_to_op]
 
+            print(f"    [PREC] {modelo_code}: orig_fracs={fracs_orig}→idx={idx_orig}, dest_fracs={fracs_dest}→idx={idx_dest}, buffer={buffer}, eff_buffer={effective_buffer}")
+
             if not idx_orig or not idx_dest:
+                print(f"    [PREC] skip: idx_orig o idx_dest vacio")
                 continue
 
             for op_o in idx_orig:
@@ -240,6 +244,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         block_min = max(tb["minutes"] for tb in time_blocks)
                         max_lead = max(int(rate_o * block_min / 60),
                                        int(rate_d * block_min / 60))
+                        print(f"      [B=0] op{op_o}(rate={rate_o})↔op{op_d}(rate={rate_d}), block_min={block_min}, max_lead={max_lead}")
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb]
                                            for bb in range(b + 1))
@@ -488,6 +493,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         print(f"  ADVERTENCIA: No se encontro solucion para el dia. Estado: {solver.StatusName(status)}")
+        print(f"    Modelos: {[(m['codigo'], m['pares_dia'], len(m['operations'])) for m in models_day]}")
+        print(f"    Plantilla: {plantilla}, Bloques: {num_blocks}")
+        print(f"    Num constraints: {solver_model.Proto().constraints.__len__()}")
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
 
     # --- Extraer solucion ---
@@ -539,14 +547,18 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         entries = by_day.get(day_name, [])
 
         if not entries:
+            print(f"  [schedule_week] {day_name}: sin entries en weekly → NO_PRODUCTION")
             results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
             continue
+
+        print(f"  [schedule_week] {day_name}: {len(entries)} entries: {[(e['Modelo'], e['Pares']) for e in entries]}")
 
         # Construir models_day para este dia
         models_day = []
         for entry in entries:
             modelo_code = entry["Modelo"]
             if modelo_code not in model_lookup:
+                print(f"    SKIP {modelo_code}: not in model_lookup (keys={list(model_lookup.keys())[:5]}...)")
                 continue
             model_data = model_lookup[modelo_code]
             # Excluir operaciones MAQUILA: son externas, no consumen recursos internos
@@ -563,6 +575,10 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 "pares_dia": entry["Pares"],
                 "operations": internal_ops,
             })
+
+        print(f"    models_day construido: {len(models_day)} modelos: {[(m['codigo'], m['pares_dia'], len(m['operations'])) for m in models_day]}")
+        if not models_day:
+            print(f"    → models_day VACIO despues de filtrar → NO_PRODUCTION")
 
         # Parametros para este dia (workers reducidos para paralelismo)
         plantilla = day_cfg["plantilla"]
