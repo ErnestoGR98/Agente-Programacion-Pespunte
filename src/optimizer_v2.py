@@ -236,6 +236,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
             for op_o in idx_orig:
                 for op_d in idx_dest:
+                    print(f"      [PREC] op{op_o}→op{op_d}, eff_buffer={effective_buffer}")
                     if effective_buffer == 0:
                         # Buffer=0 → conveyor/banda: bidirectional cumulative
                         # Neither operation can get more than ~1 block ahead
@@ -244,7 +245,6 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         block_min = max(tb["minutes"] for tb in time_blocks)
                         max_lead = max(int(rate_o * block_min / 60),
                                        int(rate_d * block_min / 60))
-                        print(f"      [B=0] op{op_o}(rate={rate_o})↔op{op_d}(rate={rate_d}), block_min={block_min}, max_lead={max_lead}")
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb]
                                            for bb in range(b + 1))
@@ -253,10 +253,25 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                             solver_model.Add(cum_orig <= max_lead + cum_dest)
                             solver_model.Add(cum_dest <= max_lead + cum_orig)
                     else:
+                        # Buffer>0 → startup delay: destination can't produce
+                        # until origin has accumulated buffer pares, then runs free.
+                        # Two constraints:
+                        #   1) cum_dest <= cum_orig (destination never ahead)
+                        #   2) x_dest[b]=0 while cum_orig < buffer (startup delay)
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
                             cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
-                            solver_model.Add(cum_orig >= effective_buffer + cum_dest)
+                            # Destination never produces more than origin
+                            solver_model.Add(cum_dest <= cum_orig)
+                            # Startup delay: dest blocked until origin >= buffer
+                            buf_ok = solver_model.NewBoolVar(
+                                f"buf_{target_m}_{op_o}_{op_d}_{b}")
+                            solver_model.Add(
+                                cum_orig >= effective_buffer).OnlyEnforceIf(buf_ok)
+                            solver_model.Add(
+                                cum_orig <= effective_buffer - 1).OnlyEnforceIf(buf_ok.Not())
+                            solver_model.Add(
+                                x[target_m, op_d, b] == 0).OnlyEnforceIf(buf_ok.Not())
 
     # --- Restricciones ---
 
