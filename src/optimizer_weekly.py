@@ -477,6 +477,13 @@ def _apply_compiled_constraints(solver_model, x, y, models, days, compiled):
                     if days[d]["name"] == day_name and pares_done > 0:
                         solver_model.Add(x[m, d] == 0)
 
+    # Frozen days (reopt_from_day): no asignar nada a dias congelados
+    if compiled.frozen_days:
+        for d in compiled.frozen_days:
+            if d < num_days:
+                for m in range(len(models)):
+                    solver_model.Add(x[m, d] == 0)
+
     # Secuencias: modelo A debe completarse antes de que B produzca
     for antes_idx, despues_idx in compiled.sequences:
         total_antes = models[antes_idx]["total_producir"]
