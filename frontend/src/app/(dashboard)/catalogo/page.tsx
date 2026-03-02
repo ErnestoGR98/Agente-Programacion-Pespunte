@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import type { ProcessType, ResourceType } from '@/types'
-import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, Save, X, Check } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, Save, X, Check, GripVertical } from 'lucide-react'
 
 const PROCESS_TYPES: ProcessType[] = ['PRELIMINARES', 'ROBOT', 'POST', 'MAQUILA', 'N/A PRELIMINAR']
 const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
@@ -260,6 +260,8 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
     open: false, action: async () => {}, title: '', desc: '',
   })
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [dragFrac, setDragFrac] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
 
   // Merge base etapas + custom ones from existing operations
   const customEtapas = modelo.operaciones.map((o) => o.etapa).filter((e) => e && !ETAPA_OPTIONS.includes(e))
@@ -506,8 +508,18 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
                 return (
                   <tr
                     key={op.id}
-                    className={`border-b ${editing ? 'hover:bg-accent/50' : 'hover:bg-accent/30'} ${isModified ? 'ring-1 ring-inset ring-primary/30' : ''}`}
-                    style={{ backgroundColor: isModified ? 'rgba(59,130,246,0.06)' : `${procesoColor}15` }}
+                    draggable={!editing}
+                    onDragStart={() => { if (!editing) setDragFrac(op.fraccion) }}
+                    onDragEnd={() => { setDragFrac(null); setDragOver(null) }}
+                    onDragOver={(e) => { if (!editing && dragFrac !== null) { e.preventDefault(); setDragOver(op.fraccion) } }}
+                    onDrop={async () => {
+                      if (!editing && dragFrac !== null && dragFrac !== op.fraccion) {
+                        await catalogo.reorderOperacion(modelo.id, dragFrac, op.fraccion)
+                      }
+                      setDragFrac(null); setDragOver(null)
+                    }}
+                    className={`border-b ${editing ? 'hover:bg-accent/50' : 'hover:bg-accent/30'} ${isModified ? 'ring-1 ring-inset ring-primary/30' : ''} ${!editing ? 'cursor-grab' : ''} ${dragOver === op.fraccion && dragFrac !== op.fraccion ? 'ring-2 ring-inset ring-primary/50' : ''}`}
+                    style={{ backgroundColor: isModified ? 'rgba(59,130,246,0.06)' : dragFrac === op.fraccion ? 'rgba(59,130,246,0.15)' : `${procesoColor}15` }}
                   >
                     {/* FRACCION */}
                     <td className="px-1 py-0.5 font-mono">
@@ -518,7 +530,12 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
                           onChange={(e) => updateOp(op.id, 'fraccion', parseInt(e.target.value) || 0)}
                           className="h-6 w-14 text-xs font-mono px-1"
                         />
-                      ) : op.fraccion}
+                      ) : (
+                        <span className="flex items-center gap-0.5">
+                          <GripVertical className="h-3 w-3 text-muted-foreground/40" />
+                          {op.fraccion}
+                        </span>
+                      )}
                     </td>
 
                     {/* OPERACION */}

@@ -188,6 +188,21 @@ export function useCatalogo() {
     robotIds?: string[]
   }) {
     const { robotIds, ...opData } = data
+    // Shift existing fractions >= target up by 1 to make room
+    const { data: existing } = await supabase
+      .from('catalogo_operaciones')
+      .select('id, fraccion')
+      .eq('modelo_id', modeloId)
+      .gte('fraccion', opData.fraccion)
+      .order('fraccion', { ascending: false })
+    if (existing && existing.length > 0) {
+      // Update from highest to lowest to avoid UNIQUE constraint conflicts
+      for (const op of existing) {
+        await supabase.from('catalogo_operaciones')
+          .update({ fraccion: op.fraccion + 1 })
+          .eq('id', op.id)
+      }
+    }
     const { data: inserted } = await supabase
       .from('catalogo_operaciones')
       .insert({ ...opData, modelo_id: modeloId, recurso_raw: opData.recurso })
@@ -245,9 +260,40 @@ export function useCatalogo() {
     await load()
   }
 
+  async function reorderOperacion(modeloId: string, fromFrac: number, toFrac: number) {
+    if (fromFrac === toFrac) return
+    const { data: ops } = await supabase
+      .from('catalogo_operaciones')
+      .select('id, fraccion')
+      .eq('modelo_id', modeloId)
+      .order('fraccion')
+    if (!ops) return
+    // Build new order: remove from old position, insert at new
+    const ordered = [...ops]
+    const fromIdx = ordered.findIndex((o) => o.fraccion === fromFrac)
+    if (fromIdx < 0) return
+    const [moved] = ordered.splice(fromIdx, 1)
+    const toIdx = toFrac - 1 // toFrac is 1-based
+    ordered.splice(Math.min(toIdx, ordered.length), 0, moved)
+    // Assign temporary high fractions to avoid UNIQUE conflicts
+    const tempBase = 1000
+    for (let i = 0; i < ordered.length; i++) {
+      await supabase.from('catalogo_operaciones')
+        .update({ fraccion: tempBase + i })
+        .eq('id', ordered[i].id)
+    }
+    // Now assign final sequential fractions
+    for (let i = 0; i < ordered.length; i++) {
+      await supabase.from('catalogo_operaciones')
+        .update({ fraccion: i + 1 })
+        .eq('id', ordered[i].id)
+    }
+    await load()
+  }
+
   return {
     loading, modelos, robots, reload: load,
     addModelo, updateModelo, deleteModelo, uploadModeloImagen, uploadAlternativaImagen,
-    addOperacion, updateOperacion, deleteOperacion,
+    addOperacion, updateOperacion, deleteOperacion, reorderOperacion,
   }
 }
