@@ -307,36 +307,73 @@ export function CascadeEditor({
         if (c < usedCols - 1) headers.push('Buffer')
       }
 
-      // Build body rows (rows with at least one operation)
-      const body: string[][] = []
+      // Build body rows with rowSpan support
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body: any[][] = []
       const cellColors: Map<string, string> = new Map()
       const includedFracs = new Set<number>()
+      // Map grid row → body row index (skip empty rows)
+      const gridToBody = new Map<number, number>()
 
+      // First pass: find active rows
+      const activeRows: number[] = []
       for (let r = 0; r < displayGrid.length; r++) {
         const row = displayGrid[r]
         const hasOp = row.some((f, i) => f != null && i < usedCols)
-        if (!hasOp) continue
-        const bodyRow: string[] = [String(body.length + 1)]
+        // Also include rows that are covered by a span from above
+        const coveredBySpan = Array.from({ length: usedCols }, (_, i) => i)
+          .some(c => skipSet.has(`${r},${c}`))
+        if (hasOp || coveredBySpan) {
+          gridToBody.set(r, activeRows.length)
+          activeRows.push(r)
+        }
+      }
+
+      for (const r of activeRows) {
+        const row = displayGrid[r]
+        const bodyIdx = gridToBody.get(r)!
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bodyRow: any[] = [String(bodyIdx + 1)]
         for (let c = 0; c < usedCols; c++) {
           const frac = row[c]
           const op = frac != null ? opMap.get(frac) : null
-          if (op) {
-            bodyRow.push(`F${frac}\n${op.operacion}\n${op.input_o_proceso}`)
-            cellColors.set(`${body.length},${bodyRow.length - 1}`, processColor(op.input_o_proceso))
+          const isSkipped = skipSet.has(`${r},${c}`)
+
+          if (isSkipped) {
+            // This cell is covered by a rowSpan from above — don't add it
+            // (jspdf-autotable skips cells covered by rowSpan)
+          } else if (op) {
+            const span = spanMap.get(`${r},${c}`) || 1
+            // Count how many of those spanned grid rows are active
+            let activeSpan = 1
+            if (span > 1) {
+              for (let sr = r + 1; sr < r + span; sr++) {
+                if (gridToBody.has(sr)) activeSpan++
+              }
+            }
+            const cell = { content: `F${frac}\n${op.operacion}\n${op.input_o_proceso}`, rowSpan: activeSpan }
+            bodyRow.push(cell)
+            cellColors.set(`${bodyIdx},${bodyRow.length - 1}`, processColor(op.input_o_proceso))
             includedFracs.add(frac!)
           } else {
             bodyRow.push('')
           }
+
+          // Buffer column
           if (c < usedCols - 1) {
-            const curFrac = row[c]
-            const nxtFrac = row[c + 1]
-            if (curFrac != null && nxtFrac != null) {
-              const arrow = arrowMap.get(`${curFrac}->${nxtFrac}`)
-              if (arrow) {
-                const label = arrow.buffer === 'todo' ? 'Todo' : `${arrow.buffer || 0}p`
-                bodyRow.push(`${label}  →`)
+            if (isSkipped) {
+              // skip buffer column too if the op cell was skipped
+            } else {
+              const effFrac = getEffectiveFrac(r, c)
+              const nxtFrac = getEffectiveFrac(r, c + 1)
+              if (effFrac != null && nxtFrac != null) {
+                const arrow = arrowMap.get(`${effFrac}->${nxtFrac}`)
+                if (arrow) {
+                  const label = arrow.buffer === 'todo' ? 'Todo' : `${arrow.buffer || 0}p`
+                  bodyRow.push(`${label}  →`)
+                } else { bodyRow.push('') }
               } else { bodyRow.push('') }
-            } else { bodyRow.push('') }
+            }
           }
         }
         body.push(bodyRow)
@@ -418,7 +455,7 @@ export function CascadeEditor({
     } finally {
       setExporting(false)
     }
-  }, [title, displayGrid, totalCols, opMap, arrowMap, operaciones])
+  }, [title, displayGrid, totalCols, opMap, arrowMap, operaciones, spanMap, skipSet, getEffectiveFrac])
 
   // DnD state
   const [dragFrac, setDragFrac] = useState<number | null>(null)
