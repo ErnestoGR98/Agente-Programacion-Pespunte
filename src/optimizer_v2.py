@@ -233,11 +233,20 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             for op_o in idx_orig:
                 for op_d in idx_dest:
                     if effective_buffer == 0:
-                        # Buffer=0 → conveyor/banda: force co-active in same blocks
+                        # Buffer=0 → conveyor/banda: bidirectional cumulative
+                        # Neither operation can get more than ~1 block ahead
+                        rate_o = models_day[target_m]["operations"][op_o]["rate"]
+                        rate_d = models_day[target_m]["operations"][op_d]["rate"]
+                        block_min = max(tb["minutes"] for tb in time_blocks)
+                        max_lead = max(int(rate_o * block_min / 60),
+                                       int(rate_d * block_min / 60))
                         for b in range(num_blocks):
-                            solver_model.Add(
-                                active[target_m, op_o, b] == active[target_m, op_d, b]
-                            )
+                            cum_orig = sum(x[target_m, op_o, bb]
+                                           for bb in range(b + 1))
+                            cum_dest = sum(x[target_m, op_d, bb]
+                                           for bb in range(b + 1))
+                            solver_model.Add(cum_orig <= max_lead + cum_dest)
+                            solver_model.Add(cum_dest <= max_lead + cum_orig)
                     else:
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
