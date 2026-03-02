@@ -548,8 +548,30 @@ def run_optimization(req: OptimizeRequest):
             "unassigned_ops": op_day.get("unassigned", []),
         }
 
-    # 10. Guardar resultado en Supabase
+    # 10. Preservar dias congelados del resultado anterior (reopt_from_day)
     base_name = req.semana or req.pedido_nombre
+    if req.reopt_from_day is not None and req.reopt_from_day > 0:
+        frozen_day_names = {d["name"] for i, d in enumerate(days) if i < req.reopt_from_day}
+        prev = _sb_get(
+            "resultados",
+            f"select=daily_results,weekly_schedule&base_name=eq.{base_name}"
+            f"&order=version.desc&limit=1",
+        )
+        if prev and prev[0].get("daily_results"):
+            prev_daily = prev[0]["daily_results"]
+            prev_weekly = prev[0].get("weekly_schedule", [])
+            # Merge frozen days from previous result
+            for dn in frozen_day_names:
+                if dn in prev_daily:
+                    daily_results[dn] = prev_daily[dn]
+                    print(f"  [REOPT] {dn}: preservado del resultado anterior")
+            # Merge frozen weekly entries
+            frozen_entries = [e for e in prev_weekly if e.get("Dia") in frozen_day_names]
+            new_entries = [e for e in weekly_schedule if e.get("Dia") not in frozen_day_names]
+            weekly_schedule = frozen_entries + new_entries
+            print(f"  [REOPT] weekly_schedule: {len(frozen_entries)} frozen + {len(new_entries)} new")
+
+    # 11. Guardar resultado en Supabase
     saved_as = _save_resultado(
         base_name, weekly_schedule, weekly_summary,
         daily_results, pedido, params, req.nota,
