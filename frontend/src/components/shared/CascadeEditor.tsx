@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState, useMemo, useEffect, useRef, DragEvent } from 'react'
+import { Fragment, useState, useMemo, useEffect, useRef, useCallback, DragEvent } from 'react'
 import type { OperacionFull } from '@/lib/hooks/useCatalogo'
 import type { Restriccion } from '@/types'
 import { STAGE_COLORS } from '@/types'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Trash2, Plus, X } from 'lucide-react'
+import { Trash2, Plus, X, Download } from 'lucide-react'
 
 // ─── Props ───────────────────────────────────────────────────────────
 
@@ -19,6 +19,8 @@ export interface CascadeEditorProps {
   onConnect: (origen: number[], destino: number[], buffer: number | 'todo') => Promise<void>
   onDeleteEdge: (reglaId: string) => Promise<void>
   onUpdateBuffer: (reglaId: string, buffer: number | 'todo') => Promise<void>
+  /** Optional title used for the PDF export filename */
+  title?: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -139,7 +141,7 @@ function processColor(proceso: string): string {
 // ─── Component ───────────────────────────────────────────────────────
 
 export function CascadeEditor({
-  operaciones, reglas, onConnect, onDeleteEdge, onUpdateBuffer,
+  operaciones, reglas, onConnect, onDeleteEdge, onUpdateBuffer, title,
 }: CascadeEditorProps) {
   const opMap = useMemo(() => {
     const m = new Map<number, OperacionFull>()
@@ -274,6 +276,149 @@ export function CascadeEditor({
 
     return { spanMap, skipSet, getEffectiveFrac }
   }, [displayGrid, totalRows, totalCols, arrowMap])
+
+  const [exporting, setExporting] = useState(false)
+
+  const exportPdf = useCallback(async () => {
+    setExporting(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const autoTable = (await import('jspdf-autotable')).default
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      pdf.setFontSize(14)
+      pdf.text(title || 'Cascada de Precedencias', 14, 15)
+      pdf.setFontSize(8)
+      pdf.setTextColor(120)
+      pdf.text(new Date().toLocaleDateString('es-MX'), 14, 20)
+      pdf.setTextColor(0)
+
+      // Build headers: #, 1, Buffer, 2, Buffer, 3, ...
+      const headers: string[] = ['#']
+      const usedCols = displayGrid.length > 0
+        ? displayGrid.reduce((max, row) => {
+            let last = 0
+            row.forEach((f, i) => { if (f != null) last = i + 1 })
+            return Math.max(max, last)
+          }, 1)
+        : totalCols
+      for (let c = 0; c < usedCols; c++) {
+        headers.push(String(c + 1))
+        if (c < usedCols - 1) headers.push('Buffer')
+      }
+
+      // Build body rows (rows with at least one operation)
+      const body: string[][] = []
+      const cellColors: Map<string, string> = new Map()
+      const includedFracs = new Set<number>()
+
+      for (let r = 0; r < displayGrid.length; r++) {
+        const row = displayGrid[r]
+        const hasOp = row.some((f, i) => f != null && i < usedCols)
+        if (!hasOp) continue
+        const bodyRow: string[] = [String(body.length + 1)]
+        for (let c = 0; c < usedCols; c++) {
+          const frac = row[c]
+          const op = frac != null ? opMap.get(frac) : null
+          if (op) {
+            bodyRow.push(`F${frac}\n${op.operacion}\n${op.input_o_proceso}`)
+            cellColors.set(`${body.length},${bodyRow.length - 1}`, processColor(op.input_o_proceso))
+            includedFracs.add(frac!)
+          } else {
+            bodyRow.push('')
+          }
+          if (c < usedCols - 1) {
+            const curFrac = row[c]
+            const nxtFrac = row[c + 1]
+            if (curFrac != null && nxtFrac != null) {
+              const arrow = arrowMap.get(`${curFrac}->${nxtFrac}`)
+              if (arrow) {
+                const label = arrow.buffer === 'todo' ? 'Todo' : `${arrow.buffer || 0}p`
+                bodyRow.push(`${label}  →`)
+              } else { bodyRow.push('') }
+            } else { bodyRow.push('') }
+          }
+        }
+        body.push(bodyRow)
+      }
+
+      if (body.length === 0) {
+        body.push(['', 'Sin precedencias configuradas', ...Array(headers.length - 2).fill('')])
+      }
+
+      // Helper: hex color to RGB
+      function hexToRgb(hex: string): [number, number, number] {
+        const h = hex.replace('#', '')
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cellHook = (colors: Map<string, string>) => (data: any) => {
+        if (data.section !== 'body') return
+        const color = colors.get(`${data.row.index},${data.column.index}`)
+        if (color) {
+          const [r, g, b] = hexToRgb(color)
+          data.cell.styles.fillColor = [
+            Math.min(255, r + Math.round((255 - r) * 0.8)),
+            Math.min(255, g + Math.round((255 - g) * 0.8)),
+            Math.min(255, b + Math.round((255 - b) * 0.8)),
+          ]
+        }
+        const isBuffer = data.column.index > 0 && data.column.index % 2 === 0
+        if (isBuffer && data.cell.styles.cellWidth === 'auto') {
+          data.cell.styles.cellWidth = 14
+        }
+      }
+
+      autoTable(pdf, {
+        startY: 24,
+        head: [headers],
+        body,
+        theme: 'grid',
+        styles: { fontSize: 7, cellPadding: 2, textColor: [30, 30, 30], lineColor: [200, 200, 200], lineWidth: 0.3 },
+        headStyles: { fillColor: [240, 240, 240], textColor: [50, 50, 50], fontStyle: 'bold', halign: 'center' },
+        columnStyles: Object.fromEntries([
+          [0, { cellWidth: 8, halign: 'center' as const, fontStyle: 'bold' as const }],
+          ...Array.from({ length: usedCols - 1 }, (_, i) => [i * 2 + 2, { cellWidth: 14, halign: 'center' as const, fontSize: 6 }]),
+        ]),
+        didParseCell: cellHook(cellColors),
+      })
+
+      // Separate section: unconnected operations
+      const unconnected = operaciones.filter((op) => !includedFracs.has(op.fraccion))
+      if (unconnected.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const finalY = (pdf as any).lastAutoTable?.finalY ?? 40
+        pdf.setFontSize(10)
+        pdf.setTextColor(80)
+        pdf.text('Operaciones Independientes', 14, finalY + 8)
+        pdf.setTextColor(0)
+
+        const indBody: string[][] = []
+        const indColors: Map<string, string> = new Map()
+        for (const op of unconnected) {
+          indBody.push([`F${op.fraccion}`, op.operacion, op.input_o_proceso, op.recurso || ''])
+          indColors.set(`${indBody.length - 1},0`, processColor(op.input_o_proceso))
+        }
+
+        autoTable(pdf, {
+          startY: finalY + 11,
+          head: [['Fraccion', 'Operacion', 'Proceso', 'Recurso']],
+          body: indBody,
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 2, textColor: [30, 30, 30], lineColor: [200, 200, 200], lineWidth: 0.3 },
+          headStyles: { fillColor: [240, 240, 240], textColor: [50, 50, 50], fontStyle: 'bold', halign: 'center' },
+          didParseCell: cellHook(indColors),
+        })
+      }
+
+      pdf.save(`${title || 'cascada'}.pdf`)
+    } catch (err) {
+      console.error('[CascadeEditor] PDF export failed:', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [title, displayGrid, totalCols, opMap, arrowMap, operaciones])
 
   // DnD state
   const [dragFrac, setDragFrac] = useState<number | null>(null)
@@ -592,9 +737,14 @@ export function CascadeEditor({
     <div className="space-y-3">
       {/* Operations palette */}
       <div className="border rounded-lg bg-muted/30 p-3">
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Operaciones — arrastra a la tabla ({unplacedCount} sin asignar)
-        </h4>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Operaciones — arrastra a la tabla ({unplacedCount} sin asignar)
+          </h4>
+          <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={exportPdf} disabled={exporting}>
+            <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-2">
           {operaciones.map((op) => {
             const isPlaced = placed.has(op.fraccion)

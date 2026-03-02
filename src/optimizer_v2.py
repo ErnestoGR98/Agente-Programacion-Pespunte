@@ -232,10 +232,17 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
             for op_o in idx_orig:
                 for op_d in idx_dest:
-                    for b in range(num_blocks):
-                        cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
-                        cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
-                        solver_model.Add(cum_orig >= effective_buffer + cum_dest)
+                    if effective_buffer == 0:
+                        # Buffer=0 → conveyor/banda: force co-active in same blocks
+                        for b in range(num_blocks):
+                            solver_model.Add(
+                                active[target_m, op_o, b] == active[target_m, op_d, b]
+                            )
+                    else:
+                        for b in range(num_blocks):
+                            cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
+                            cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
+                            solver_model.Add(cum_orig >= effective_buffer + cum_dest)
 
     # --- Restricciones ---
 

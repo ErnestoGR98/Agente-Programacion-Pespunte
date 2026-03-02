@@ -290,6 +290,7 @@ export function ReglasTab() {
                   onConnect={graphCreatePrecedencia}
                   onDeleteEdge={reglas.deleteRegla}
                   onUpdateBuffer={graphUpdateBuffer}
+                  title={`Cascada-${modelo}`}
                 />
               </div>
             ) : (
