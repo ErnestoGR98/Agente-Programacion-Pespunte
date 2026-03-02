@@ -41,7 +41,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
-  const [deleteTarget, setDeleteTarget] = useState<{ type: 'item' | 'maquila'; id: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'item' | 'maquila' | 'all'; id: string } | null>(null)
 
   const semana = `sem_${week}_${year}`
 
@@ -290,7 +290,20 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       <Card>
         <CardContent className="pt-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Items del Pedido</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Items del Pedido</span>
+              {pedido.items.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setDeleteTarget({ type: 'all', id: 'all' })}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Limpiar todo
+                </Button>
+              )}
+            </div>
             <TableExport
               title={`Pedido ${semana}`}
               headers={['Modelo', 'Color', 'Fabrica', 'Volumen']}
@@ -574,14 +587,21 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
-        title={deleteTarget?.type === 'item' ? 'Eliminar Item' : 'Eliminar Asignacion Maquila'}
-        description={deleteTarget?.type === 'item'
+        title={deleteTarget?.type === 'all' ? 'Limpiar Pedido' : deleteTarget?.type === 'item' ? 'Eliminar Item' : 'Eliminar Asignacion Maquila'}
+        description={deleteTarget?.type === 'all'
+          ? `¿Seguro que deseas eliminar TODOS los items del pedido? (${pedido.items.length} items)`
+          : deleteTarget?.type === 'item'
           ? '¿Seguro que deseas eliminar este item del pedido?'
           : '¿Seguro que deseas eliminar esta asignacion de maquila?'}
         onConfirm={async () => {
           if (!deleteTarget) return
-          if (deleteTarget.type === 'item') await pedido.deleteItem(deleteTarget.id)
-          else await pedido.removeMaquilaAssignment(deleteTarget.id)
+          if (deleteTarget.type === 'all' && pedido.currentPedidoId) {
+            await pedido.saveItems(pedido.currentPedidoId, [])
+          } else if (deleteTarget.type === 'item') {
+            await pedido.deleteItem(deleteTarget.id)
+          } else {
+            await pedido.removeMaquilaAssignment(deleteTarget.id)
+          }
         }}
       />
     </div>
