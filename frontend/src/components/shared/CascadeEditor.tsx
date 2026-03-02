@@ -278,184 +278,105 @@ export function CascadeEditor({
   }, [displayGrid, totalRows, totalCols, arrowMap])
 
   const [exporting, setExporting] = useState(false)
+  const gridRef = useRef<HTMLDivElement>(null)
 
   const exportPdf = useCallback(async () => {
+    if (!gridRef.current) return
     setExporting(true)
     try {
+      const html2canvas = (await import('html2canvas-pro')).default
       const { jsPDF } = await import('jspdf')
-      const autoTable = (await import('jspdf-autotable')).default
 
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-      pdf.setFontSize(14)
-      pdf.text(title || 'Cascada de Precedencias', 14, 15)
-      pdf.setFontSize(8)
-      pdf.setTextColor(120)
-      pdf.text(new Date().toLocaleDateString('es-MX'), 14, 20)
-      pdf.setTextColor(0)
-
-      // Build headers: #, 1, Buffer, 2, Buffer, 3, ...
-      const headers: string[] = ['#']
-      const usedCols = displayGrid.length > 0
-        ? displayGrid.reduce((max, row) => {
-            let last = 0
-            row.forEach((f, i) => { if (f != null) last = i + 1 })
-            return Math.max(max, last)
-          }, 1)
-        : totalCols
-      for (let c = 0; c < usedCols; c++) {
-        headers.push(String(c + 1))
-        if (c < usedCols - 1) headers.push('Buffer')
-      }
-
-      // Build body rows with rowSpan support
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body: any[][] = []
-      const cellColors: Map<string, string> = new Map()
-      const includedFracs = new Set<number>()
-      // Map grid row → body row index (skip empty rows)
-      const gridToBody = new Map<number, number>()
-
-      // First pass: find active rows
-      const activeRows: number[] = []
-      for (let r = 0; r < displayGrid.length; r++) {
-        const row = displayGrid[r]
-        const hasOp = row.some((f, i) => f != null && i < usedCols)
-        // Also include rows that are covered by a span from above
-        const coveredBySpan = Array.from({ length: usedCols }, (_, i) => i)
-          .some(c => skipSet.has(`${r},${c}`))
-        if (hasOp || coveredBySpan) {
-          gridToBody.set(r, activeRows.length)
-          activeRows.push(r)
-        }
-      }
-
-      for (const r of activeRows) {
-        const row = displayGrid[r]
-        const bodyIdx = gridToBody.get(r)!
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bodyRow: any[] = [String(bodyIdx + 1)]
-        for (let c = 0; c < usedCols; c++) {
-          const frac = row[c]
-          const op = frac != null ? opMap.get(frac) : null
-          const isSkipped = skipSet.has(`${r},${c}`)
-
-          if (isSkipped) {
-            // This cell is covered by a rowSpan from above — don't add it
-            // (jspdf-autotable skips cells covered by rowSpan)
-          } else if (op) {
-            const span = spanMap.get(`${r},${c}`) || 1
-            // Count how many of those spanned grid rows are active
-            let activeSpan = 1
-            if (span > 1) {
-              for (let sr = r + 1; sr < r + span; sr++) {
-                if (gridToBody.has(sr)) activeSpan++
-              }
-            }
-            const cell = { content: `F${frac}\n${op.operacion}\n${op.input_o_proceso}`, rowSpan: activeSpan }
-            bodyRow.push(cell)
-            cellColors.set(`${bodyIdx},${bodyRow.length - 1}`, processColor(op.input_o_proceso))
-            includedFracs.add(frac!)
-          } else {
-            bodyRow.push('')
-          }
-
-          // Buffer column
-          if (c < usedCols - 1) {
-            if (isSkipped) {
-              // skip buffer column too if the op cell was skipped
-            } else {
-              const effFrac = getEffectiveFrac(r, c)
-              const nxtFrac = getEffectiveFrac(r, c + 1)
-              if (effFrac != null && nxtFrac != null) {
-                const arrow = arrowMap.get(`${effFrac}->${nxtFrac}`)
-                if (arrow) {
-                  const label = arrow.buffer === 'todo' ? 'Todo' : `${arrow.buffer || 0}p`
-                  bodyRow.push(`${label}  →`)
-                } else { bodyRow.push('') }
-              } else { bodyRow.push('') }
-            }
+      // Clone the grid and apply light-mode styles for print
+      const clone = gridRef.current.cloneNode(true) as HTMLElement
+      clone.style.position = 'absolute'
+      clone.style.left = '-9999px'
+      clone.style.top = '0'
+      clone.style.backgroundColor = '#ffffff'
+      clone.style.color = '#1a1a1a'
+      clone.style.width = gridRef.current.scrollWidth + 'px'
+      clone.style.overflow = 'visible'
+      // Force light colors on all elements
+      clone.querySelectorAll('*').forEach((el) => {
+        const h = el as HTMLElement
+        const cs = window.getComputedStyle(h)
+        // Make text dark
+        if (cs.color) h.style.color = '#1a1a1a'
+        // Make light backgrounds stay, dark backgrounds become white
+        const bg = cs.backgroundColor
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+          const m = bg.match(/\d+/g)
+          if (m) {
+            const [r, g, b] = m.map(Number)
+            const lum = (r * 299 + g * 587 + b * 114) / 1000
+            if (lum < 60) h.style.backgroundColor = '#ffffff'
+            else if (lum < 128) h.style.backgroundColor = '#f5f5f5'
           }
         }
-        body.push(bodyRow)
-      }
-
-      if (body.length === 0) {
-        body.push(['', 'Sin precedencias configuradas', ...Array(headers.length - 2).fill('')])
-      }
-
-      // Helper: hex color to RGB
-      function hexToRgb(hex: string): [number, number, number] {
-        const h = hex.replace('#', '')
-        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cellHook = (colors: Map<string, string>) => (data: any) => {
-        if (data.section !== 'body') return
-        const color = colors.get(`${data.row.index},${data.column.index}`)
-        if (color) {
-          const [r, g, b] = hexToRgb(color)
-          data.cell.styles.fillColor = [
-            Math.min(255, r + Math.round((255 - r) * 0.8)),
-            Math.min(255, g + Math.round((255 - g) * 0.8)),
-            Math.min(255, b + Math.round((255 - b) * 0.8)),
-          ]
+        // Make borders visible
+        if (cs.borderColor) h.style.borderColor = '#d4d4d4'
+      })
+      // Hide empty rows (rows 3,4,5... with just "+" placeholders)
+      clone.querySelectorAll('tr').forEach((tr) => {
+        const cells = tr.querySelectorAll('td')
+        const hasContent = Array.from(cells).some((td) => {
+          const text = td.textContent?.trim() || ''
+          return text !== '' && text !== '+'
+        })
+        if (cells.length > 0 && !hasContent) tr.style.display = 'none'
+      })
+      // Hide "AGREGAR +" column/buttons and resize handles
+      clone.querySelectorAll('button, [class*="resize"]').forEach((el) => {
+        (el as HTMLElement).style.display = 'none'
+      })
+      // Hide last th/td in each row (AGREGAR + column)
+      clone.querySelectorAll('tr').forEach((tr) => {
+        const lastTh = tr.querySelector('th:last-child')
+        const lastTd = tr.querySelector('td:last-child')
+        if (lastTh?.textContent?.includes('AGREGAR')) (lastTh as HTMLElement).style.display = 'none'
+        if (lastTd?.textContent?.trim() === '' || lastTd?.textContent?.trim() === '+') {
+          const ths = clone.querySelectorAll('thead th')
+          if (ths.length > 0 && ths[ths.length - 1]?.textContent?.includes('AGREGAR')) {
+            (lastTd as HTMLElement).style.display = 'none'
+          }
         }
-        const isBuffer = data.column.index > 0 && data.column.index % 2 === 0
-        if (isBuffer && data.cell.styles.cellWidth === 'auto') {
-          data.cell.styles.cellWidth = 14
-        }
-      }
-
-      autoTable(pdf, {
-        startY: 24,
-        head: [headers],
-        body,
-        theme: 'grid',
-        styles: { fontSize: 7, cellPadding: 2, textColor: [30, 30, 30], lineColor: [200, 200, 200], lineWidth: 0.3 },
-        headStyles: { fillColor: [240, 240, 240], textColor: [50, 50, 50], fontStyle: 'bold', halign: 'center' },
-        columnStyles: Object.fromEntries([
-          [0, { cellWidth: 8, halign: 'center' as const, fontStyle: 'bold' as const }],
-          ...Array.from({ length: usedCols - 1 }, (_, i) => [i * 2 + 2, { cellWidth: 14, halign: 'center' as const, fontSize: 6 }]),
-        ]),
-        didParseCell: cellHook(cellColors),
       })
 
-      // Separate section: unconnected operations
-      const unconnected = operaciones.filter((op) => !includedFracs.has(op.fraccion))
-      if (unconnected.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const finalY = (pdf as any).lastAutoTable?.finalY ?? 40
-        pdf.setFontSize(10)
-        pdf.setTextColor(80)
-        pdf.text('Operaciones Independientes', 14, finalY + 8)
-        pdf.setTextColor(0)
+      document.body.appendChild(clone)
+      const canvas = await html2canvas(clone, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      })
+      document.body.removeChild(clone)
 
-        const indBody: string[][] = []
-        const indColors: Map<string, string> = new Map()
-        for (const op of unconnected) {
-          indBody.push([`F${op.fraccion}`, op.operacion, op.input_o_proceso, op.recurso || ''])
-          indColors.set(`${indBody.length - 1},0`, processColor(op.input_o_proceso))
-        }
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const orientation = imgW > imgH ? 'landscape' : 'portrait'
+      const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const margin = 10
+      const maxW = pageW - margin * 2
+      const scale = maxW / imgW
+      const finalW = maxW
+      const finalH = imgH * scale
 
-        autoTable(pdf, {
-          startY: finalY + 11,
-          head: [['Fraccion', 'Operacion', 'Proceso', 'Recurso']],
-          body: indBody,
-          theme: 'grid',
-          styles: { fontSize: 7, cellPadding: 2, textColor: [30, 30, 30], lineColor: [200, 200, 200], lineWidth: 0.3 },
-          headStyles: { fillColor: [240, 240, 240], textColor: [50, 50, 50], fontStyle: 'bold', halign: 'center' },
-          didParseCell: cellHook(indColors),
-        })
-      }
+      // Title
+      pdf.setFontSize(14)
+      pdf.text(title || 'Cascada de Precedencias', margin, 12)
+      pdf.setFontSize(8)
+      pdf.setTextColor(120)
+      pdf.text(new Date().toLocaleDateString('es-MX'), margin, 17)
+      pdf.setTextColor(0)
 
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 20, finalW, finalH)
       pdf.save(`${title || 'cascada'}.pdf`)
     } catch (err) {
       console.error('[CascadeEditor] PDF export failed:', err)
     } finally {
       setExporting(false)
     }
-  }, [title, displayGrid, totalCols, opMap, arrowMap, operaciones, spanMap, skipSet, getEffectiveFrac])
+  }, [title])
 
   // DnD state
   const [dragFrac, setDragFrac] = useState<number | null>(null)
@@ -807,7 +728,7 @@ export function CascadeEditor({
       </div>
 
       {/* Grid */}
-      <div className="border rounded-lg overflow-x-auto">
+      <div ref={gridRef} className="border rounded-lg overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="bg-muted/50 border-b">
