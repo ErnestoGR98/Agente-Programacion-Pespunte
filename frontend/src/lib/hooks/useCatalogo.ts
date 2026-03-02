@@ -225,6 +225,22 @@ export function useCatalogo() {
 
   async function deleteOperacion(id: string, modeloId: string) {
     await supabase.from('catalogo_operaciones').delete().eq('id', id)
+    // Renumerar fracciones para que sean consecutivas (1,2,3...)
+    const { data: remaining } = await supabase
+      .from('catalogo_operaciones')
+      .select('id, fraccion')
+      .eq('modelo_id', modeloId)
+      .order('fraccion')
+    if (remaining) {
+      for (let i = 0; i < remaining.length; i++) {
+        const expected = i + 1
+        if (remaining[i].fraccion !== expected) {
+          await supabase.from('catalogo_operaciones')
+            .update({ fraccion: expected })
+            .eq('id', remaining[i].id)
+        }
+      }
+    }
     await refreshModeloTotals(modeloId)
     await load()
   }
