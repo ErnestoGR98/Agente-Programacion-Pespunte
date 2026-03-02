@@ -378,7 +378,7 @@ class OptimizeRequest(BaseModel):
     pedido_nombre: str
     semana: str = ""
     nota: str = ""
-    reopt_from_day: Optional[int] = None
+    reopt_from_day: Optional[str] = None  # day name e.g. "Mie", or null
 
 
 class OptimizeResponse(BaseModel):
@@ -404,8 +404,18 @@ def run_optimization(req: OptimizeRequest):
     if not pedido:
         raise HTTPException(404, f"Pedido '{req.pedido_nombre}' no encontrado")
 
-    # --- Diagnosticos: validar datos antes de optimizar ---
+    # --- Resolver reopt_from_day: nombre → indice en params.days ---
     days = params.get("days", [])
+    reopt_day_idx = None
+    if req.reopt_from_day:
+        day_name_list = [d["name"] for d in days]
+        if req.reopt_from_day in day_name_list:
+            reopt_day_idx = day_name_list.index(req.reopt_from_day)
+            print(f"[OPT] reopt_from_day: '{req.reopt_from_day}' → idx {reopt_day_idx} in {day_name_list}")
+        else:
+            print(f"[OPT] WARNING: reopt_from_day '{req.reopt_from_day}' not found in {day_name_list}")
+
+    # --- Diagnosticos: validar datos antes de optimizar ---
     print(f"[OPT] dias_laborales: {len(days)} dias")
     for d in days:
         print(f"  {d['name']}: {d['minutes']}min, plantilla={d['plantilla']}")
@@ -454,7 +464,7 @@ def run_optimization(req: OptimizeRequest):
     # 3. Compilar restricciones
     compiled = compile_constraints(
         restricciones, avance_data, matched, params["days"],
-        reopt_from_day=req.reopt_from_day,
+        reopt_from_day=reopt_day_idx,
     )
 
     # 4. Ajustar volumenes
@@ -467,10 +477,10 @@ def run_optimization(req: OptimizeRequest):
         if mn in compiled.volume_overrides:
             m["total_producir"] = compiled.volume_overrides[mn]
         if mn in compiled.avance:
-            if req.reopt_from_day is not None:
+            if reopt_day_idx is not None:
                 already = sum(
                     p for dn, p in compiled.avance[mn].items()
-                    if dn in day_names and day_names.index(dn) < req.reopt_from_day
+                    if dn in day_names and day_names.index(dn) < reopt_day_idx
                 )
             else:
                 already = sum(compiled.avance[mn].values())
@@ -550,8 +560,8 @@ def run_optimization(req: OptimizeRequest):
 
     # 10. Preservar dias congelados del resultado anterior (reopt_from_day)
     base_name = req.semana or req.pedido_nombre
-    if req.reopt_from_day is not None and req.reopt_from_day > 0:
-        frozen_day_names = {d["name"] for i, d in enumerate(days) if i < req.reopt_from_day}
+    if reopt_day_idx is not None and reopt_day_idx > 0:
+        frozen_day_names = {d["name"] for i, d in enumerate(days) if i < reopt_day_idx}
         prev = _sb_get(
             "resultados",
             f"select=daily_results,weekly_schedule&base_name=eq.{base_name}"

@@ -379,7 +379,7 @@ export interface OptimizeRequest {
   pedido_nombre: string
   semana: string
   nota: string
-  reopt_from_day?: number | null
+  reopt_from_day?: string | null
 }
 
 export interface OptimizeResponse {

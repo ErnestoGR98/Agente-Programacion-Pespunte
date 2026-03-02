@@ -48,12 +48,12 @@ export function TopBar() {
     setError(null)
 
     try {
-      const dayIndex = reoptFromDay && reoptFromDay !== 'all' ? DAY_ORDER.indexOf(reoptFromDay as typeof DAY_ORDER[number]) : null
+      const reoptDay = reoptFromDay && reoptFromDay !== 'all' ? reoptFromDay : null
       const res = await runOptimization({
         pedido_nombre: currentPedidoNombre,
         semana: currentSemana || '',
         nota,
-        reopt_from_day: dayIndex !== null && dayIndex >= 0 ? dayIndex : null,
+        reopt_from_day: reoptDay,
       })
 
       const { data } = await supabase
