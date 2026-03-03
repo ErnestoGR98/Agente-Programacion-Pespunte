@@ -644,8 +644,13 @@ export function CascadeEditor({
       }
     }
 
+    // Remove cross-row duplicates of the direct connection (can happen with rowSpan)
+    const filteredCross = directRule && curFrac != null && nxtFrac != null
+      ? crossRowConns.filter((c) => !(c.fromFrac === curFrac && c.toFrac === nxtFrac))
+      : crossRowConns
+
     const showFadedArrow = hasDirectPair && !directRule
-    if (!directRule && !showFadedArrow && crossRowConns.length === 0) return null
+    if (!directRule && !showFadedArrow && filteredCross.length === 0) return null
 
     return (
       <div className="flex flex-col items-center gap-0.5">
@@ -672,7 +677,7 @@ export function CascadeEditor({
           ) : null
         )}
 
-        {crossRowConns.map((c, i) => {
+        {filteredCross.map((c, i) => {
           const isForward = c.fromFrac === curFrac
           const label = isForward ? `\u2192 F${c.toFrac}` : `F${c.fromFrac} \u2192`
           return (
