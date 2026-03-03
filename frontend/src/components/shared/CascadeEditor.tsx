@@ -459,13 +459,40 @@ export function CascadeEditor({
       pdf.setTextColor(0)
 
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 20, finalW, finalH)
+
+      // 5. Add unplaced operations section
+      const unplacedOps = effectiveOps.filter((op) => !placed.has(op.fraccion))
+      if (unplacedOps.length > 0) {
+        let y = 20 + finalH + 8
+        const pageH = pdf.internal.pageSize.getHeight()
+        if (y + 20 > pageH) { pdf.addPage(); y = margin }
+
+        pdf.setFontSize(10)
+        pdf.setTextColor(80)
+        pdf.text('Operaciones sin asignar', margin, y)
+        y += 5
+
+        pdf.setFontSize(8)
+        pdf.setTextColor(60)
+        for (const op of unplacedOps) {
+          if (y + 5 > pageH) { pdf.addPage(); y = margin }
+          const gi = groupInfo.get(op.fraccion)
+          const label = gi
+            ? `${gi.stage} (F${gi.fracs[0]}\u2013F${gi.fracs[gi.fracs.length - 1]}, ${gi.fracs.length} ops)`
+            : `F${op.fraccion} \u2014 ${op.operacion} [${op.input_o_proceso}]`
+          pdf.text(`\u2022  ${label}`, margin + 2, y)
+          y += 4
+        }
+        pdf.setTextColor(0)
+      }
+
       pdf.save(`${title || 'cascada'}.pdf`)
     } catch (err) {
       console.error('[CascadeEditor] PDF export failed:', err)
     } finally {
       setExporting(false)
     }
-  }, [title])
+  }, [title, effectiveOps, placed, groupInfo])
 
   // DnD state
   const [dragFrac, setDragFrac] = useState<number | null>(null)
