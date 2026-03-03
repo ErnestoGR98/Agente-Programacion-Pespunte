@@ -595,10 +595,8 @@ export function CascadeEditor({
   const [editType, setEditType] = useState<'todo' | 'numero'>('numero')
   const [editVal, setEditVal] = useState('0')
 
-  // Manual connect state
-  const [showConnect, setShowConnect] = useState(false)
-  const [connectFrom, setConnectFrom] = useState<string>('')
-  const [connectTo, setConnectTo] = useState<string>('')
+  // Visual connect mode: click card A → click card B → open buffer modal
+  const [linkFrom, setLinkFrom] = useState<number | null>(null)
 
   // ─── Card resize (stretch to span multiple rows) ─────────────────
   const [resizeSpan, setResizeSpan] = useState<{ key: string; span: number } | null>(null)
@@ -967,21 +965,22 @@ export function CascadeEditor({
     for (const id of rulesToDelete) await onDeleteEdge(id)
   }
 
-  function openManualConnect() {
-    setConnectFrom('')
-    setConnectTo('')
-    setShowConnect(true)
-  }
-
-  async function submitManualConnect() {
-    const from = parseInt(connectFrom)
-    const to = parseInt(connectTo)
-    if (isNaN(from) || isNaN(to) || from === to) return
-    setShowConnect(false)
-    // Open buffer modal in create mode so user can set buffer value
-    setEditArrow({ mode: 'create', reglaId: null, fromFrac: from, toFrac: to, buffer: 0 })
-    setEditType('numero')
-    setEditVal('0')
+  function handleCardClick(frac: number) {
+    if (linkFrom == null) return // not in connect mode
+    if (linkFrom === -1) {
+      // Waiting for source — select it
+      setLinkFrom(frac)
+    } else if (linkFrom === frac) {
+      // Clicked same card — go back to waiting
+      setLinkFrom(-1)
+    } else {
+      // Have source, this is destination — open buffer modal
+      const from = linkFrom
+      setLinkFrom(null)
+      setEditArrow({ mode: 'create', reglaId: null, fromFrac: from, toFrac: frac, buffer: 0 })
+      setEditType('numero')
+      setEditVal('0')
+    }
   }
 
   // ─── Render ─────────────────────────────────────────────────────────
@@ -999,9 +998,16 @@ export function CascadeEditor({
             Operaciones — arrastra a la tabla ({unplacedCount} sin asignar)
           </h4>
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={openManualConnect}>
-              <Link className="mr-1 h-3 w-3" /> Conectar
-            </Button>
+            {linkFrom != null ? (
+              <Button size="sm" variant="destructive" className="h-7 text-[10px] animate-pulse" onClick={() => setLinkFrom(null)}>
+                <X className="mr-1 h-3 w-3" />
+                {linkFrom === -1 ? 'Selecciona origen...' : `F${linkFrom} → selecciona destino...`}
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => setLinkFrom(-1)}>
+                <Link className="mr-1 h-3 w-3" /> Conectar
+              </Button>
+            )}
             <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={exportPdf} disabled={exporting}>
               <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
             </Button>
@@ -1146,11 +1152,17 @@ export function CascadeEditor({
                       >
                         {op && groupInfo.has(frac!) ? (() => {
                           const gi = groupInfo.get(frac!)!
+                          const isLinkSource = linkFrom === frac
+                          const isLinkTarget = linkFrom != null && linkFrom !== -1 && linkFrom !== frac
                           return (
                             <div
                               data-frac={frac}
-                              className="group relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none transition-all"
+                              className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none transition-all ${
+                                isLinkSource ? 'ring-2 ring-emerald-500' : ''
+                              } ${isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
+                              } ${linkFrom === -1 ? 'cursor-pointer hover:ring-2 hover:ring-emerald-500/50' : ''}`}
                               style={{ borderLeftColor: color }}
+                              onClick={linkFrom != null ? () => handleCardClick(frac!) : undefined}
                             >
                               <div className="flex items-center gap-1.5 mb-1">
                                 <Layers className="h-3.5 w-3.5" style={{ color }} />
@@ -1172,11 +1184,17 @@ export function CascadeEditor({
                             </div>
                           )
                         })() : op ? (() => {
+                          const isLinkSource = linkFrom === frac
+                          const isLinkTarget = linkFrom != null && linkFrom !== -1 && linkFrom !== frac
                           return (
                           <div
                             data-frac={frac}
-                            className="group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none transition-all"
+                            className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none transition-all ${
+                              isLinkSource ? 'ring-2 ring-emerald-500' : ''
+                            } ${isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
+                            } ${linkFrom === -1 ? 'cursor-pointer hover:ring-2 hover:ring-emerald-500/50' : ''}`}
                             style={{ borderLeftColor: color }}
+                            onClick={linkFrom != null ? () => handleCardClick(frac!) : undefined}
                           >
                             <button
                               className="absolute -top-1.5 -right-1.5 bg-destructive/80 hover:bg-destructive rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
@@ -1263,54 +1281,6 @@ export function CascadeEditor({
         )}
       </div>
       </div>
-
-      {/* Manual connect modal */}
-      {showConnect && (
-        <div className="fixed inset-0 z-50 bg-black/20" onClick={() => setShowConnect(false)}>
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card border rounded-lg shadow-lg p-4 min-w-[320px] z-50"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="text-sm font-medium mb-3">Conectar operaciones</div>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="space-y-1 flex-1">
-                <span className="text-[10px] text-muted-foreground">Desde</span>
-                <Select value={connectFrom} onValueChange={setConnectFrom}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Origen..." /></SelectTrigger>
-                  <SelectContent>
-                    {operaciones.map((op) => (
-                      <SelectItem key={op.fraccion} value={String(op.fraccion)}>
-                        F{op.fraccion} — {op.operacion}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <span className="text-muted-foreground mt-4">&rarr;</span>
-              <div className="space-y-1 flex-1">
-                <span className="text-[10px] text-muted-foreground">Hasta</span>
-                <Select value={connectTo} onValueChange={setConnectTo}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Destino..." /></SelectTrigger>
-                  <SelectContent>
-                    {operaciones.filter((op) => String(op.fraccion) !== connectFrom).map((op) => (
-                      <SelectItem key={op.fraccion} value={String(op.fraccion)}>
-                        F{op.fraccion} — {op.operacion}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="text-xs" onClick={submitManualConnect}
-                disabled={!connectFrom || !connectTo || connectFrom === connectTo}>
-                Siguiente
-              </Button>
-              <Button size="sm" variant="ghost" className="text-xs" onClick={() => setShowConnect(false)}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Buffer modal */}
       {editArrow && (
