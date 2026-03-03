@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Trash2, Plus, X, Download, Layers } from 'lucide-react'
+import { Trash2, Plus, X, Download, Layers, Link } from 'lucide-react'
 
 // ─── Props ───────────────────────────────────────────────────────────
 
@@ -595,6 +595,11 @@ export function CascadeEditor({
   const [editType, setEditType] = useState<'todo' | 'numero'>('numero')
   const [editVal, setEditVal] = useState('0')
 
+  // Manual connect state
+  const [showConnect, setShowConnect] = useState(false)
+  const [connectFrom, setConnectFrom] = useState<string>('')
+  const [connectTo, setConnectTo] = useState<string>('')
+
   // ─── Card resize (stretch to span multiple rows) ─────────────────
   const [resizeSpan, setResizeSpan] = useState<{ key: string; span: number } | null>(null)
   const [isResizing, setIsResizing] = useState(false)
@@ -962,6 +967,23 @@ export function CascadeEditor({
     for (const id of rulesToDelete) await onDeleteEdge(id)
   }
 
+  function openManualConnect() {
+    setConnectFrom('')
+    setConnectTo('')
+    setShowConnect(true)
+  }
+
+  async function submitManualConnect() {
+    const from = parseInt(connectFrom)
+    const to = parseInt(connectTo)
+    if (isNaN(from) || isNaN(to) || from === to) return
+    setShowConnect(false)
+    // Open buffer modal in create mode so user can set buffer value
+    setEditArrow({ mode: 'create', reglaId: null, fromFrac: from, toFrac: to, buffer: 0 })
+    setEditType('numero')
+    setEditVal('0')
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────
 
   if (operaciones.length === 0) {
@@ -976,9 +998,14 @@ export function CascadeEditor({
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Operaciones — arrastra a la tabla ({unplacedCount} sin asignar)
           </h4>
-          <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={exportPdf} disabled={exporting}>
-            <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={openManualConnect}>
+              <Link className="mr-1 h-3 w-3" /> Conectar
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={exportPdf} disabled={exporting}>
+              <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
+            </Button>
+          </div>
         </div>
         {uniqueStages.length > 1 && (
           <div className="flex items-center gap-1.5 mb-2">
@@ -1236,6 +1263,54 @@ export function CascadeEditor({
         )}
       </div>
       </div>
+
+      {/* Manual connect modal */}
+      {showConnect && (
+        <div className="fixed inset-0 z-50 bg-black/20" onClick={() => setShowConnect(false)}>
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card border rounded-lg shadow-lg p-4 min-w-[320px] z-50"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="text-sm font-medium mb-3">Conectar operaciones</div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="space-y-1 flex-1">
+                <span className="text-[10px] text-muted-foreground">Desde</span>
+                <Select value={connectFrom} onValueChange={setConnectFrom}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Origen..." /></SelectTrigger>
+                  <SelectContent>
+                    {operaciones.map((op) => (
+                      <SelectItem key={op.fraccion} value={String(op.fraccion)}>
+                        F{op.fraccion} — {op.operacion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-muted-foreground mt-4">&rarr;</span>
+              <div className="space-y-1 flex-1">
+                <span className="text-[10px] text-muted-foreground">Hasta</span>
+                <Select value={connectTo} onValueChange={setConnectTo}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Destino..." /></SelectTrigger>
+                  <SelectContent>
+                    {operaciones.filter((op) => String(op.fraccion) !== connectFrom).map((op) => (
+                      <SelectItem key={op.fraccion} value={String(op.fraccion)}>
+                        F{op.fraccion} — {op.operacion}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="text-xs" onClick={submitManualConnect}
+                disabled={!connectFrom || !connectTo || connectFrom === connectTo}>
+                Siguiente
+              </Button>
+              <Button size="sm" variant="ghost" className="text-xs" onClick={() => setShowConnect(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Buffer modal */}
       {editArrow && (
