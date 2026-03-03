@@ -287,8 +287,13 @@ export function CascadeEditor({
     const s = new Set<number>()
     for (const [, frac] of derived.placements) s.add(frac)
     for (const [, frac] of manualPlacements) s.add(frac)
-    // Mark all collapsed fracs as placed (greyed out in palette)
-    for (const f of collapsedFracSet) s.add(f)
+    // Mark non-representative collapsed fracs as placed (hidden from palette)
+    for (const f of collapsedFracSet) {
+      // Don't mark representative fracs — they appear as group cards in palette
+      let isRep = false
+      for (const [rep] of groupInfo) { if (rep === f) { isRep = true; break } }
+      if (!isRep) s.add(f)
+    }
     return s
   }, [derived.placements, manualPlacements, collapsedFracSet])
   const placedRef = useRef(placed)
@@ -710,7 +715,12 @@ export function CascadeEditor({
       const ownerFrac = findOwnerSource(row, col, freshGrid)
       if (ownerFrac != null && ownerFrac !== frac) {
         try {
-          await onConnect([ownerFrac], [frac], 0)
+          // Use all group fracs for collapsed stages
+          const ownerGroup = groupInfo.get(ownerFrac)
+          const droppedGroup = groupInfo.get(frac)
+          const origFracs = ownerGroup ? ownerGroup.fracs : [ownerFrac]
+          const destFracs = droppedGroup ? droppedGroup.fracs : [frac]
+          await onConnect(origFracs, destFracs, 0)
         } catch (err) {
           console.warn('[CascadeEditor] auto-create failed:', err)
         }
@@ -814,10 +824,29 @@ export function CascadeEditor({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          {operaciones.map((op) => {
+          {effectiveOps.map((op) => {
             const isPlaced = placed.has(op.fraccion)
             const color = processColor(op.input_o_proceso)
-            return (
+            const gi = groupInfo.get(op.fraccion)
+            return gi ? (
+              <div
+                key={`g-${op.fraccion}`}
+                draggable={!isPlaced}
+                onDragStart={!isPlaced ? (e) => handleDragStart(e, op.fraccion) : undefined}
+                className={`rounded-md border-l-4 bg-card border shadow-sm px-2.5 py-1.5 w-48 select-none transition-opacity ${
+                  isPlaced ? 'opacity-30 cursor-default' : 'cursor-grab active:cursor-grabbing hover:shadow-md'
+                }`}
+                style={{ borderLeftColor: color }}
+              >
+                <div className="flex items-center gap-1">
+                  <Layers className="h-3 w-3" style={{ color }} />
+                  <span className="text-[10px] font-bold" style={{ color }}>{gi.stage}</span>
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono">
+                  F{gi.fracs[0]}&ndash;F{gi.fracs[gi.fracs.length - 1]} &middot; {gi.fracs.length} ops
+                </div>
+              </div>
+            ) : (
               <div
                 key={op.fraccion}
                 draggable={!isPlaced}
