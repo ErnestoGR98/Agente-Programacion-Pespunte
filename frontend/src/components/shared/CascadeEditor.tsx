@@ -74,18 +74,32 @@ function deriveGrid(
     return { grid: empty, placements, groupBoundaries: [] }
   }
 
+  // Compute depths via topological order (Kahn's algorithm) — immune to cycles
   const depth = new Map<number, number>()
-  const roots = [...connectedFracs].filter((f) => predecessors.get(f)!.size === 0).sort((a, b) => a - b)
+  const inDeg = new Map<number, number>()
+  for (const f of connectedFracs) inDeg.set(f, 0)
+  for (const [, dsts] of adj) {
+    for (const d of dsts) {
+      if (connectedFracs.has(d)) inDeg.set(d, (inDeg.get(d) || 0) + 1)
+    }
+  }
+  const roots = [...connectedFracs].filter((f) => (inDeg.get(f) || 0) === 0).sort((a, b) => a - b)
   const queue: number[] = [...roots]
   for (const r of roots) depth.set(r, 0)
   while (queue.length > 0) {
     const cur = queue.shift()!
-    const curDepth = depth.get(cur)!
+    const curDepth = depth.get(cur) ?? 0
     for (const next of (adj.get(cur) || []).sort((a, b) => a - b)) {
+      if (!connectedFracs.has(next)) continue
       const newDepth = curDepth + 1
-      if (!depth.has(next) || depth.get(next)! < newDepth) { depth.set(next, newDepth); queue.push(next) }
+      if (!depth.has(next) || depth.get(next)! < newDepth) depth.set(next, newDepth)
+      const newIn = (inDeg.get(next) || 1) - 1
+      inDeg.set(next, newIn)
+      if (newIn <= 0) queue.push(next)
     }
   }
+  // Nodes in cycles won't be visited — assign them depth 0
+  for (const f of connectedFracs) { if (!depth.has(f)) depth.set(f, 0) }
 
   const visited = new Set<number>()
   const chains: number[][] = []
@@ -504,8 +518,10 @@ export function CascadeEditor({
   function handleLinkClick(frac: number) {
     if (linkFrom === frac) { setLinkFrom(null); return }
     if (linkFrom != null) {
-      // Second click — open buffer modal to create connection
-      openBufferEdit(linkFrom, frac)
+      // Second click — open buffer modal to create connection (skip if cycle)
+      if (!wouldCreateCycle(linkFrom, frac)) {
+        openBufferEdit(linkFrom, frac)
+      }
       setLinkFrom(null)
       return
     }
@@ -570,10 +586,10 @@ export function CascadeEditor({
           }
           return null
         }
-        // Grow: create connections for newly covered rows
+        // Grow: create connections for newly covered rows (skip if it would create a cycle)
         for (let r = info.row + info.initialSpan; r < info.row + info.span; r++) {
           const parentFrac = findLeftNeighbor(r, info.col)
-          if (parentFrac != null && !arrows.has(`${parentFrac}->${info.frac}`)) {
+          if (parentFrac != null && !arrows.has(`${parentFrac}->${info.frac}`) && !wouldCreateCycle(parentFrac, info.frac)) {
             try { await onConnectRef.current([parentFrac], [info.frac], 0) } catch { /* ignore */ }
           }
         }
@@ -604,6 +620,26 @@ export function CascadeEditor({
   }, [isResizing]) // Only depends on isResizing — callbacks use stable refs
 
   // ─── Helpers ────────────────────────────────────────────────────────
+
+  // Check if adding edge from→to would create a cycle (BFS reachability: to→from)
+  function wouldCreateCycle(from: number, to: number): boolean {
+    if (from === to) return true
+    const visited = new Set<number>()
+    const q = [to]
+    visited.add(to)
+    while (q.length > 0) {
+      const cur = q.shift()!
+      for (const [key] of arrowMapRef.current) {
+        const [src, dst] = key.split('->').map(Number)
+        if (src === cur && !visited.has(dst)) {
+          if (dst === from) return true
+          visited.add(dst)
+          q.push(dst)
+        }
+      }
+    }
+    return false
+  }
 
   // Find the single owning parent at col-1 for a given row.
   // Each parent "owns" from its row downward until the next parent in the same column.
@@ -767,7 +803,7 @@ export function CascadeEditor({
       }
 
       const ownerFrac = findOwnerSource(row, col, freshGrid)
-      if (ownerFrac != null && ownerFrac !== frac) {
+      if (ownerFrac != null && ownerFrac !== frac && !wouldCreateCycle(ownerFrac, frac)) {
         try {
           // Use all group fracs for collapsed stages
           const ownerGroup = groupInfo.get(ownerFrac)
