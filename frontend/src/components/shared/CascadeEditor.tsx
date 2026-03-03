@@ -321,28 +321,29 @@ export function CascadeEditor({
     const spanMap = new Map<string, number>()   // "row,col" → span count
     const skipSet = new Set<string>()           // "row,col" → skip rendering (covered by span)
 
+    // Build frac → row lookup for all placed fracs
+    const fracRow = new Map<number, number>()
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const f = displayGrid[r]?.[c]
+        if (f != null) fracRow.set(f, r)
+      }
+    }
+
     for (let col = 0; col < totalCols; col++) {
       for (let row = 0; row < totalRows; row++) {
         const frac = displayGrid[row]?.[col]
         if (frac == null) continue
 
-        // Find all connected rows in adjacent columns
+        // Find max row across ALL connected fracs (predecessors + successors, any column)
         let maxRow = row
-
-        // Successors in col+1
-        for (let r = 0; r < totalRows; r++) {
-          const target = displayGrid[r]?.[col + 1]
-          if (target != null && arrowMap.has(`${frac}->${target}`)) {
-            maxRow = Math.max(maxRow, r)
-          }
-        }
-
-        // Predecessors in col-1
-        for (let r = 0; r < totalRows; r++) {
-          const source = displayGrid[r]?.[col - 1]
-          if (source != null && arrowMap.has(`${source}->${frac}`)) {
-            maxRow = Math.max(maxRow, r)
-          }
+        for (const [key] of arrowMap) {
+          const idx = key.indexOf('->')
+          const src = parseInt(key.substring(0, idx))
+          const dst = parseInt(key.substring(idx + 2))
+          if (src !== frac && dst !== frac) continue
+          const otherRow = fracRow.get(src === frac ? dst : src)
+          if (otherRow != null) maxRow = Math.max(maxRow, otherRow)
         }
 
         // Only span downward, and only if all cells below are empty
@@ -590,7 +591,7 @@ export function CascadeEditor({
         for (let r = info.row + info.initialSpan; r < info.row + info.span; r++) {
           const parentFrac = findLeftNeighbor(r, info.col)
           if (parentFrac != null && !arrows.has(`${parentFrac}->${info.frac}`) && !wouldCreateCycle(parentFrac, info.frac)) {
-            try { await onConnectRef.current([parentFrac], [info.frac], 0) } catch { /* ignore */ }
+            try { await onConnectRef.current([parentFrac], [info.frac], 0) } catch (err) { console.warn('[CascadeEditor] resize connect:', err) }
           }
         }
         // Shrink: remove connections for rows no longer covered
@@ -599,7 +600,7 @@ export function CascadeEditor({
           if (parentFrac != null) {
             const arrow = arrows.get(`${parentFrac}->${info.frac}`)
             if (arrow) {
-              try { await onDeleteEdgeRef.current(arrow.reglaId) } catch { /* ignore */ }
+              try { await onDeleteEdgeRef.current(arrow.reglaId) } catch (err) { console.warn('[CascadeEditor] resize delete:', err) }
             }
           }
         }
