@@ -562,16 +562,24 @@ export function CascadeEditor({
       if (info) {
         const grid = displayGridRef.current
         const arrows = arrowMapRef.current
+        // Find nearest operation to the left of col in a given row
+        function findLeftNeighbor(row: number, col: number): number | null {
+          for (let c = col - 1; c >= 0; c--) {
+            const f = grid[row]?.[c]
+            if (f != null) return f
+          }
+          return null
+        }
         // Grow: create connections for newly covered rows
         for (let r = info.row + info.initialSpan; r < info.row + info.span; r++) {
-          const parentFrac = grid[r]?.[info.col - 1]
+          const parentFrac = findLeftNeighbor(r, info.col)
           if (parentFrac != null && !arrows.has(`${parentFrac}->${info.frac}`)) {
             try { await onConnectRef.current([parentFrac], [info.frac], 0) } catch { /* ignore */ }
           }
         }
         // Shrink: remove connections for rows no longer covered
         for (let r = info.row + info.span; r < info.row + info.initialSpan; r++) {
-          const parentFrac = grid[r]?.[info.col - 1]
+          const parentFrac = findLeftNeighbor(r, info.col)
           if (parentFrac != null) {
             const arrow = arrows.get(`${parentFrac}->${info.frac}`)
             if (arrow) {
