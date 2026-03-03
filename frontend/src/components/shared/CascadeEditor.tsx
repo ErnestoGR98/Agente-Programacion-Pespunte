@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Trash2, Plus, X, Download, Layers, Link2 } from 'lucide-react'
+import { Trash2, Plus, X, Download, Layers } from 'lucide-react'
 
 // ─── Props ───────────────────────────────────────────────────────────
 
@@ -588,22 +588,6 @@ export function CascadeEditor({
   const [dragFrac, setDragFrac] = useState<number | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
-  // Link mode: click an op's link icon, then click another op to connect them
-  const [linkFrom, setLinkFrom] = useState<number | null>(null)
-
-  function handleLinkClick(frac: number) {
-    if (linkFrom === frac) { setLinkFrom(null); return }
-    if (linkFrom != null) {
-      // Second click — open buffer modal to create connection (skip if cycle)
-      if (!wouldCreateCycle(linkFrom, frac)) {
-        openBufferEdit(linkFrom, frac)
-      }
-      setLinkFrom(null)
-      return
-    }
-    setLinkFrom(frac)
-  }
-
   // Buffer edit modal
   const [editArrow, setEditArrow] = useState<{
     mode: 'edit' | 'create'; reglaId: string | null; fromFrac: number; toFrac: number; buffer: unknown
@@ -1065,15 +1049,6 @@ export function CascadeEditor({
         </div>
       </div>
 
-      {/* Link mode banner */}
-      {linkFrom != null && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs">
-          <Link2 className="h-3.5 w-3.5" />
-          <span>Modo enlace: haz clic en otra operacion para conectar desde <strong>F{linkFrom}</strong></span>
-          <button className="ml-auto text-[10px] underline" onClick={() => setLinkFrom(null)}>Cancelar</button>
-        </div>
-      )}
-
       {/* Grid */}
       <div ref={gridRef} className="border rounded-lg overflow-x-auto">
       <div ref={svgWrapperRef} className="relative" style={{ width: 'fit-content', minWidth: '100%' }}>
@@ -1144,26 +1119,12 @@ export function CascadeEditor({
                       >
                         {op && groupInfo.has(frac!) ? (() => {
                           const gi = groupInfo.get(frac!)!
-                          const isLinkTarget = linkFrom != null && linkFrom !== frac
-                          const isLinkSource = linkFrom === frac
                           return (
                             <div
                               data-frac={frac}
-                              className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none transition-all ${
-                                isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
-                              } ${isLinkSource ? 'ring-2 ring-emerald-500' : ''}`}
+                              className="group relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none transition-all"
                               style={{ borderLeftColor: color }}
-                              onClick={isLinkTarget ? () => handleLinkClick(frac!) : undefined}
                             >
-                              <button
-                                className={`absolute -top-1.5 -left-1.5 rounded-full p-0.5 z-10 transition-opacity ${
-                                  isLinkSource ? 'bg-emerald-500 opacity-100' : 'bg-indigo-500/80 hover:bg-indigo-500 opacity-0 group-hover:opacity-100'
-                                }`}
-                                onClick={(e) => { e.stopPropagation(); handleLinkClick(frac!) }}
-                                title={isLinkSource ? 'Cancelar enlace' : 'Enlazar con otra operacion'}
-                              >
-                                <Link2 className="h-2.5 w-2.5 text-white" />
-                              </button>
                               <div className="flex items-center gap-1.5 mb-1">
                                 <Layers className="h-3.5 w-3.5" style={{ color }} />
                                 <span className="text-xs font-bold" style={{ color }}>{gi.stage}</span>
@@ -1184,30 +1145,16 @@ export function CascadeEditor({
                             </div>
                           )
                         })() : op ? (() => {
-                          const isLinkTarget = linkFrom != null && linkFrom !== frac
-                          const isLinkSource = linkFrom === frac
                           return (
                           <div
                             data-frac={frac}
-                            className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none transition-all ${
-                              isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
-                            } ${isLinkSource ? 'ring-2 ring-emerald-500' : ''}`}
+                            className="group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none transition-all"
                             style={{ borderLeftColor: color }}
-                            onClick={isLinkTarget ? () => handleLinkClick(frac!) : undefined}
                           >
                             <button
                               className="absolute -top-1.5 -right-1.5 bg-destructive/80 hover:bg-destructive rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
                               onClick={() => removeOperation(frac!)}>
                               <X className="h-2.5 w-2.5 text-white" />
-                            </button>
-                            <button
-                              className={`absolute -top-1.5 -left-1.5 rounded-full p-0.5 z-10 transition-opacity ${
-                                isLinkSource ? 'bg-emerald-500 opacity-100' : 'bg-indigo-500/80 hover:bg-indigo-500 opacity-0 group-hover:opacity-100'
-                              }`}
-                              onClick={(e) => { e.stopPropagation(); handleLinkClick(frac!) }}
-                              title={isLinkSource ? 'Cancelar enlace' : 'Enlazar con otra operacion'}
-                            >
-                              <Link2 className="h-2.5 w-2.5 text-white" />
                             </button>
                             <div className="text-[10px] text-muted-foreground font-mono font-bold">F{frac}</div>
                             <div className="text-xs font-medium truncate" title={op.operacion}>{op.operacion}</div>
