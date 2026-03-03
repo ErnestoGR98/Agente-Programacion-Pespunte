@@ -27,6 +27,7 @@ export interface CascadeEditorProps {
 
 interface ArrowInfo { reglaId: string; buffer: unknown }
 interface GroupInfo { stage: string; fracs: number[]; ops: OperacionFull[] }
+interface CrossArrowPos { key: string; x1: number; y1: number; x2: number; y2: number; label: string; fromFrac: number; toFrac: number }
 
 function buildArrowMap(reglas: Restriccion[]): Map<string, ArrowInfo> {
   const map = new Map<string, ArrowInfo>()
@@ -308,6 +309,69 @@ export function CascadeEditor({
     }
     return m
   }, [displayGrid, totalRows, totalCols])
+
+  // ─── Cross-column SVG arrows ──────────────────────────────────────
+  const crossColConns = useMemo(() => {
+    const conns: { src: number; dst: number; buffer: unknown }[] = []
+    for (const [key, arrow] of arrowMap) {
+      const idx = key.indexOf('->')
+      const src = parseInt(key.substring(0, idx))
+      const dst = parseInt(key.substring(idx + 2))
+      const srcCol = fracCol.get(src)
+      const dstCol = fracCol.get(dst)
+      if (srcCol == null || dstCol == null) continue
+      if (Math.abs(dstCol - srcCol) > 1) {
+        conns.push({ src, dst, buffer: arrow.buffer })
+      }
+    }
+    return conns
+  }, [arrowMap, fracCol])
+
+  const [crossArrowPositions, setCrossArrowPositions] = useState<CrossArrowPos[]>([])
+
+  useEffect(() => {
+    if (crossColConns.length === 0) { setCrossArrowPositions([]); return }
+
+    function compute() {
+      const wrapper = gridRef.current
+      if (!wrapper) return
+      const wrapperRect = wrapper.getBoundingClientRect()
+
+      const positions: CrossArrowPos[] = []
+      for (const conn of crossColConns) {
+        const srcEl = wrapper.querySelector(`[data-frac="${conn.src}"]`) as HTMLElement | null
+        const dstEl = wrapper.querySelector(`[data-frac="${conn.dst}"]`) as HTMLElement | null
+        if (!srcEl || !dstEl) continue
+
+        const srcRect = srcEl.getBoundingClientRect()
+        const dstRect = dstEl.getBoundingClientRect()
+
+        const isForward = dstRect.left > srcRect.right
+        const x1 = (isForward ? srcRect.right : srcRect.left) - wrapperRect.left
+        const y1 = srcRect.top + srcRect.height / 2 - wrapperRect.top
+        const x2 = (isForward ? dstRect.left : dstRect.right) - wrapperRect.left
+        const y2 = dstRect.top + dstRect.height / 2 - wrapperRect.top
+
+        const label = conn.buffer === 'todo' ? 'Todo' : `${conn.buffer || 0}p`
+        positions.push({ key: `${conn.src}->${conn.dst}`, x1, y1, x2, y2, label, fromFrac: conn.src, toFrac: conn.dst })
+      }
+      setCrossArrowPositions(positions)
+    }
+
+    const raf = requestAnimationFrame(compute)
+    const observer = new ResizeObserver(() => requestAnimationFrame(compute))
+    const el = gridRef.current
+    if (el) {
+      observer.observe(el)
+      el.addEventListener('scroll', compute)
+    }
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+      el?.removeEventListener('scroll', compute)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crossColConns, displayGrid])
 
   const placed = useMemo(() => {
     const s = new Set<number>()
@@ -1012,7 +1076,7 @@ export function CascadeEditor({
       )}
 
       {/* Grid */}
-      <div ref={gridRef} className="border rounded-lg overflow-x-auto">
+      <div ref={gridRef} className="relative border rounded-lg overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="bg-muted/50 border-b">
@@ -1084,6 +1148,7 @@ export function CascadeEditor({
                           const isLinkSource = linkFrom === frac
                           return (
                             <div
+                              data-frac={frac}
                               className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none transition-all ${
                                 isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
                               } ${isLinkSource ? 'ring-2 ring-emerald-500' : ''}`}
@@ -1123,6 +1188,7 @@ export function CascadeEditor({
                           const isLinkSource = linkFrom === frac
                           return (
                           <div
+                            data-frac={frac}
                             className={`group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none transition-all ${
                               isLinkTarget ? 'ring-2 ring-indigo-500 cursor-pointer' : ''
                             } ${isLinkSource ? 'ring-2 ring-emerald-500' : ''}`}
@@ -1191,6 +1257,32 @@ export function CascadeEditor({
             </tr>
           </tbody>
         </table>
+
+        {/* SVG overlay for cross-column arrows */}
+        {crossArrowPositions.length > 0 && (
+          <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }}>
+            <defs>
+              <marker id="cross-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6" />
+              </marker>
+            </defs>
+            {crossArrowPositions.map((a) => {
+              const dx = a.x2 - a.x1
+              const path = `M ${a.x1},${a.y1} C ${a.x1 + dx * 0.4},${a.y1} ${a.x2 - dx * 0.4},${a.y2} ${a.x2},${a.y2}`
+              const midX = (a.x1 + a.x2) / 2
+              const midY = (a.y1 + a.y2) / 2
+              return (
+                <g key={a.key}>
+                  <path d={path} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeDasharray="6 3" markerEnd="url(#cross-arrow)" opacity="0.7" />
+                  <g style={{ cursor: 'pointer', pointerEvents: 'auto' }} onClick={() => openBufferEdit(a.fromFrac, a.toFrac)}>
+                    <rect x={midX - 22} y={midY - 10} width="44" height="18" rx="4" style={{ fill: 'hsl(var(--card))' }} stroke="#8b5cf6" strokeWidth="1" />
+                    <text x={midX} y={midY} textAnchor="middle" dominantBaseline="central" fill="#8b5cf6" fontSize="10" fontWeight="bold">{a.label}</text>
+                  </g>
+                </g>
+              )
+            })}
+          </svg>
+        )}
       </div>
 
       {/* Buffer modal */}
