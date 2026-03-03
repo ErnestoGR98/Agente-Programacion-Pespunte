@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Trash2, Plus, X, Download } from 'lucide-react'
+import { Trash2, Plus, X, Download, Layers } from 'lucide-react'
 
 // ─── Props ───────────────────────────────────────────────────────────
 
@@ -26,6 +26,7 @@ export interface CascadeEditorProps {
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 interface ArrowInfo { reglaId: string; buffer: unknown }
+interface GroupInfo { stage: string; fracs: number[]; ops: OperacionFull[] }
 
 function buildArrowMap(reglas: Restriccion[]): Map<string, ArrowInfo> {
   const map = new Map<string, ArrowInfo>()
@@ -143,13 +144,91 @@ function processColor(proceso: string): string {
 export function CascadeEditor({
   operaciones, reglas, onConnect, onDeleteEdge, onUpdateBuffer, title,
 }: CascadeEditorProps) {
-  const opMap = useMemo(() => {
-    const m = new Map<number, OperacionFull>()
-    for (const op of operaciones) m.set(op.fraccion, op)
-    return m
+  // ─── Stage collapsing ──────────────────────────────────────────────
+  const [collapsedStages, setCollapsedStages] = useState<Set<string>>(new Set())
+
+  const uniqueStages = useMemo(() => {
+    const stages = new Set<string>()
+    for (const op of operaciones) stages.add(op.input_o_proceso)
+    return [...stages]
   }, [operaciones])
 
-  const arrowMap = useMemo(() => buildArrowMap(reglas), [reglas])
+  function toggleCollapse(stage: string) {
+    setCollapsedStages((prev) => {
+      const next = new Set(prev)
+      if (next.has(stage)) next.delete(stage); else next.add(stage)
+      return next
+    })
+  }
+
+  // Pre-process: collapse stages into virtual representative nodes
+  const { effectiveOps, effectiveReglas, groupInfo, collapsedFracSet } = useMemo(() => {
+    if (collapsedStages.size === 0) {
+      return {
+        effectiveOps: operaciones, effectiveReglas: reglas,
+        groupInfo: new Map<number, GroupInfo>(), collapsedFracSet: new Set<number>(),
+      }
+    }
+
+    const groupInfo = new Map<number, GroupInfo>()
+    const collapsedFracs = new Map<number, number>() // frac → representative
+    const collapsedFracSet = new Set<number>()
+    const effectiveOps: OperacionFull[] = []
+
+    for (const stage of collapsedStages) {
+      const stageOps = operaciones.filter((op) => op.input_o_proceso === stage).sort((a, b) => a.fraccion - b.fraccion)
+      if (stageOps.length === 0) continue
+      const fracs = stageOps.map((op) => op.fraccion)
+      const rep = fracs[0]
+
+      for (const f of fracs) { collapsedFracs.set(f, rep); collapsedFracSet.add(f) }
+      groupInfo.set(rep, { stage, fracs, ops: stageOps })
+
+      effectiveOps.push({
+        ...stageOps[0],
+        fraccion: rep,
+        operacion: `${stage} (F${fracs[0]}\u2013F${fracs[fracs.length - 1]})`,
+      })
+    }
+
+    for (const op of operaciones) {
+      if (!collapsedFracSet.has(op.fraccion)) effectiveOps.push(op)
+    }
+
+    const seenKeys = new Set<string>()
+    const effectiveReglas: Restriccion[] = []
+    for (const r of reglas) {
+      const p = r.parametros as Record<string, unknown>
+      const origFracs = (p.fracciones_origen as number[]) || []
+      const destFracs = (p.fracciones_destino as number[]) || []
+
+      const newOrig = [...new Set(origFracs.map((f) => collapsedFracs.get(f) ?? f))].sort((a, b) => a - b)
+      const newDest = [...new Set(destFracs.map((f) => collapsedFracs.get(f) ?? f))].sort((a, b) => a - b)
+
+      // Skip internal rules within collapsed stage
+      if (newOrig.length === 1 && newDest.length === 1 && newOrig[0] === newDest[0]) continue
+
+      const key = `${newOrig.join(',')}->${newDest.join(',')}`
+      if (seenKeys.has(key)) continue
+      seenKeys.add(key)
+
+      effectiveReglas.push({
+        ...r,
+        parametros: { ...p, fracciones_origen: newOrig, fracciones_destino: newDest },
+      })
+    }
+
+    return { effectiveOps, effectiveReglas, groupInfo, collapsedFracSet }
+  }, [operaciones, reglas, collapsedStages])
+
+  // ─── Derived data from effective (possibly collapsed) ops/reglas ───
+  const opMap = useMemo(() => {
+    const m = new Map<number, OperacionFull>()
+    for (const op of effectiveOps) m.set(op.fraccion, op)
+    return m
+  }, [effectiveOps])
+
+  const arrowMap = useMemo(() => buildArrowMap(effectiveReglas), [effectiveReglas])
   const arrowMapRef = useRef(arrowMap)
   arrowMapRef.current = arrowMap
   // Stable refs for callbacks (avoid useEffect re-runs during drag)
@@ -157,7 +236,7 @@ export function CascadeEditor({
   onConnectRef.current = onConnect
   const onDeleteEdgeRef = useRef(onDeleteEdge)
   onDeleteEdgeRef.current = onDeleteEdge
-  const derived = useMemo(() => deriveGrid(operaciones, reglas), [operaciones, reglas])
+  const derived = useMemo(() => deriveGrid(effectiveOps, effectiveReglas), [effectiveOps, effectiveReglas])
 
   // Manual placements: "row,col" → fraccion
   const [manualPlacements, setManualPlacements] = useState<Map<string, number>>(new Map())
@@ -208,12 +287,14 @@ export function CascadeEditor({
     const s = new Set<number>()
     for (const [, frac] of derived.placements) s.add(frac)
     for (const [, frac] of manualPlacements) s.add(frac)
+    // Mark all collapsed fracs as placed (greyed out in palette)
+    for (const f of collapsedFracSet) s.add(f)
     return s
-  }, [derived.placements, manualPlacements])
+  }, [derived.placements, manualPlacements, collapsedFracSet])
   const placedRef = useRef(placed)
   placedRef.current = placed
 
-  const unplacedCount = operaciones.filter((op) => !placed.has(op.fraccion)).length
+  const unplacedCount = effectiveOps.filter((op) => !placed.has(op.fraccion)).length
 
   // ─── Cell spanning (rowSpan) ──────────────────────────────────────
 
@@ -706,6 +787,32 @@ export function CascadeEditor({
             <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
           </Button>
         </div>
+        {uniqueStages.length > 1 && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <Layers className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground mr-1">Agrupar:</span>
+            {uniqueStages.map((stage) => {
+              const color = processColor(stage)
+              const isCollapsed = collapsedStages.has(stage)
+              const count = operaciones.filter((op) => op.input_o_proceso === stage).length
+              return (
+                <button
+                  key={stage}
+                  onClick={() => toggleCollapse(stage)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all ${
+                    isCollapsed
+                      ? 'border-current shadow-sm'
+                      : 'border-muted-foreground/20 opacity-60 hover:opacity-100'
+                  }`}
+                  style={isCollapsed ? { backgroundColor: color + '20', color, borderColor: color + '50' } : { color }}
+                  title={isCollapsed ? `${stage}: agrupado (${count} ops) — clic para expandir` : `Clic para agrupar ${stage} (${count} ops)`}
+                >
+                  {stage} ({count})
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {operaciones.map((op) => {
             const isPlaced = placed.has(op.fraccion)
@@ -797,7 +904,30 @@ export function CascadeEditor({
                         onDragLeave={frac == null ? handleDragLeave : undefined}
                         onDrop={frac == null ? (e) => handleDrop(e, rowIdx, colIdx) : undefined}
                       >
-                        {op ? (
+                        {op && groupInfo.has(frac!) ? (() => {
+                          const gi = groupInfo.get(frac!)!
+                          return (
+                            <div className="relative rounded-md border-l-4 bg-card border shadow-sm px-3 py-2 select-none"
+                              style={{ borderLeftColor: color }}>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Layers className="h-3.5 w-3.5" style={{ color }} />
+                                <span className="text-xs font-bold" style={{ color }}>{gi.stage}</span>
+                              </div>
+                              <div className="text-[10px] text-muted-foreground font-mono">
+                                F{gi.fracs[0]}\u2013F{gi.fracs[gi.fracs.length - 1]} &middot; {gi.fracs.length} ops
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {gi.ops.slice(0, 4).map((o) => (
+                                  <span key={o.fraccion} className="text-[7px] px-1 py-0.5 rounded bg-muted/50 text-muted-foreground truncate max-w-[80px]"
+                                    title={o.operacion}>F{o.fraccion}</span>
+                                ))}
+                                {gi.ops.length > 4 && (
+                                  <span className="text-[7px] px-1 py-0.5 rounded bg-muted/50 text-muted-foreground">+{gi.ops.length - 4}</span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })() : op ? (
                           <div className="group relative rounded-md border-l-4 bg-card border shadow-sm px-2 py-1.5 select-none"
                             style={{ borderLeftColor: color }}>
                             <button
