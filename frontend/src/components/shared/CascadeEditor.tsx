@@ -333,7 +333,7 @@ export function CascadeEditor({
     if (crossColConns.length === 0) { setCrossArrowPositions([]); return }
 
     function compute() {
-      const wrapper = gridRef.current
+      const wrapper = svgWrapperRef.current
       if (!wrapper) return
       const wrapperRect = wrapper.getBoundingClientRect()
 
@@ -346,11 +346,13 @@ export function CascadeEditor({
         const srcRect = srcEl.getBoundingClientRect()
         const dstRect = dstEl.getBoundingClientRect()
 
+        // Connect at right edge of source → left edge of destination
         const isForward = dstRect.left > srcRect.right
         const x1 = (isForward ? srcRect.right : srcRect.left) - wrapperRect.left
-        const y1 = srcRect.top + srcRect.height / 2 - wrapperRect.top
         const x2 = (isForward ? dstRect.left : dstRect.right) - wrapperRect.left
-        const y2 = dstRect.top + dstRect.height / 2 - wrapperRect.top
+        // Connect at upper-third of card (near operation name, above badges)
+        const y1 = srcRect.top + Math.min(srcRect.height * 0.35, 28) - wrapperRect.top
+        const y2 = dstRect.top + Math.min(dstRect.height * 0.35, 28) - wrapperRect.top
 
         const label = conn.buffer === 'todo' ? 'Todo' : `${conn.buffer || 0}p`
         positions.push({ key: `${conn.src}->${conn.dst}`, x1, y1, x2, y2, label, fromFrac: conn.src, toFrac: conn.dst })
@@ -360,15 +362,11 @@ export function CascadeEditor({
 
     const raf = requestAnimationFrame(compute)
     const observer = new ResizeObserver(() => requestAnimationFrame(compute))
-    const el = gridRef.current
-    if (el) {
-      observer.observe(el)
-      el.addEventListener('scroll', compute)
-    }
+    const el = svgWrapperRef.current
+    if (el) observer.observe(el)
     return () => {
       cancelAnimationFrame(raf)
       observer.disconnect()
-      el?.removeEventListener('scroll', compute)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crossColConns, displayGrid])
@@ -456,6 +454,7 @@ export function CascadeEditor({
 
   const [exporting, setExporting] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
+  const svgWrapperRef = useRef<HTMLDivElement>(null)
 
   const exportPdf = useCallback(async () => {
     if (!gridRef.current) return
@@ -1076,7 +1075,8 @@ export function CascadeEditor({
       )}
 
       {/* Grid */}
-      <div ref={gridRef} className="relative border rounded-lg overflow-x-auto">
+      <div ref={gridRef} className="border rounded-lg overflow-x-auto">
+      <div ref={svgWrapperRef} className="relative" style={{ width: 'fit-content', minWidth: '100%' }}>
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="bg-muted/50 border-b">
@@ -1273,7 +1273,11 @@ export function CascadeEditor({
               const midY = (a.y1 + a.y2) / 2
               return (
                 <g key={a.key}>
+                  {/* Anchor dot at source card */}
+                  <circle cx={a.x1} cy={a.y1} r="4" fill="#8b5cf6" opacity="0.9" />
+                  {/* Curved dashed arrow */}
                   <path d={path} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeDasharray="6 3" markerEnd="url(#cross-arrow)" opacity="0.7" />
+                  {/* Clickable buffer label at midpoint */}
                   <g style={{ cursor: 'pointer', pointerEvents: 'auto' }} onClick={() => openBufferEdit(a.fromFrac, a.toFrac)}>
                     <rect x={midX - 22} y={midY - 10} width="44" height="18" rx="4" style={{ fill: 'hsl(var(--card))' }} stroke="#8b5cf6" strokeWidth="1" />
                     <text x={midX} y={midY} textAnchor="middle" dominantBaseline="central" fill="#8b5cf6" fontSize="10" fontWeight="bold">{a.label}</text>
@@ -1283,6 +1287,7 @@ export function CascadeEditor({
             })}
           </svg>
         )}
+      </div>
       </div>
 
       {/* Buffer modal */}
