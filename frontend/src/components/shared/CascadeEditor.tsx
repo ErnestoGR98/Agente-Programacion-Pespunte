@@ -287,68 +287,71 @@ export function CascadeEditor({
       const html2canvas = (await import('html2canvas-pro')).default
       const { jsPDF } = await import('jspdf')
 
-      // Clone the grid and apply light-mode styles for print
-      const clone = gridRef.current.cloneNode(true) as HTMLElement
-      clone.style.position = 'absolute'
-      clone.style.left = '-9999px'
-      clone.style.top = '0'
-      clone.style.backgroundColor = '#ffffff'
-      clone.style.color = '#1a1a1a'
-      clone.style.width = gridRef.current.scrollWidth + 'px'
-      clone.style.overflow = 'visible'
-      // Force light colors on all elements
-      clone.querySelectorAll('*').forEach((el) => {
-        const h = el as HTMLElement
-        const cs = window.getComputedStyle(h)
-        // Make text dark
-        if (cs.color) h.style.color = '#1a1a1a'
-        // Make light backgrounds stay, dark backgrounds become white
-        const bg = cs.backgroundColor
-        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-          const m = bg.match(/\d+/g)
-          if (m) {
-            const [r, g, b] = m.map(Number)
-            const lum = (r * 299 + g * 587 + b * 114) / 1000
-            if (lum < 60) h.style.backgroundColor = '#ffffff'
-            else if (lum < 128) h.style.backgroundColor = '#f5f5f5'
-          }
+      // Temporarily switch to light mode for the screenshot
+      const root = document.documentElement
+      const wasDark = root.classList.contains('dark')
+      if (wasDark) root.classList.remove('dark')
+      root.classList.add('light')
+      // Small delay for styles to repaint
+      await new Promise((r) => setTimeout(r, 50))
+
+      const hidden: HTMLElement[] = []
+
+      // 1. Hide empty rows + AGREGAR row
+      gridRef.current.querySelectorAll('tbody tr').forEach((tr) => {
+        if ((tr as HTMLElement).textContent?.includes('AGREGAR')) {
+          (tr as HTMLElement).style.display = 'none'
+          hidden.push(tr as HTMLElement)
+          return
         }
-        // Make borders visible
-        if (cs.borderColor) h.style.borderColor = '#d4d4d4'
-      })
-      // Hide empty rows (rows 3,4,5... with just "+" placeholders)
-      clone.querySelectorAll('tr').forEach((tr) => {
-        const cells = tr.querySelectorAll('td')
-        const hasContent = Array.from(cells).some((td) => {
-          const text = td.textContent?.trim() || ''
-          return text !== '' && text !== '+'
+        const hasOp = tr.querySelector('[style*="border-left-color"]') !== null
+        const hasBuf = Array.from(tr.querySelectorAll('button')).some((b) => {
+          const cls = b.className || ''
+          return cls.includes('emerald') || cls.includes('cyan')
         })
-        if (cells.length > 0 && !hasContent) tr.style.display = 'none'
-      })
-      // Hide "AGREGAR +" column/buttons and resize handles
-      clone.querySelectorAll('button, [class*="resize"]').forEach((el) => {
-        (el as HTMLElement).style.display = 'none'
-      })
-      // Hide last th/td in each row (AGREGAR + column)
-      clone.querySelectorAll('tr').forEach((tr) => {
-        const lastTh = tr.querySelector('th:last-child')
-        const lastTd = tr.querySelector('td:last-child')
-        if (lastTh?.textContent?.includes('AGREGAR')) (lastTh as HTMLElement).style.display = 'none'
-        if (lastTd?.textContent?.trim() === '' || lastTd?.textContent?.trim() === '+') {
-          const ths = clone.querySelectorAll('thead th')
-          if (ths.length > 0 && ths[ths.length - 1]?.textContent?.includes('AGREGAR')) {
-            (lastTd as HTMLElement).style.display = 'none'
-          }
+        if (!hasOp && !hasBuf) {
+          (tr as HTMLElement).style.display = 'none'
+          hidden.push(tr as HTMLElement)
         }
       })
 
-      document.body.appendChild(clone)
-      const canvas = await html2canvas(clone, {
+      // 2. Hide non-buffer buttons (X delete, dashed arrows, AGREGAR+)
+      //    Keep buffer pills (emerald/cyan themed)
+      gridRef.current.querySelectorAll('button').forEach((btn) => {
+        const cls = (btn as HTMLElement).className || ''
+        if (cls.includes('emerald') || cls.includes('cyan')) return
+        ;(btn as HTMLElement).style.display = 'none'
+        hidden.push(btn as HTMLElement)
+      })
+
+      // 3. Hide resize handles
+      gridRef.current.querySelectorAll('.cursor-ns-resize').forEach((el) => {
+        (el as HTMLElement).style.display = 'none'
+        hidden.push(el as HTMLElement)
+      })
+
+      // 4. Hide AGREGAR+ column header + last td in each row
+      const thLast = gridRef.current.querySelector('thead tr th:last-child') as HTMLElement | null
+      if (thLast?.textContent?.includes('AGREGAR')) {
+        thLast.style.display = 'none'
+        hidden.push(thLast)
+        gridRef.current.querySelectorAll('tbody tr').forEach((tr) => {
+          const lastTd = tr.querySelector('td:last-child') as HTMLElement | null
+          if (lastTd) { lastTd.style.display = 'none'; hidden.push(lastTd) }
+        })
+      }
+
+      const canvas = await html2canvas(gridRef.current, {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
+        width: gridRef.current.scrollWidth,
       })
-      document.body.removeChild(clone)
+
+      // Restore: unhide elements + restore dark mode
+      hidden.forEach((el) => { el.style.display = '' })
+      root.classList.remove('light')
+      if (wasDark) root.classList.add('dark')
 
       const imgW = canvas.width
       const imgH = canvas.height
