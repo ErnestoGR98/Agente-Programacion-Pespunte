@@ -136,44 +136,79 @@ export function ReglasTab() {
   }
 
   async function graphAutoGenerate() {
-    // Group fracciones by input_o_proceso
+    // Group fracciones by input_o_proceso (stage)
     const groups = new Map<string, number[]>()
     for (const op of operaciones) {
       const list = groups.get(op.input_o_proceso) || []
       list.push(op.fraccion)
       groups.set(op.input_o_proceso, list)
     }
+    // Sort stages by average fraccion number
     const ordered = [...groups.entries()]
       .map(([proceso, fracs]) => ({
         proceso,
         fracs: fracs.sort((a, b) => a - b),
-        avgFrac: fracs.reduce((a, b) => a + b, 0) / fracs.length,
       }))
-      .sort((a, b) => a.avgFrac - b.avgFrac)
-
-    const existingKeys = new Set(
-      precedenciasForModel.map((r) => {
-        const p = r.parametros as Record<string, unknown>
-        const orig = ((p.fracciones_origen as number[]) || []).join(',')
-        const dest = ((p.fracciones_destino as number[]) || []).join(',')
-        return `${orig}->${dest}`
+      .sort((a, b) => {
+        const avgA = a.fracs.reduce((s, f) => s + f, 0) / a.fracs.length
+        const avgB = b.fracs.reduce((s, f) => s + f, 0) / b.fracs.length
+        return avgA - avgB
       })
-    )
+
+    // Collect all existing individual pairs (expanded from group rules too)
+    const existingPairs = new Set<string>()
+    for (const r of precedenciasForModel) {
+      const p = r.parametros as Record<string, unknown>
+      const orig = (p.fracciones_origen as number[]) || []
+      const dest = (p.fracciones_destino as number[]) || []
+      for (const o of orig) {
+        for (const d of dest) {
+          existingPairs.add(`${o}->${d}`)
+        }
+      }
+    }
+
+    // Build virtual grid: each stage = one column, fracs sorted in rows
+    // Use findOwnerSource logic to create connections (same as manual drop)
+    const virtualGrid: (number | null)[][] = []
+    const maxRows = Math.max(...ordered.map((s) => s.fracs.length))
+    for (let r = 0; r < maxRows; r++) {
+      virtualGrid.push(ordered.map((stage) => stage.fracs[r] ?? null))
+    }
 
     const newRows = []
-    for (let i = 0; i < ordered.length - 1; i++) {
-      const key = `${ordered[i].fracs.join(',')}->${ordered[i + 1].fracs.join(',')}`
-      if (!existingKeys.has(key)) {
+    for (let col = 1; col < ordered.length; col++) {
+      for (let row = 0; row < ordered[col].fracs.length; row++) {
+        const destFrac = ordered[col].fracs[row]
+        // Find source: same row in prev column first, then scan up, then down
+        let srcFrac: number | null = null
+        const prevCol = col - 1
+        if (virtualGrid[row]?.[prevCol] != null) {
+          srcFrac = virtualGrid[row][prevCol]
+        } else {
+          for (let r = row - 1; r >= 0; r--) {
+            if (virtualGrid[r]?.[prevCol] != null) { srcFrac = virtualGrid[r][prevCol]; break }
+          }
+          if (srcFrac == null) {
+            for (let r = row + 1; r < maxRows; r++) {
+              if (virtualGrid[r]?.[prevCol] != null) { srcFrac = virtualGrid[r][prevCol]; break }
+            }
+          }
+        }
+        if (srcFrac == null || srcFrac === destFrac) continue
+        const pairKey = `${srcFrac}->${destFrac}`
+        if (existingPairs.has(pairKey)) continue
+        existingPairs.add(pairKey)
         newRows.push({
           semana: null,
           tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
           modelo_num: modelo,
           activa: true,
           parametros: {
-            fracciones_origen: ordered[i].fracs,
-            fracciones_destino: ordered[i + 1].fracs,
+            fracciones_origen: [srcFrac],
+            fracciones_destino: [destFrac],
             buffer_pares: 0,
-            nota: `${ordered[i].proceso} -> ${ordered[i + 1].proceso}`,
+            nota: `${ordered[prevCol].proceso} → ${ordered[col].proceso}`,
           },
         })
       }
