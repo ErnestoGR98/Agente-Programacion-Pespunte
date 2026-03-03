@@ -297,6 +297,18 @@ export function CascadeEditor({
   const displayGridRef = useRef(displayGrid)
   displayGridRef.current = displayGrid
 
+  // Frac → column lookup (for detecting non-adjacent connections)
+  const fracCol = useMemo(() => {
+    const m = new Map<number, number>()
+    for (let r = 0; r < totalRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const f = displayGrid[r]?.[c]
+        if (f != null) m.set(f, c)
+      }
+    }
+    return m
+  }, [displayGrid, totalRows, totalCols])
+
   const placed = useMemo(() => {
     const s = new Set<number>()
     for (const [, frac] of derived.placements) s.add(frac)
@@ -660,6 +672,39 @@ export function CascadeEditor({
       if (f != null) return f
     }
     return null
+  }
+
+  // ─── Non-adjacent connection badges (shown on cards) ─────────────
+  function renderCrossColBadges(frac: number, colIdx: number) {
+    const badges: { fromFrac: number; arrow: ArrowInfo; dir: 'in' | 'out' }[] = []
+    for (const [key, arrow] of arrowMap) {
+      const idx = key.indexOf('->')
+      const src = parseInt(key.substring(0, idx))
+      const dst = parseInt(key.substring(idx + 2))
+      if (src === frac) {
+        const dstCol = fracCol.get(dst)
+        if (dstCol != null && dstCol !== colIdx + 1) badges.push({ fromFrac: dst, arrow, dir: 'out' })
+      }
+      if (dst === frac) {
+        const srcCol = fracCol.get(src)
+        if (srcCol != null && srcCol !== colIdx - 1) badges.push({ fromFrac: src, arrow, dir: 'in' })
+      }
+    }
+    if (badges.length === 0) return null
+    return (
+      <div className="flex flex-wrap gap-0.5 mt-1">
+        {badges.map((b) => (
+          <button key={`${b.dir}-${b.fromFrac}`}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-400 hover:bg-violet-500/20 cursor-pointer transition-colors"
+            onClick={(e) => { e.stopPropagation(); openBufferEdit(b.dir === 'in' ? b.fromFrac : frac, b.dir === 'in' ? frac : b.fromFrac) }}
+            title={`${b.dir === 'in' ? `F${b.fromFrac} → F${frac}` : `F${frac} → F${b.fromFrac}`} (clic para editar buffer)`}
+          >
+            <span className="text-[7px] font-semibold">{b.dir === 'in' ? `← F${b.fromFrac}` : `→ F${b.fromFrac}`}</span>
+            <span className="text-[7px] font-bold">{b.arrow.buffer === 'todo' ? 'Todo' : `${b.arrow.buffer || 0}p`}</span>
+          </button>
+        ))}
+      </div>
+    )
   }
 
   // ─── Buffer rendering ─────────────────────────────────────────────
@@ -1070,6 +1115,7 @@ export function CascadeEditor({
                                   <span className="text-[7px] px-1 py-0.5 rounded bg-muted/50 text-muted-foreground">+{gi.ops.length - 4}</span>
                                 )}
                               </div>
+                              {renderCrossColBadges(frac!, colIdx)}
                             </div>
                           )
                         })() : op ? (() => {
@@ -1101,6 +1147,7 @@ export function CascadeEditor({
                             <div className="text-xs font-medium truncate" title={op.operacion}>{op.operacion}</div>
                             <span className="text-[8px] font-semibold px-1 py-0.5 rounded-full mt-0.5 inline-block"
                               style={{ backgroundColor: color + '20', color }}>{op.input_o_proceso}</span>
+                            {renderCrossColBadges(frac!, colIdx)}
                             {/* Resize handle — drag to stretch card across rows */}
                             <div
                               className="absolute -bottom-1 left-2 right-2 h-3 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex justify-center items-center"
