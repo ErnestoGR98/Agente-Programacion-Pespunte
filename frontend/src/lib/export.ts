@@ -110,7 +110,7 @@ export function exportPedidoWithMaquilaPDF(
   maquilaEntrega: (string | null)[],   // same length as rows — formatted entrega text or null
   modeloImages?: Map<string, string>,
 ) {
-  const doc = new jsPDF({ orientation: 'portrait' })
+  const doc = new jsPDF({ orientation: 'landscape' })
   doc.setFontSize(14)
   doc.text(title.replace(/_/g, ' '), 14, 15)
   doc.setFontSize(8)

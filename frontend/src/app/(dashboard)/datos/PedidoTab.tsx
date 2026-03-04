@@ -31,6 +31,17 @@ function getISOWeek(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
+/** Append local timezone offset to a datetime-local string so Supabase stores it correctly.
+ *  e.g. "2026-03-03T08:00" → "2026-03-03T08:00:00-06:00" */
+function withTZ(dtLocal: string): string {
+  const d = new Date(dtLocal)
+  const off = -d.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  const hh = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')
+  const mm = String(Math.abs(off) % 60).padStart(2, '0')
+  return `${dtLocal}:00${sign}${hh}:${mm}`
+}
+
 export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) {
   const setCurrentPedido = useAppStore((s) => s.setCurrentPedido)
   const catImages = useCatalogoImages()
@@ -516,8 +527,9 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                               className="h-7 w-[170px] rounded border bg-background px-1.5 text-xs"
                                               defaultValue={asig.fecha_entrega ? asig.fecha_entrega.slice(0, 16) : ''}
                                               onBlur={(e) => {
-                                                const val = e.target.value || null
-                                                if (val !== (asig.fecha_entrega?.slice(0, 16) || null)) {
+                                                const raw = e.target.value || null
+                                                const val = raw ? withTZ(raw) : null
+                                                if (raw !== (asig.fecha_entrega?.slice(0, 16) || null)) {
                                                   pedido.updateMaquilaAssignment(asig.id, { fecha_entrega: val })
                                                 }
                                               }}
