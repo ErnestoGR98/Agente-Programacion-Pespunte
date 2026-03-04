@@ -420,6 +420,10 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
   const catImages = useCatalogoImages()
   const rawSchedule = data.schedule || []
   const [cascadeSort, setCascadeSort] = useState(false)
+  const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
+
+  // Clear selection when day changes
+  useEffect(() => { setSelectedOperario(null) }, [dayName])
 
   const schedule = useMemo(() => {
     if (!cascadeSort) return rawSchedule
@@ -554,8 +558,10 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
             <tbody>
               {schedule.map((s, i) => {
                 const bgColor = getEtapaColor(s.etapa)
+                const isHighlighted = selectedOperario != null && s.operario === selectedOperario
+                const isDimmed = selectedOperario != null && s.operario !== selectedOperario
                 return (
-                  <tr key={i} className="border-b hover:bg-accent/30">
+                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
                         {(() => { const u = getModeloImageUrl(catImages, s.modelo); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
@@ -576,7 +582,12 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
                       {s.operario === 'SIN ASIGNAR' ? (
                         <span className="text-[10px] font-medium text-destructive">SIN ASIGNAR</span>
                       ) : s.operario ? (
-                        <span className="text-[10px] font-medium">{s.operario}</span>
+                        <button
+                          className={`text-[10px] font-medium cursor-pointer hover:underline ${isHighlighted ? 'underline text-primary font-bold' : ''}`}
+                          onClick={() => setSelectedOperario(selectedOperario === s.operario ? null : s.operario!)}
+                        >
+                          {s.operario}
+                        </button>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">-</span>
                       )}
