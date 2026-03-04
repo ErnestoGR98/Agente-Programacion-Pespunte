@@ -97,6 +97,9 @@ class CompiledConstraints:
     # fracciones_origen/destino son listas de numeros de fraccion.
     precedences: list = field(default_factory=list)
 
+    # {modelo_num: pares} — pares de maquila que no llegan esta semana (restar del volumen)
+    maquila_pares_unavailable: dict = field(default_factory=dict)
+
     # {modelo_num: day_index} — primer dia permitido para produccion post-maquila
     maquila_earliest_day: dict = field(default_factory=dict)
 

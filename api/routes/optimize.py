@@ -397,8 +397,8 @@ _BLOCK_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 def _load_maquila_delivery_dates(pedido_nombre: str) -> dict:
     """Load maquila delivery dates for the current pedido.
 
-    Returns {modelo_num: latest_fecha_entrega_str} taking the latest
-    fecha_entrega when a model has multiple maquila assignments.
+    Returns {modelo_num: [(fecha_entrega_str, pares), ...]} — all assignments
+    per model so we can handle in-week vs out-of-week deliveries separately.
     """
     # Get pedido id
     ped = _sb_get("pedidos", f"select=id&nombre=eq.{pedido_nombre}")
@@ -415,22 +415,21 @@ def _load_maquila_delivery_dates(pedido_nombre: str) -> dict:
     item_modelo = {it["id"]: it["modelo_num"] for it in items}
 
     # Get maquila assignments with fecha_entrega
-    # Query all assignments for these items
     asigs = _sb_get(
         "asignaciones_maquila",
-        f"select=pedido_item_id,fecha_entrega&pedido_item_id=in.({','.join(item_ids)})"
+        f"select=pedido_item_id,fecha_entrega,pares&pedido_item_id=in.({','.join(item_ids)})"
         f"&fecha_entrega=not.is.null",
     )
 
-    # Group by modelo_num, keep latest fecha_entrega
+    # Group by modelo_num — keep all assignments
     result = {}
     for a in asigs:
         modelo = item_modelo.get(a["pedido_item_id"])
         if not modelo:
             continue
-        fe = a["fecha_entrega"]
-        if modelo not in result or fe > result[modelo]:
-            result[modelo] = fe
+        result.setdefault(modelo, []).append(
+            (a["fecha_entrega"], a.get("pares", 0))
+        )
 
     return result
 
@@ -439,10 +438,10 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
                              day_names: list, matched: list):
     """Convert maquila delivery dates to optimizer constraints.
 
-    For each model with a delivery date:
-    - Find the max MAQUILA fraccion → post-maquila fractions start after that
-    - Map delivery datetime to day_name + block_index
-    - Set maquila_earliest_day (weekly) and maquila_block_restriction (daily)
+    For each model:
+    - Deliveries within the week → scheduling constraint (post-maquila after delivery)
+    - Deliveries after the week → subtract those pares from producible volume
+    - Deliveries before the week start → no restriction (material already here)
     """
     if not semana:
         return
@@ -455,7 +454,10 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
         if dn in day_names:
             day_dates[dn] = monday + timedelta(days=i)
 
-    for modelo_num, fecha_str in delivery_dates.items():
+    first_day_date = min(day_dates[dn].date() for dn in day_names if dn in day_dates)
+    last_day_date = max(day_dates[dn].date() for dn in day_names if dn in day_dates)
+
+    for modelo_num, deliveries in delivery_dates.items():
         # Find matched model data
         model_data = None
         codigos = []
@@ -479,21 +481,50 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
         if max_maq_frac == 0:
             continue  # No maquila ops found
 
-        min_post_frac = max_maq_frac + 1  # First post-maquila fraccion
+        min_post_frac = max_maq_frac + 1
 
-        # Parse delivery datetime
-        try:
-            delivery_dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
-            # Remove timezone info for comparison with naive dates
-            delivery_dt = delivery_dt.replace(tzinfo=None)
-        except (ValueError, AttributeError):
-            compiled.warnings.append(
-                f"MAQUILA_DELIVERY: can't parse fecha_entrega '{fecha_str}'"
-            )
-            continue
+        # Classify each delivery
+        pares_after_week = 0
+        latest_in_week_dt = None  # latest delivery datetime within the week
 
-        delivery_date = delivery_dt.date()
-        delivery_hour = delivery_dt.hour
+        for fecha_str, pares in deliveries:
+            try:
+                dt = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
+                dt = dt.replace(tzinfo=None)
+            except (ValueError, AttributeError):
+                compiled.warnings.append(
+                    f"MAQUILA_DELIVERY: can't parse fecha_entrega '{fecha_str}'"
+                )
+                continue
+
+            d = dt.date()
+            if d > last_day_date:
+                # Delivery after week → these pares can't be produced this week
+                pares_after_week += pares
+                print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: {pares}p entrega {d} "
+                      f"after week, subtracting from volume")
+            elif d < first_day_date:
+                # Delivery before week start → material already available, no restriction
+                print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: {pares}p entrega {d} "
+                      f"before week, no restriction")
+            else:
+                # Delivery within the week
+                if latest_in_week_dt is None or dt > latest_in_week_dt:
+                    latest_in_week_dt = dt
+
+        # Subtract pares that won't arrive this week from volume
+        if pares_after_week > 0:
+            compiled.maquila_pares_unavailable[modelo_num] = \
+                compiled.maquila_pares_unavailable.get(modelo_num, 0) + pares_after_week
+            print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: volume reduced by "
+                  f"{pares_after_week}p (out-of-week deliveries)")
+
+        # Apply scheduling constraint for in-week delivery
+        if latest_in_week_dt is None:
+            continue  # No in-week deliveries
+
+        delivery_date = latest_in_week_dt.date()
+        delivery_hour = latest_in_week_dt.hour
 
         # Map to day_name and day_index
         target_day = None
@@ -505,15 +536,13 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
                 break
 
         if target_day is None:
-            # Delivery falls outside this week's days
-            # If delivery is after last day → restrict all days (model can't produce at all)
-            last_day_date = max(day_dates[dn].date() for dn in day_names if dn in day_dates)
-            if delivery_date > last_day_date:
-                compiled.maquila_earliest_day[modelo_num] = len(day_names)
-                compiled.warnings.append(
-                    f"MAQUILA_DELIVERY: {modelo_num} entrega {delivery_date} after week end"
-                )
-            # If delivery is before first day → no restriction needed
+            continue
+
+        # If delivery is on first day (day_idx 0), no scheduling restriction needed
+        # (material arrives at start of the week)
+        if target_day_idx == 0 and delivery_hour <= 8:
+            print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: entrega {target_day} "
+                  f"at start of week, no restriction")
             continue
 
         # Map hour to block index
@@ -528,20 +557,17 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
         compiled.maquila_earliest_day[modelo_num] = target_day_idx
 
         # Daily constraint: on delivery day, only blocks >= target_block
-        # Also block ALL blocks on days before delivery (for mixed models)
         for codigo in codigos:
-            # Days before delivery: block all blocks (use num_blocks=11 as upper bound)
             for i in range(target_day_idx):
                 compiled.maquila_block_restriction.append(
                     (codigo, day_names[i], 11, min_post_frac)
                 )
-            # Delivery day: block blocks before target_block
             compiled.maquila_block_restriction.append(
                 (codigo, target_day, target_block, min_post_frac)
             )
 
-        print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: entrega {target_day} bloque {target_block} "
-              f"({delivery_dt}), post-maquila fracs >= {min_post_frac}")
+        print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: entrega {target_day} bloque "
+              f"{target_block} ({latest_in_week_dt}), post-maquila fracs >= {min_post_frac}")
 
 
 def _match_models(catalogo: dict, pedido: list) -> list:
@@ -706,6 +732,8 @@ def run_optimization(req: OptimizeRequest):
             m["total_producir"] = max(0, m["total_producir"] - compiled.maquila[mn])
         if mn in compiled.volume_overrides:
             m["total_producir"] = compiled.volume_overrides[mn]
+        if mn in compiled.maquila_pares_unavailable:
+            m["total_producir"] = max(0, m["total_producir"] - compiled.maquila_pares_unavailable[mn])
         if mn in compiled.avance:
             if reopt_day_idx is not None:
                 already = sum(
