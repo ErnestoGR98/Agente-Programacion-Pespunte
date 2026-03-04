@@ -239,8 +239,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     print(f"      [PREC] op{op_o}→op{op_d}, eff_buffer={effective_buffer}")
                     if effective_buffer == 0:
                         # Buffer=0 → conveyor/banda: unidirectional flow
-                        # Destination NEVER produces more than origin
-                        # Origin can be at most ~1 block ahead (tight coupling)
+                        # Destination NEVER produces more than origin (hard)
+                        # Tight coupling via soft penalty (not hard, to avoid
+                        # infeasibility when resources are constrained)
                         rate_o = models_day[target_m]["operations"][op_o]["rate"]
                         rate_d = models_day[target_m]["operations"][op_d]["rate"]
                         block_min = max(tb["minutes"] for tb in time_blocks)
@@ -251,10 +252,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                                            for bb in range(b + 1))
                             cum_dest = sum(x[target_m, op_d, bb]
                                            for bb in range(b + 1))
-                            # Destination NEVER ahead of origin
+                            # Destination NEVER ahead of origin (hard)
                             solver_model.Add(cum_dest <= cum_orig)
-                            # Origin at most max_lead ahead (tight coupling)
-                            solver_model.Add(cum_orig <= cum_dest + max_lead)
                     else:
                         # Buffer>0 → startup delay with proportional transition.
                         # Dest blocked until origin >= buffer; in the transition
