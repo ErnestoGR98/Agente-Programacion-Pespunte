@@ -39,6 +39,7 @@ export default function ProgramaPage() {
   const result = useAppStore((s) => s.currentResult)
   const pedidoNombre = useAppStore((s) => s.currentPedidoNombre)
   const [selectedDay, setSelectedDay] = useState<string>('')
+  const [cascadeSort, setCascadeSort] = useState(false)
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
   const [opMaquilaEntries, setOpMaquilaEntries] = useState<OpMaquilaEntry[]>([])
   const [catalogMaquilaOps, setCatalogMaquilaOps] = useState<CatalogMaquilaOp[]>([])
@@ -280,7 +281,22 @@ export default function ProgramaPage() {
     const groups: ProgramaDayGroup[] = dayNames
       .filter((d) => result.daily_results![d]?.schedule?.length)
       .map((d) => {
-        const sched = result.daily_results![d].schedule
+        const raw = result.daily_results![d].schedule
+        const sched = cascadeSort
+          ? [...raw].sort((a, b) => {
+              const startA = (a.blocks || []).findIndex((v) => v > 0)
+              const startB = (b.blocks || []).findIndex((v) => v > 0)
+              const sA = startA === -1 ? 999 : startA
+              const sB = startB === -1 ? 999 : startB
+              if (sA !== sB) return sA - sB
+              const lastA = (a.blocks || []).findLastIndex((v) => v > 0)
+              const lastB = (b.blocks || []).findLastIndex((v) => v > 0)
+              if (lastA !== lastB) return lastA - lastB
+              const mCmp = a.modelo.localeCompare(b.modelo)
+              if (mCmp !== 0) return mCmp
+              return a.fraccion - b.fraccion
+            })
+          : raw
         return {
           day: d,
           rows: sched.map((s) => [
@@ -293,7 +309,8 @@ export default function ProgramaPage() {
           maquilaCards: cards.length > 0 ? cards : undefined,
         }
       })
-    exportProgramaPDF('programa_completo', headers, groups)
+    const suffix = cascadeSort ? '_cascada' : ''
+    exportProgramaPDF(`programa_completo${suffix}`, headers, groups)
   }
 
   const day = selectedDay || dayNames[0] || ''
@@ -411,15 +428,14 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} />}
+      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: DailyResult; maquilaModelos: Set<string> }) {
+function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void }) {
   const catImages = useCatalogoImages()
   const rawSchedule = data.schedule || []
-  const [cascadeSort, setCascadeSort] = useState(false)
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
 
   // Clear selection when day changes
@@ -527,7 +543,7 @@ function DayView({ dayName, data, maquilaModelos }: { dayName: string; data: Dai
                 variant={cascadeSort ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 text-xs gap-1"
-                onClick={() => setCascadeSort((v) => !v)}
+                onClick={onToggleCascade}
               >
                 <ArrowDownWideNarrow className="h-3.5 w-3.5" />
                 Cascada
