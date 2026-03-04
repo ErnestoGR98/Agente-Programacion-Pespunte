@@ -13,7 +13,7 @@ import type { DailyResult, AsignacionMaquila } from '@/types'
 import { Truck, ArrowDownWideNarrow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { exportProgramaPDF, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
+import { exportProgramaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -38,6 +38,7 @@ interface CatalogMaquilaOp {
 export default function ProgramaPage() {
   const result = useAppStore((s) => s.currentResult)
   const pedidoNombre = useAppStore((s) => s.currentPedidoNombre)
+  const catImages = useCatalogoImages()
   const [selectedDay, setSelectedDay] = useState<string>('')
   const [cascadeSort, setCascadeSort] = useState(false)
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
@@ -245,7 +246,7 @@ export default function ProgramaPage() {
     return { headers, rows }
   }, [result, dayNames])
 
-  function handleGlobalPDF() {
+  async function handleGlobalPDF() {
     if (!result?.daily_results) return
     const maxBlocks = dayNames.reduce((max, d) => {
       const sched = result.daily_results![d]?.schedule || []
@@ -309,8 +310,16 @@ export default function ProgramaPage() {
           maquilaCards: cards.length > 0 ? cards : undefined,
         }
       })
+    // Pre-load modelo images for PDF
+    const allModelos = dayNames.flatMap((d) =>
+      (result.daily_results![d]?.schedule || []).map((s) => s.modelo)
+    )
+    const imgMap = await preloadModeloImages(allModelos, catImages, (num, color) =>
+      getModeloImageUrl(catImages, num, color)
+    )
+
     const suffix = cascadeSort ? '_cascada' : ''
-    exportProgramaPDF(`programa_completo${suffix}`, headers, groups)
+    exportProgramaPDF(`programa_completo${suffix}`, headers, groups, imgMap)
   }
 
   const day = selectedDay || dayNames[0] || ''
@@ -428,13 +437,12 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} />}
+      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void }) {
-  const catImages = useCatalogoImages()
+function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
 
@@ -580,7 +588,7 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade }
                   <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
-                        {(() => { const u = getModeloImageUrl(catImages, s.modelo); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                        {(() => { const [num, ...c] = s.modelo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
                         {s.modelo}
                         {maquilaModelos.has(s.modelo) && (
                           <Truck className="h-3 w-3 text-destructive" />

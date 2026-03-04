@@ -109,6 +109,39 @@ export interface ProgramaDayGroup {
   maquilaCards?: MaquilaCard[]
 }
 
+/** Load an image URL as base64 data URI for jsPDF */
+async function loadImageBase64(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch { return null }
+}
+
+/** Pre-load images for all unique modelos. Returns Map<"64197 NE", base64> */
+export async function preloadModeloImages(
+  modelos: string[],
+  imageMap: { main: Record<string, string>; alts: Record<string, Record<string, string>> },
+  getUrl: (num: string, color?: string) => string | null,
+): Promise<Map<string, string>> {
+  const unique = [...new Set(modelos)]
+  const result = new Map<string, string>()
+  const tasks = unique.map(async (m) => {
+    const [num, ...c] = m.split(' ')
+    const url = getUrl(num, c.join(' '))
+    if (!url) return
+    const b64 = await loadImageBase64(url)
+    if (b64) result.set(m, b64)
+  })
+  await Promise.all(tasks)
+  return result
+}
+
 // Stage colors matching the frontend STAGE_COLORS
 const STAGE_RGB: Record<string, [number, number, number]> = {
   PRELIMINAR: [245, 158, 11],
@@ -139,6 +172,7 @@ export function exportProgramaPDF(
   title: string,
   headers: string[],
   groups: ProgramaDayGroup[],
+  modeloImages?: Map<string, string>,
 ) {
   const doc = new jsPDF({ orientation: 'landscape' })
   // Find where block columns start (after HC)
@@ -237,12 +271,20 @@ export function exportProgramaPDF(
     }
     startY += 5
 
+    const modeloIdx = headers.indexOf('MODELO')
+    const hasImages = modeloImages && modeloImages.size > 0
+    const imgW = 8
+    const imgH = 6
+
     autoTable(doc, {
       head: [headers],
       body: group.rows.map((r) => r.map((c) => String(c))),
       startY,
       styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [37, 99, 235], fontSize: 7 },
+      columnStyles: hasImages && modeloIdx >= 0 ? {
+        [modeloIdx]: { cellWidth: 30, cellPadding: { top: 1, bottom: 1, left: imgW + 3, right: 1.5 } },
+      } : undefined,
       didParseCell(data) {
         if (data.section !== 'body') return
         const rowIdx = data.row.index
@@ -264,6 +306,17 @@ export function exportProgramaPDF(
         if (col === totalIdx) {
           data.cell.styles.fontStyle = 'bold'
         }
+      },
+      didDrawCell(data) {
+        if (!hasImages || data.section !== 'body') return
+        if (data.column.index !== modeloIdx) return
+        const modelo = String(data.cell.raw)
+        const b64 = modeloImages!.get(modelo)
+        if (!b64) return
+        try {
+          const cellY = data.cell.y + (data.cell.height - imgH) / 2
+          doc.addImage(b64, 'JPEG', data.cell.x + 1, cellY, imgW, imgH)
+        } catch { /* skip if image fails */ }
       },
     })
   }
