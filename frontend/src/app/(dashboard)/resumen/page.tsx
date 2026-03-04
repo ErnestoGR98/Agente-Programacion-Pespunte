@@ -18,6 +18,7 @@ import type { WeeklyScheduleEntry } from '@/types'
 import { Truck } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
+import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -104,15 +105,27 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
   if (schedule.length === 0) return null
 
   const exportHeaders = ['Fabrica', 'Modelo', ...pivot.days, 'TOTAL']
-  const exportRows = pivot.data.map((row) => [
-    row.fabrica, row.modelo, ...pivot.days.map((d) => row[d] || 0), row.total,
-  ] as (string | number)[])
+  const grandTotal = pivot.data.reduce((s, r) => s + (Number(r.total) || 0), 0)
+  const exportRows = [
+    ...pivot.data.map((row) => [
+      row.fabrica, row.modelo, ...pivot.days.map((d) => row[d] || 0), row.total,
+    ] as (string | number)[]),
+    ['', 'TOTAL', ...pivot.days.map((d) => pivot.data.reduce((s, r) => s + (Number(r[d]) || 0), 0)), grandTotal],
+  ]
+
+  async function handlePDF() {
+    const modelos = pivot.data.map((r) => String(r.modelo))
+    const imgMap = await preloadModeloImages(modelos, catImages, (num, color) =>
+      getModeloImageUrl(catImages, num, color)
+    )
+    exportTableWithImagesPDF('asignacion_semanal', exportHeaders, exportRows, imgMap, 'Modelo')
+  }
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Asignacion Semanal</CardTitle>
-        <TableExport title="asignacion_semanal" headers={exportHeaders} rows={exportRows} />
+        <TableExport title="asignacion_semanal" headers={exportHeaders} rows={exportRows} onCustomPDF={handlePDF} />
       </CardHeader>
       <CardContent>
         <Table>
@@ -137,7 +150,7 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
                 </TableCell>
                 <TableCell className="font-mono">
                   <span className="flex items-center gap-1">
-                    {(() => { const u = getModeloImageUrl(catImages, String(row.modelo)); return u ? <img src={u} alt={String(row.modelo)} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                    {(() => { const [num, ...c] = String(row.modelo).split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={String(row.modelo)} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
                     {row.modelo}
                   </span>
                 </TableCell>
@@ -150,6 +163,14 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
               </TableRow>
               )
             })}
+            <TableRow className="bg-primary/10 font-bold border-t-2 border-primary/30">
+              <TableCell colSpan={2} className="text-right text-primary">TOTAL</TableCell>
+              {pivot.days.map((d) => {
+                const dayTotal = pivot.data.reduce((s, r) => s + (Number(r[d]) || 0), 0)
+                return <TableCell key={d} className="text-center text-primary">{dayTotal || ''}</TableCell>
+              })}
+              <TableCell className="text-center text-primary">{pivot.data.reduce((s, r) => s + (Number(r.total) || 0), 0).toLocaleString()}</TableCell>
+            </TableRow>
           </TableBody>
         </Table>
       </CardContent>
@@ -202,15 +223,29 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
   if (models.length === 0) return null
 
   const exportHeaders = ['Modelo', 'Volumen', 'Producido', 'Pendiente', 'Completado %', 'Estado']
-  const exportRows = models.map((m) => [
-    m.codigo, m.volumen, m.producido, m.tardiness, m.pct_completado, m.tardiness > 0 ? 'INCOMPLETO' : 'OK',
-  ] as (string | number)[])
+  const totalVol = models.reduce((s, m) => s + m.volumen, 0)
+  const totalProd = models.reduce((s, m) => s + m.producido, 0)
+  const totalTard = models.reduce((s, m) => s + m.tardiness, 0)
+  const exportRows = [
+    ...models.map((m) => [
+      m.codigo, m.volumen, m.producido, m.tardiness, m.pct_completado, m.tardiness > 0 ? 'INCOMPLETO' : 'OK',
+    ] as (string | number)[]),
+    ['TOTAL', totalVol, totalProd, totalTard, '', ''],
+  ]
+
+  async function handlePDF() {
+    const modelos = models.map((m) => m.codigo)
+    const imgMap = await preloadModeloImages(modelos, catImages, (num, color) =>
+      getModeloImageUrl(catImages, num, color)
+    )
+    exportTableWithImagesPDF('detalle_modelos', exportHeaders, exportRows, imgMap, 'Modelo')
+  }
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Detalle por Modelo</CardTitle>
-        <TableExport title="detalle_modelos" headers={exportHeaders} rows={exportRows} />
+        <TableExport title="detalle_modelos" headers={exportHeaders} rows={exportRows} onCustomPDF={handlePDF} />
       </CardHeader>
       <CardContent>
         <Table>
@@ -229,7 +264,7 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
               <TableRow key={m.codigo}>
                 <TableCell className="font-mono">
                   <span className="flex items-center gap-1">
-                    {(() => { const u = getModeloImageUrl(catImages, m.codigo); return u ? <img src={u} alt={m.codigo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
+                    {(() => { const [num, ...c] = m.codigo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={m.codigo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
                     {m.codigo}
                   </span>
                 </TableCell>
@@ -251,6 +286,13 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
                 </TableCell>
               </TableRow>
             ))}
+            <TableRow className="bg-primary/10 font-bold border-t-2 border-primary/30">
+              <TableCell className="text-primary">TOTAL</TableCell>
+              <TableCell className="text-primary">{models.reduce((s, m) => s + m.volumen, 0).toLocaleString()}</TableCell>
+              <TableCell className="text-primary">{models.reduce((s, m) => s + m.producido, 0).toLocaleString()}</TableCell>
+              <TableCell className={models.some((m) => m.tardiness > 0) ? 'text-destructive' : 'text-primary'}>{models.reduce((s, m) => s + m.tardiness, 0)}</TableCell>
+              <TableCell colSpan={2} />
+            </TableRow>
           </TableBody>
         </Table>
       </CardContent>

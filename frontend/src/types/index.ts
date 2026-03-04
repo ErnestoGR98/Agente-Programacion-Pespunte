@@ -239,12 +239,15 @@ export interface AsignacionMaquila {
   maquila: string
   pares: number
   fracciones: number[]
+  fecha_salida: string | null
+  fecha_entrega: string | null
 }
 
 export interface MaquilaOperacion {
   fraccion: number
   operacion: string
   modelo_id: string
+  rate: number
 }
 
 // --- Restricciones ---

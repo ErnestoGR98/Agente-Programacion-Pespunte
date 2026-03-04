@@ -183,6 +183,19 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         if b not in allowed_blocks:
                             solver_model.Add(x[m_idx, op_idx, b] == 0)
 
+    # Maquila delivery: post-maquila fractions can't produce before delivery block
+    if compiled and day_name and compiled.maquila_block_restriction:
+        for (restr_code, restr_day, restr_block, min_frac) in compiled.maquila_block_restriction:
+            if restr_day != day_name:
+                continue
+            for m_idx, model in enumerate(models_day):
+                if model.get("codigo", "") != restr_code:
+                    continue
+                for op_idx, op in enumerate(model["operations"]):
+                    if op.get("fraccion", 0) >= min_frac:
+                        for b in range(min(restr_block, num_blocks)):
+                            solver_model.Add(x[m_idx, op_idx, b] == 0)
+
     # Disabled robots: forzar y[m, op, robot, b] == 0 para robots no disponibles
     if compiled and day_name and compiled.disabled_robots:
         for robot_name, day_blocks in compiled.disabled_robots.items():

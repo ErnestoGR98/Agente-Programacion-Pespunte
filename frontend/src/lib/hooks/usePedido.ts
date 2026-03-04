@@ -28,7 +28,7 @@ export function usePedido() {
       supabase.from('modelo_fabrica').select('*'),
       supabase
         .from('catalogo_operaciones')
-        .select('fraccion, operacion, modelo_id, catalogo_modelos!inner(modelo_num)')
+        .select('fraccion, operacion, modelo_id, rate, catalogo_modelos!inner(modelo_num)')
         .eq('recurso', 'MAQUILA')
         .order('fraccion'),
     ])
@@ -49,6 +49,7 @@ export function usePedido() {
         fraccion: op.fraccion,
         operacion: op.operacion,
         modelo_id: op.modelo_id,
+        rate: op.rate || 0,
       })
     }
     setMaquilaOps(maqOpsMap)
@@ -160,7 +161,7 @@ export function usePedido() {
     if (currentPedidoId) await loadPedido(currentPedidoId)
   }
 
-  async function updateMaquilaAssignment(id: string, data: { pares?: number; fracciones?: number[] }) {
+  async function updateMaquilaAssignment(id: string, data: { pares?: number; fracciones?: number[]; fecha_salida?: string | null; fecha_entrega?: string | null }) {
     await supabase.from('asignaciones_maquila').update(data).eq('id', id)
     if (currentPedidoId) await loadPedido(currentPedidoId)
   }

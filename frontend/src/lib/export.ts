@@ -43,6 +43,64 @@ export function exportToPDF(
 }
 
 /**
+ * Export a simple table as PDF with model images in a specific column.
+ */
+export function exportTableWithImagesPDF(
+  title: string,
+  headers: string[],
+  rows: (string | number)[][],
+  modeloImages: Map<string, string>,
+  imageColHeader = 'Modelo',
+) {
+  const doc = new jsPDF({ orientation: 'landscape' })
+  doc.setFontSize(14)
+  doc.text(title.replace(/_/g, ' '), 14, 15)
+  doc.setFontSize(8)
+  doc.text(new Date().toLocaleDateString('es-MX'), 14, 21)
+
+  const imgColIdx = headers.findIndex((h) => h.toLowerCase() === imageColHeader.toLowerCase())
+  const hasImages = modeloImages.size > 0 && imgColIdx >= 0
+  const imgW = 12
+  const imgH = 9
+
+  autoTable(doc, {
+    head: [headers],
+    body: rows.map((r) => r.map((c) => String(c))),
+    startY: 25,
+    styles: { fontSize: 8, cellPadding: 2, minCellHeight: imgH + 4 },
+    headStyles: { fillColor: [37, 99, 235], fontSize: 8 },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+    columnStyles: hasImages ? {
+      [imgColIdx]: { cellWidth: 35, minCellHeight: imgH + 3, cellPadding: { top: 1.5, bottom: 1.5, left: imgW + 3, right: 1.5 } },
+    } : undefined,
+    didParseCell(data) {
+      if (data.section !== 'body') return
+      // Style TOTAL row (last row)
+      const lastRow = rows[rows.length - 1]
+      if (data.row.index === rows.length - 1 && lastRow.some((c) => String(c).toUpperCase() === 'TOTAL')) {
+        data.cell.styles.fillColor = [37, 99, 235]
+        data.cell.styles.textColor = [255, 255, 255]
+        data.cell.styles.fontStyle = 'bold'
+      }
+    },
+    didDrawCell(data) {
+      if (!hasImages || data.section !== 'body') return
+      if (data.column.index !== imgColIdx) return
+      const val = String(data.cell.raw)
+      const b64 = modeloImages.get(val)
+      if (!b64) return
+      try {
+        const fmt = b64.startsWith('data:image/png') ? 'PNG' : 'JPEG'
+        const cellY = data.cell.y + (data.cell.height - imgH) / 2
+        doc.addImage(b64, fmt, data.cell.x + 1, cellY, imgW, imgH)
+      } catch { /* skip */ }
+    },
+  })
+
+  doc.save(`${title}.pdf`)
+}
+
+/**
  * Export catalog as PDF with per-model sections (separated tables)
  */
 export interface CatalogModelGroup {
@@ -109,8 +167,37 @@ export interface ProgramaDayGroup {
   maquilaCards?: MaquilaCard[]
 }
 
-/** Load an image URL as base64 data URI for jsPDF */
+/** Load an image URL as base64 data URI for jsPDF.
+ *  Uses canvas to normalise any format (PNG/WEBP) → JPEG,
+ *  which avoids the jsPDF format-mismatch crash.
+ *  Falls back to fetch+FileReader if canvas fails. */
 async function loadImageBase64(url: string): Promise<string | null> {
+  // 1. Canvas approach – same CORS behaviour as <img> in the UI
+  try {
+    const dataUrl = await new Promise<string | null>((resolve) => {
+      const img = new window.Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas')
+          c.width = img.naturalWidth
+          c.height = img.naturalHeight
+          const ctx = c.getContext('2d')
+          if (!ctx) { resolve(null); return }
+          // White background (transparent PNGs render black in JPEG)
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, c.width, c.height)
+          ctx.drawImage(img, 0, 0)
+          resolve(c.toDataURL('image/jpeg', 0.85))
+        } catch { resolve(null) }
+      }
+      img.onerror = () => resolve(null)
+      img.src = url
+    })
+    if (dataUrl) return dataUrl
+  } catch { /* fall through */ }
+
+  // 2. Fallback: fetch + FileReader (keeps original MIME)
   try {
     const resp = await fetch(url)
     const blob = await resp.blob()
@@ -314,8 +401,9 @@ export function exportProgramaPDF(
         const b64 = modeloImages!.get(modelo)
         if (!b64) return
         try {
+          const fmt = b64.startsWith('data:image/png') ? 'PNG' : 'JPEG'
           const cellY = data.cell.y + (data.cell.height - imgH) / 2
-          doc.addImage(b64, 'JPEG', data.cell.x + 1, cellY, imgW, imgH)
+          doc.addImage(b64, fmt, data.cell.x + 1, cellY, imgW, imgH)
         } catch { /* skip if image fails */ }
       },
     })

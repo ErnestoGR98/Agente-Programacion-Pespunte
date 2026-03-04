@@ -470,6 +470,25 @@ def _apply_compiled_constraints(solver_model, x, y, models, days, compiled):
                 if d not in allowed:
                     solver_model.Add(x[m, d] == 0)
 
+        # Maquila delivery: no producir post-maquila antes del dia de entrega
+        if modelo_num in compiled.maquila_earliest_day:
+            earliest = compiled.maquila_earliest_day[modelo_num]
+            # Find max maquila fraccion for this model
+            max_maq = max(
+                (op.get("fraccion", 0) for op in model.get("operations", [])
+                 if op.get("recurso") == "MAQUILA"),
+                default=0,
+            )
+            # Check if model has internal ops BEFORE maquila
+            has_pre_maquila_internal = any(
+                op.get("recurso") != "MAQUILA" and op.get("fraccion", 0) <= max_maq
+                for op in model.get("operations", [])
+            )
+            if not has_pre_maquila_internal:
+                # All internal ops are post-maquila → block entire model before delivery day
+                for d in range(min(earliest, num_days)):
+                    solver_model.Add(x[m, d] == 0)
+
         # Frozen days (avance): forzar x[m,d]=0 para dias ya producidos
         if modelo_num in compiled.avance:
             for day_name, pares_done in compiled.avance[modelo_num].items():

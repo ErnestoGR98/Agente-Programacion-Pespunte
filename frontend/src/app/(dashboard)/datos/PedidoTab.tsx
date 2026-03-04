@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, Fragment } from 'react'
+import { useState, useRef, Fragment } from 'react'
 import type { usePedido } from '@/lib/hooks/usePedido'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { importPedido, downloadTemplate } from '@/lib/api/fastapi'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { TableExport } from '@/components/shared/TableExport'
+import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
+import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +20,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Trash2, Plus, Download, CheckCircle, Loader2, Truck, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { Trash2, Plus, Download, CheckCircle, Loader2, Truck, ChevronDown, ChevronRight, X, CalendarClock } from 'lucide-react'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 function getISOWeek(date: Date): number {
@@ -29,8 +31,90 @@ function getISOWeek(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
+// --- Business hours helpers (Lun-Sab 8:00-18:00, 10h/day) ---
+const WORK_START = 8
+const WORK_END = 18
+const WORK_HOURS_DAY = WORK_END - WORK_START // 10
+
+function isWorkDay(d: Date): boolean { return d.getDay() !== 0 } // domingo = 0
+
+/** Clamp a date to the next valid work-start if it falls outside work hours or on Sunday */
+function clampToWork(d: Date): Date {
+  const r = new Date(d)
+  // Skip sunday
+  while (!isWorkDay(r)) r.setDate(r.getDate() + 1)
+  if (r.getHours() < WORK_START) { r.setHours(WORK_START, 0, 0, 0) }
+  if (r.getHours() >= WORK_END) { r.setDate(r.getDate() + 1); r.setHours(WORK_START, 0, 0, 0) }
+  while (!isWorkDay(r)) r.setDate(r.getDate() + 1)
+  return r
+}
+
+/** Add business hours to a start date */
+function addBusinessHours(start: Date, hours: number): Date {
+  let d = clampToWork(new Date(start))
+  let remaining = hours
+  while (remaining > 0) {
+    const availToday = WORK_END - d.getHours() - d.getMinutes() / 60
+    if (remaining <= availToday) {
+      d.setMinutes(d.getMinutes() + remaining * 60)
+      return d
+    }
+    remaining -= availToday
+    d.setDate(d.getDate() + 1)
+    d.setHours(WORK_START, 0, 0, 0)
+    while (!isWorkDay(d)) d.setDate(d.getDate() + 1)
+  }
+  return d
+}
+
+/** Subtract business hours from an end date */
+function subtractBusinessHours(end: Date, hours: number): Date {
+  let d = clampToWork(new Date(end))
+  let remaining = hours
+  while (remaining > 0) {
+    const usedToday = d.getHours() + d.getMinutes() / 60 - WORK_START
+    if (remaining <= usedToday) {
+      d.setMinutes(d.getMinutes() - remaining * 60)
+      return d
+    }
+    remaining -= usedToday
+    d.setDate(d.getDate() - 1)
+    while (!isWorkDay(d)) d.setDate(d.getDate() - 1)
+    d.setHours(WORK_END, 0, 0, 0)
+  }
+  return d
+}
+
+/** Calculate business hours between two dates */
+function getBusinessHours(start: Date, end: Date): number {
+  if (end <= start) return 0
+  let d = clampToWork(new Date(start))
+  const e = clampToWork(new Date(end))
+  let total = 0
+  while (d < e) {
+    const dayEnd = new Date(d)
+    dayEnd.setHours(WORK_END, 0, 0, 0)
+    if (dayEnd > e) {
+      total += (e.getHours() + e.getMinutes() / 60) - (d.getHours() + d.getMinutes() / 60)
+      break
+    }
+    total += WORK_END - d.getHours() - d.getMinutes() / 60
+    d.setDate(d.getDate() + 1)
+    d.setHours(WORK_START, 0, 0, 0)
+    while (!isWorkDay(d)) d.setDate(d.getDate() + 1)
+  }
+  return Math.round(total * 10) / 10
+}
+
+/** Format datetime-local string from Date */
+function toLocalDT(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) {
   const setCurrentPedido = useAppStore((s) => s.setCurrentPedido)
+  const catImages = useCatalogoImages()
   const [year, setYear] = useState(new Date().getFullYear())
   const [week, setWeek] = useState(getISOWeek(new Date()))
   const [newModelo, setNewModelo] = useState('')
@@ -308,6 +392,19 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
               title={`Pedido ${semana}`}
               headers={['Modelo', 'Color', 'Fabrica', 'Volumen']}
               rows={pedido.items.map((it) => [it.modelo_num, it.color, it.fabrica, it.volumen])}
+              onCustomPDF={async () => {
+                const keys = pedido.items.map((it) => `${it.modelo_num} ${it.color}`.trim())
+                const imgMap = await preloadModeloImages(keys, catImages, (num, color) =>
+                  getModeloImageUrl(catImages, num, color)
+                )
+                const pdfRows = [
+                  ...pedido.items.map((it) => [`${it.modelo_num} ${it.color}`.trim(), it.color, it.fabrica, it.volumen] as (string | number)[]),
+                  ['TOTAL', '', '', pedido.totalPares],
+                ]
+                exportTableWithImagesPDF(`Pedido ${semana}`,
+                  ['Modelo', 'Color', 'Fabrica', 'Volumen'],
+                  pdfRows, imgMap, 'Modelo')
+              }}
             />
           </div>
           <Table>
@@ -414,10 +511,13 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="border-b bg-muted/50">
-                                      <th className="px-2 py-1.5 text-left w-40">Maquila</th>
+                                      <th className="px-2 py-1.5 text-left w-36">Maquila</th>
                                       <th className="px-2 py-1.5 text-left">Fracciones</th>
-                                      <th className="px-2 py-1.5 text-right w-24">Pares</th>
-                                      <th className="px-2 py-1.5 w-10"></th>
+                                      <th className="px-2 py-1.5 text-center w-40">Salida</th>
+                                      <th className="px-2 py-1.5 text-center w-16">Horas</th>
+                                      <th className="px-2 py-1.5 text-center w-40">Entrega</th>
+                                      <th className="px-2 py-1.5 text-right w-20">Pares</th>
+                                      <th className="px-2 py-1.5 w-8"></th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -478,6 +578,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                               })}
                                             </div>
                                           </td>
+                                          <MaquilaDateCells asig={asig} onUpdate={pedido.updateMaquilaAssignment} />
                                           <td className="px-2 py-1.5 text-right">
                                             {(() => {
                                               const otherPares = itemAsigs
@@ -547,10 +648,29 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                               {itemAsigs.length > 0 && (() => {
                                 const totalPares = itemAsigs.reduce((sum, a) => sum + a.pares, 0)
                                 const match = totalPares === it.volumen
+                                // Compute max business hours across all assignments
+                                const maxHours = itemAsigs.reduce((mx, a) => {
+                                  if (!a.fecha_salida || !a.fecha_entrega) return mx
+                                  const h = getBusinessHours(new Date(a.fecha_salida), new Date(a.fecha_entrega))
+                                  return Math.max(mx, h)
+                                }, 0)
+                                const lastEntrega = itemAsigs
+                                  .filter((a) => a.fecha_entrega)
+                                  .map((a) => new Date(a.fecha_entrega!))
+                                  .sort((a, b) => b.getTime() - a.getTime())[0]
                                 return (
-                                  <span className={`text-xs font-medium ${match ? 'text-green-600' : 'text-amber-600'}`}>
-                                    Total: {totalPares} / {it.volumen} pares
-                                  </span>
+                                  <div className="flex items-center gap-3">
+                                    {lastEntrega && (
+                                      <span className="text-xs font-medium text-blue-600 flex items-center gap-1">
+                                        <CalendarClock className="h-3 w-3" />
+                                        Entrega: {lastEntrega.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                        {maxHours > 0 && ` (~${maxHours}h lab.)`}
+                                      </span>
+                                    )}
+                                    <span className={`text-xs font-medium ${match ? 'text-green-600' : 'text-amber-600'}`}>
+                                      Total: {totalPares} / {it.volumen} pares
+                                    </span>
+                                  </div>
                                 )
                               })()}
                             </div>
@@ -566,6 +686,13 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                     Sin items. Agrega modelos o importa un Excel.
                   </TableCell>
+                </TableRow>
+              )}
+              {pedido.items.length > 0 && (
+                <TableRow className="bg-primary/10 font-bold border-t-2 border-primary/30">
+                  <TableCell colSpan={3} className="text-right text-primary">TOTAL</TableCell>
+                  <TableCell className="text-primary">{pedido.totalPares.toLocaleString()}</TableCell>
+                  <TableCell />
                 </TableRow>
               )}
             </TableBody>
@@ -605,5 +732,119 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
         }}
       />
     </div>
+  )
+}
+
+// --- Salida / Horas / Entrega cells with bidirectional auto-fill ---
+import type { AsignacionMaquila } from '@/types'
+
+function MaquilaDateCells({
+  asig,
+  onUpdate,
+}: {
+  asig: AsignacionMaquila
+  onUpdate: (id: string, data: { fecha_salida?: string | null; fecha_entrega?: string | null }) => void
+}) {
+  const salidaRef = useRef<HTMLInputElement>(null)
+  const entregaRef = useRef<HTMLInputElement>(null)
+  const horasRef = useRef<HTMLInputElement>(null)
+
+  // Computed hours from saved dates
+  const computedHours = asig.fecha_salida && asig.fecha_entrega
+    ? getBusinessHours(new Date(asig.fecha_salida), new Date(asig.fecha_entrega))
+    : null
+
+  function handleSalidaBlur() {
+    const salVal = salidaRef.current?.value || ''
+    if (!salVal) {
+      if (asig.fecha_salida) onUpdate(asig.id, { fecha_salida: null })
+      return
+    }
+    const horas = parseFloat(horasRef.current?.value || '')
+    if (horas > 0) {
+      // Salida + Horas → Entrega
+      const entrega = addBusinessHours(new Date(salVal), horas)
+      const entregaStr = toLocalDT(entrega)
+      if (entregaRef.current) entregaRef.current.value = entregaStr
+      onUpdate(asig.id, { fecha_salida: salVal, fecha_entrega: entregaStr })
+    } else if (asig.fecha_entrega) {
+      // Salida + Entrega existente → recalcula horas display
+      onUpdate(asig.id, { fecha_salida: salVal })
+    } else {
+      onUpdate(asig.id, { fecha_salida: salVal })
+    }
+  }
+
+  function handleEntregaBlur() {
+    const entVal = entregaRef.current?.value || ''
+    if (!entVal) {
+      if (asig.fecha_entrega) onUpdate(asig.id, { fecha_entrega: null })
+      return
+    }
+    const salVal = salidaRef.current?.value || asig.fecha_salida?.slice(0, 16) || ''
+    if (salVal) {
+      // Salida + Entrega → auto-show horas
+      const h = getBusinessHours(new Date(salVal), new Date(entVal))
+      if (horasRef.current) horasRef.current.value = String(h)
+      onUpdate(asig.id, { fecha_entrega: entVal })
+    } else {
+      onUpdate(asig.id, { fecha_entrega: entVal })
+    }
+  }
+
+  function handleHorasBlur() {
+    const horas = parseFloat(horasRef.current?.value || '')
+    if (!horas || horas <= 0) return
+    const salVal = salidaRef.current?.value || asig.fecha_salida?.slice(0, 16) || ''
+    const entVal = entregaRef.current?.value || asig.fecha_entrega?.slice(0, 16) || ''
+
+    if (salVal) {
+      // Salida + Horas → Entrega
+      const entrega = addBusinessHours(new Date(salVal), horas)
+      const entregaStr = toLocalDT(entrega)
+      if (entregaRef.current) entregaRef.current.value = entregaStr
+      onUpdate(asig.id, { fecha_entrega: entregaStr })
+    } else if (entVal) {
+      // Entrega + Horas → Salida
+      const salida = subtractBusinessHours(new Date(entVal), horas)
+      const salidaStr = toLocalDT(salida)
+      if (salidaRef.current) salidaRef.current.value = salidaStr
+      onUpdate(asig.id, { fecha_salida: salidaStr })
+    }
+  }
+
+  return (
+    <>
+      <td className="px-2 py-1.5">
+        <input
+          ref={salidaRef}
+          type="datetime-local"
+          className="h-7 w-[155px] rounded border bg-background px-1.5 text-xs"
+          defaultValue={asig.fecha_salida ? asig.fecha_salida.slice(0, 16) : ''}
+          onBlur={handleSalidaBlur}
+        />
+      </td>
+      <td className="px-2 py-1.5 text-center">
+        <input
+          ref={horasRef}
+          type="number"
+          min={0}
+          step={1}
+          placeholder="h"
+          className="h-7 w-14 rounded border bg-background px-1.5 text-xs text-center"
+          defaultValue={computedHours != null && computedHours > 0 ? computedHours : ''}
+          onBlur={handleHorasBlur}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          ref={entregaRef}
+          type="datetime-local"
+          className="h-7 w-[155px] rounded border bg-background px-1.5 text-xs"
+          defaultValue={asig.fecha_entrega ? asig.fecha_entrega.slice(0, 16) : ''}
+          onBlur={handleEntregaBlur}
+        />
+      </td>
+    </>
   )
 }

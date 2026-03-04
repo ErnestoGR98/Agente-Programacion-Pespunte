@@ -97,6 +97,12 @@ class CompiledConstraints:
     # fracciones_origen/destino son listas de numeros de fraccion.
     precedences: list = field(default_factory=list)
 
+    # {modelo_num: day_index} — primer dia permitido para produccion post-maquila
+    maquila_earliest_day: dict = field(default_factory=dict)
+
+    # [(codigo, day_name, block_idx, min_fraccion)] — bloque minimo en dia de entrega
+    maquila_block_restriction: list = field(default_factory=list)
+
     # Warnings generados durante compilacion
     warnings: list = field(default_factory=list)
 
