@@ -21,6 +21,22 @@ Relevo = operario idle toma tarea de operario ocupado, liberandolo para otra.
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _recurso_match(task_recurso: str, op_recursos: set) -> bool:
+    """Check if task resource matches operator's resource set.
+
+    Handles compound resources like 'PLANA,POSTE' with OR logic:
+    an operator with PLANA *or* POSTE can take the task.
+    """
+    if "," in task_recurso:
+        parts = {p.strip() for p in task_recurso.split(",")}
+        return bool(parts & op_recursos)
+    return task_recurso in op_recursos
+
+
+# ---------------------------------------------------------------------------
 # API publica
 # ---------------------------------------------------------------------------
 
@@ -164,7 +180,7 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
     for op_id, op_st in op_states.items():
         if op_st["current_task"] is not None:
             continue  # OCUPADO - no puede tomar otra tarea
-        if recurso not in op_st["recursos"]:
+        if not _recurso_match(recurso, op_st["recursos"]):
             continue
 
         # Verificar que no tenga bloques ocupados (doble asignacion)
@@ -287,7 +303,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
         for op_id, op_st in op_states.items():
             if op_st["current_task"] is not None:
                 continue
-            if recurso_u not in op_st["recursos"]:
+            if not _recurso_match(recurso_u, op_st["recursos"]):
                 continue
             # Verificar no overlap
             used = op_block_map.get(op_st["nombre"], set())
@@ -330,10 +346,10 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
                 recurso_b = task_b["recurso"]
 
                 # idle puede hacer tarea de busy?
-                if recurso_b not in idle_st["recursos"]:
+                if not _recurso_match(recurso_b, idle_st["recursos"]):
                     continue
                 # busy puede hacer tarea sin asignar?
-                if recurso_u not in busy_st["recursos"]:
+                if not _recurso_match(recurso_u, busy_st["recursos"]):
                     continue
 
                 # Bloques de B en task_b desde relay_b (calcular PRIMERO)
@@ -573,7 +589,7 @@ def _compute_eligibility(tasks, available_ops):
         robots = task["robots_available"]
         for op in available_ops:
             recursos_op = set(op.get("recursos_habilitados", []))
-            if recurso not in recursos_op:
+            if not _recurso_match(recurso, recursos_op):
                 continue
             if robots:
                 robots_op = set(op.get("robots_habilitados", []))

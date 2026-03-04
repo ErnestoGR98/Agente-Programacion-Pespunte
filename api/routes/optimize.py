@@ -182,7 +182,7 @@ def _load_catalogo() -> dict:
                     robot_names.append(rn)
                     robots_used.add(rn)
 
-            recurso = op["recurso"]
+            recurso = _normalize_recurso(op["recurso"])
             resource_summary[recurso] = resource_summary.get(recurso, 0) + 1
             total_sec += op["sec_per_pair"]
 
@@ -261,6 +261,47 @@ def _load_avance(semana: str) -> dict:
             modelos[mn] = {}
         modelos[mn][d["dia"]] = d["pares"]
     return modelos
+
+
+_CANONICAL_RECURSOS = {"MESA", "PLANA", "POSTE", "ROBOT", "MAQUILA", "GENERAL"}
+
+
+def _normalize_recurso(recurso: str) -> str:
+    """Normalize recurso to canonical type (or compound like 'PLANA,POSTE')."""
+    if not recurso:
+        return "GENERAL"
+    r = recurso.strip().upper()
+    if r in _CANONICAL_RECURSOS:
+        return r
+    # Compound resources (e.g. "PLANA,POSTE") — keep if all parts canonical
+    if "," in r:
+        parts = [p.strip() for p in r.split(",")]
+        if all(p in _CANONICAL_RECURSOS for p in parts):
+            return ",".join(parts)
+        # Normalize each part
+        normalized = []
+        for p in parts:
+            if p in _CANONICAL_RECURSOS:
+                normalized.append(p)
+            elif "PLANA" in p:
+                normalized.append("PLANA")
+            elif "POSTE" in p or "POST" in p:
+                normalized.append("POSTE")
+            elif "MESA" in p:
+                normalized.append("MESA")
+        return ",".join(normalized) if normalized else "GENERAL"
+    # Single unknown → infer
+    if "PLANA" in r:
+        return "PLANA"
+    if "POSTE" in r or "POST" in r:
+        return "POSTE"
+    if "MESA" in r:
+        return "MESA"
+    if "ROBOT" in r:
+        return "ROBOT"
+    if "DESHEBRADORA" in r or "CONFORMADORA" in r or "DESHEBR" in r:
+        return "MESA"
+    return "GENERAL"
 
 
 _PRELIM_SKILLS = {
