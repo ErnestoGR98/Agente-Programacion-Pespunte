@@ -931,6 +931,18 @@ export function CascadeEditor({
     }
   }
 
+  // Helper: check if a rule is a group rule (multiple source or dest fracs)
+  function getGroupPairs(reglaId: string): { origFracs: number[]; destFracs: number[]; oldBuffer: number | 'todo' } | null {
+    const rule = reglas.find((r) => r.id === reglaId)
+    if (!rule) return null
+    const p = rule.parametros as Record<string, unknown>
+    const origFracs = (p.fracciones_origen as number[]) || []
+    const destFracs = (p.fracciones_destino as number[]) || []
+    if (origFracs.length <= 1 && destFracs.length <= 1) return null // not a group rule
+    const oldBuffer = p.buffer_pares === 'todo' ? ('todo' as const) : (typeof p.buffer_pares === 'number' ? p.buffer_pares : 0)
+    return { origFracs, destFracs, oldBuffer }
+  }
+
   async function saveBuffer() {
     if (!editArrow) return
     const buffer = editType === 'todo' ? ('todo' as const) : parseInt(editVal) || 0
@@ -938,7 +950,19 @@ export function CascadeEditor({
       if (editArrow.mode === 'create') {
         await onConnect([editArrow.fromFrac], [editArrow.toFrac], buffer)
       } else if (editArrow.reglaId) {
-        await onUpdateBuffer(editArrow.reglaId, buffer)
+        const group = getGroupPairs(editArrow.reglaId)
+        if (group) {
+          // Group rule — split into individual rules
+          await onDeleteEdge(editArrow.reglaId)
+          for (const o of group.origFracs) {
+            for (const d of group.destFracs) {
+              const pairBuffer = (o === editArrow.fromFrac && d === editArrow.toFrac) ? buffer : group.oldBuffer
+              await onConnect([o], [d], pairBuffer)
+            }
+          }
+        } else {
+          await onUpdateBuffer(editArrow.reglaId, buffer)
+        }
       }
       setEditArrow(null)
     } catch (err) {
@@ -948,7 +972,19 @@ export function CascadeEditor({
 
   async function deleteConnection() {
     if (!editArrow || !editArrow.reglaId) return
-    await onDeleteEdge(editArrow.reglaId)
+    const group = getGroupPairs(editArrow.reglaId)
+    if (group) {
+      // Group rule — delete old, re-create all EXCEPT this pair
+      await onDeleteEdge(editArrow.reglaId)
+      for (const o of group.origFracs) {
+        for (const d of group.destFracs) {
+          if (o === editArrow.fromFrac && d === editArrow.toFrac) continue
+          await onConnect([o], [d], group.oldBuffer)
+        }
+      }
+    } else {
+      await onDeleteEdge(editArrow.reglaId)
+    }
     setEditArrow(null)
   }
 
