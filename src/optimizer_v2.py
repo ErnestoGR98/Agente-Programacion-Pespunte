@@ -29,7 +29,7 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
-W_UNIFORMITY = 500        # soft uniformity (por par de shortfall)
+W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
@@ -457,6 +457,35 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     active[m_idx, op_idx, next_b]
                 ])
                 uniformity_shortfall_terms.append(shortfall)
+
+    # 7b. Uniformidad DURA para bloques intermedios:
+    #     Si un bloque tiene vecinos activos en ambos lados (no es primero
+    #     ni ultimo del run contiguo), debe producir a tasa completa.
+    #     Solo el primer bloque (puede arrancar tarde) y el ultimo
+    #     (puede acabarse el buffer o la tarea) pueden ser parciales.
+    for m_idx, model in enumerate(models_day):
+        for op_idx, op in enumerate(model["operations"]):
+            is_robot = bool(op.get("robots", []))
+            for rb_idx in range(1, len(real_blocks) - 1):
+                prev_b = real_blocks[rb_idx - 1]
+                b = real_blocks[rb_idx]
+                next_b = real_blocks[rb_idx + 1]
+
+                block_min = time_blocks[b]["minutes"]
+                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
+                target = int(op["rate"] * block_min / 60 * hc_mult)
+
+                if target <= 0:
+                    continue
+
+                # Hard: middle block must produce at full rate
+                solver_model.Add(
+                    x[m_idx, op_idx, b] >= target
+                ).OnlyEnforceIf([
+                    active[m_idx, op_idx, prev_b],
+                    active[m_idx, op_idx, b],
+                    active[m_idx, op_idx, next_b]
+                ])
 
     # --- Funcion Objetivo ---
     obj_terms = []
