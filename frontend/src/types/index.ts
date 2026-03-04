@@ -532,7 +532,7 @@ export function deriveRecursos(skills: SkillType[]): ResourceType[] {
 
 export const BLOCK_LABELS = [
   '8-9', '9-10', '10-11', '11-12', '12-1',
-  '1-2', 'COMIDA', '3-4', '4-5', '5-6', '6-7',
+  '1-2', 'COMIDA', '3-4', '4-5', '5-6',
 ] as const
 
 export const DEFAULT_CAPACITIES: Record<string, number> = {
