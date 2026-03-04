@@ -277,12 +277,15 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                             # Proportional transition: in the block where buffer
                             # is first met, limit dest to the fraction of time
                             # remaining after buffer is reached.
-                            # rate_o * x_dest <= rate_d * (cum_orig - buffer)
+                            # rate_o * x_dest <= rate_d * cum_orig - rate_d * buffer
                             # Transition block: tight. Later blocks: slack.
                             if buffer >= 0 and rate_o > 0:
+                                # Build RHS term-by-term to avoid int*LinearExpr
+                                rhs = sum(rate_d * x[target_m, op_o, bb]
+                                          for bb in range(b + 1)
+                                          ) - rate_d * effective_buffer
                                 solver_model.Add(
-                                    rate_o * x[target_m, op_d, b]
-                                    <= rate_d * (cum_orig - effective_buffer)
+                                    rate_o * x[target_m, op_d, b] <= rhs
                                 ).OnlyEnforceIf(buf_ok)
 
     # --- Restricciones ---
