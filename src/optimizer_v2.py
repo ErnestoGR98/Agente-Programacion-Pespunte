@@ -256,11 +256,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                             # Origin at most max_lead ahead (tight coupling)
                             solver_model.Add(cum_orig <= cum_dest + max_lead)
                     else:
-                        # Buffer>0 → startup delay: destination can't produce
-                        # until origin has accumulated buffer pares, then runs free.
-                        # Two constraints:
-                        #   1) cum_dest <= cum_orig (destination never ahead)
-                        #   2) x_dest[b]=0 while cum_orig < buffer (startup delay)
+                        # Buffer>0 → startup delay with proportional transition.
+                        # Dest blocked until origin >= buffer; in the transition
+                        # block, dest produces proportionally to remaining time.
+                        rate_o = models_day[target_m]["operations"][op_o]["rate"]
+                        rate_d = models_day[target_m]["operations"][op_d]["rate"]
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
                             cum_dest = sum(x[target_m, op_d, bb] for bb in range(b + 1))
@@ -275,6 +275,16 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                                 cum_orig <= effective_buffer - 1).OnlyEnforceIf(buf_ok.Not())
                             solver_model.Add(
                                 x[target_m, op_d, b] == 0).OnlyEnforceIf(buf_ok.Not())
+                            # Proportional transition: in the block where buffer
+                            # is first met, limit dest to the fraction of time
+                            # remaining after buffer is reached.
+                            # rate_o * x_dest <= rate_d * (cum_orig - buffer)
+                            # Transition block: tight. Later blocks: slack.
+                            if buffer >= 0 and rate_o > 0:
+                                solver_model.Add(
+                                    rate_o * x[target_m, op_d, b]
+                                    <= rate_d * (cum_orig - effective_buffer)
+                                ).OnlyEnforceIf(buf_ok)
 
     # --- Restricciones ---
 
