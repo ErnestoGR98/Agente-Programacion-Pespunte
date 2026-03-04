@@ -53,8 +53,8 @@ def generate_time_blocks(entrada: str, salida: str,
         Lista de dicts [{id, label, minutes}, ...] incluyendo COMIDA (0 min).
     """
     def to_min(t: str) -> int:
-        h, m = t.split(":")
-        return int(h) * 60 + int(m)
+        parts = t.split(":")
+        return int(parts[0]) * 60 + int(parts[1])
 
     start = to_min(entrada)
     end = to_min(salida)
