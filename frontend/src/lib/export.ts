@@ -101,6 +101,88 @@ export function exportTableWithImagesPDF(
 }
 
 /**
+ * Export pedido table as PDF with a maquila delivery sub-row per item.
+ */
+export function exportPedidoWithMaquilaPDF(
+  title: string,
+  headers: string[],
+  rows: (string | number)[][],
+  maquilaEntrega: (string | null)[],   // same length as rows — formatted entrega text or null
+  modeloImages?: Map<string, string>,
+) {
+  const doc = new jsPDF({ orientation: 'portrait' })
+  doc.setFontSize(14)
+  doc.text(title.replace(/_/g, ' '), 14, 15)
+  doc.setFontSize(8)
+  doc.text(new Date().toLocaleDateString('es-MX'), 14, 21)
+
+  // Build flat body: item rows + optional maquila entrega sub-row
+  const body: (string | number)[][] = []
+  const rowTypes: ('item' | 'maquila' | 'total')[] = []
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    const isTotal = String(r[0]).toUpperCase() === 'TOTAL'
+    body.push(r)
+    rowTypes.push(isTotal ? 'total' : 'item')
+
+    const entrega = maquilaEntrega[i]
+    if (entrega) {
+      body.push(['', `Maquila entrega: ${entrega}`, '', ''])
+      rowTypes.push('maquila')
+    }
+  }
+
+  const imgColIdx = headers.findIndex((h) => h.toLowerCase() === 'modelo')
+  const hasImages = modeloImages && modeloImages.size > 0 && imgColIdx >= 0
+  const imgW = 12
+  const imgH = 9
+
+  autoTable(doc, {
+    head: [headers],
+    body: body.map((r) => r.map((c) => String(c))),
+    startY: 25,
+    styles: { fontSize: 8, cellPadding: 2, minCellHeight: imgH + 4 },
+    headStyles: { fillColor: [37, 99, 235], fontSize: 8 },
+    columnStyles: hasImages ? {
+      [imgColIdx]: { cellWidth: 35, minCellHeight: imgH + 3, cellPadding: { top: 1.5, bottom: 1.5, left: imgW + 3, right: 1.5 } },
+    } : undefined,
+    didParseCell(data) {
+      if (data.section !== 'body') return
+      const type = rowTypes[data.row.index]
+      if (type === 'total') {
+        data.cell.styles.fillColor = [37, 99, 235]
+        data.cell.styles.textColor = [255, 255, 255]
+        data.cell.styles.fontStyle = 'bold'
+      } else if (type === 'maquila') {
+        data.cell.styles.fillColor = [254, 242, 242]
+        data.cell.styles.fontSize = 7
+        data.cell.styles.fontStyle = 'bold'
+        data.cell.styles.textColor = [185, 28, 28]
+        data.cell.styles.minCellHeight = 5
+        data.cell.styles.cellPadding = 1.5
+      }
+    },
+    didDrawCell(data) {
+      if (!hasImages || data.section !== 'body') return
+      if (data.column.index !== imgColIdx) return
+      const type = rowTypes[data.row.index]
+      if (type !== 'item') return
+      const val = String(data.cell.raw)
+      const b64 = modeloImages!.get(val)
+      if (!b64) return
+      try {
+        const fmt = b64.startsWith('data:image/png') ? 'PNG' : 'JPEG'
+        const cellY = data.cell.y + (data.cell.height - imgH) / 2
+        doc.addImage(b64, fmt, data.cell.x + 1, cellY, imgW, imgH)
+      } catch { /* skip */ }
+    },
+  })
+
+  doc.save(`${title}.pdf`)
+}
+
+/**
  * Export catalog as PDF with per-model sections (separated tables)
  */
 export interface CatalogModelGroup {
