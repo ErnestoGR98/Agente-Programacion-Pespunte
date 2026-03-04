@@ -16,7 +16,7 @@ from optimizer_weekly import optimize
 from optimizer_v2 import schedule_week
 from operator_assignment import assign_operators_week
 from constraint_compiler import compile_constraints
-from rules import TIME_BLOCKS
+from rules import TIME_BLOCKS, generate_time_blocks
 
 router = APIRouter()
 
@@ -130,6 +130,22 @@ def _load_params() -> dict:
         for d in dias
     ]
 
+    # Horarios → generar TIME_BLOCKS dinamicamente
+    horarios = _sb_get("horarios", "select=*")
+    horario_semana = next((h for h in horarios if h["tipo"] == "SEMANA"), None)
+    if horario_semana:
+        time_blocks = generate_time_blocks(
+            entrada=horario_semana["entrada"],
+            salida=horario_semana["salida"],
+            comida_inicio=horario_semana.get("comida_inicio"),
+            comida_fin=horario_semana.get("comida_fin"),
+            bloque_min=horario_semana.get("bloque_min", 60),
+        )
+        print(f"[OPT] time_blocks from horarios: {len(time_blocks)} blocks")
+    else:
+        time_blocks = TIME_BLOCKS
+        print("[OPT] time_blocks: using hardcoded fallback")
+
     # Capacidades — derivadas de recursos registrados
     resource_capacity = _compute_resource_capacity()
 
@@ -144,7 +160,7 @@ def _load_params() -> dict:
     return {
         "min_lot_size": int(opt.get("lote_minimo", 50)),
         "lot_step": 50,
-        "time_blocks": TIME_BLOCKS,
+        "time_blocks": time_blocks,
         "resource_types": ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"],
         "resource_capacity": resource_capacity,
         "days": days,
