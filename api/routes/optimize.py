@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Endpoint de optimizacion — el core del backend.
 
@@ -65,7 +63,7 @@ _ROBOT_BASE_TIPOS = {'3020', '6040', 'CHACHE'}
 _PRELIM_BASE_TIPOS = {'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK'}
 
 
-def _compute_resource_capacity() -> dict[str, int]:
+def _compute_resource_capacity() -> dict:
     """Deriva capacidades de recursos a partir de maquinas, fabricas y operarios registrados.
     Solo cuentan maquinas con area=PESPUNTE (las de AVIOS solo se prestan en emergencia)."""
     machines = _sb_get("robots", "select=id,estado,area")

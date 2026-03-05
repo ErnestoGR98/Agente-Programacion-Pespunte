@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Endpoint de importacion de Excel + descarga de template.
 

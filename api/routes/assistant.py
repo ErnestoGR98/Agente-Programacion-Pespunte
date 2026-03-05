@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Endpoint del asistente LLM (Claude API).
 

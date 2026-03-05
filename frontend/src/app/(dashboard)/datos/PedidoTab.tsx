@@ -526,12 +526,10 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                               type="datetime-local"
                                               className="h-7 w-[170px] rounded border bg-background px-1.5 text-xs"
                                               defaultValue={asig.fecha_entrega ? asig.fecha_entrega.slice(0, 16) : ''}
-                                              onBlur={(e) => {
+                                              onChange={(e) => {
                                                 const raw = e.target.value || null
                                                 const val = raw ? withTZ(raw) : null
-                                                if (raw !== (asig.fecha_entrega?.slice(0, 16) || null)) {
-                                                  pedido.updateMaquilaAssignment(asig.id, { fecha_entrega: val })
-                                                }
+                                                pedido.updateMaquilaAssignment(asig.id, { fecha_entrega: val })
                                               }}
                                             />
                                           </td>
