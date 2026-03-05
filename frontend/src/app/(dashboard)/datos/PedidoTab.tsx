@@ -42,6 +42,18 @@ function withTZ(dtLocal: string): string {
   return `${dtLocal}:00${sign}${hh}:${mm}`
 }
 
+/** Convert a UTC/ISO timestamp from Supabase to local datetime-local string.
+ *  e.g. "2026-03-09T14:00:00+00:00" → "2026-03-09T08:00" (in UTC-6) */
+function toLocalDT(isoStr: string): string {
+  const d = new Date(isoStr)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${mo}-${day}T${h}:${mi}`
+}
+
 export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) {
   const setCurrentPedido = useAppStore((s) => s.setCurrentPedido)
   const catImages = useCatalogoImages()
@@ -525,7 +537,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
                                             <input
                                               type="datetime-local"
                                               className="h-7 w-[170px] rounded border bg-background px-1.5 text-xs"
-                                              defaultValue={asig.fecha_entrega ? asig.fecha_entrega.slice(0, 16) : ''}
+                                              defaultValue={asig.fecha_entrega ? toLocalDT(asig.fecha_entrega) : ''}
                                               onChange={(e) => {
                                                 const raw = e.target.value || null
                                                 const val = raw ? withTZ(raw) : null
