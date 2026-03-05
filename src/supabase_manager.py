@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 supabase_manager.py - CRUD para Supabase (equivalente a data_manager.py).
 

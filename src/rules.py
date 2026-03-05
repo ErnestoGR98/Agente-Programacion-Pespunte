@@ -11,6 +11,7 @@ Constantes que no cambian (bloques horarios, tipos de recurso, aliases
 de parseo) permanecen aqui.
 """
 
+from __future__ import annotations
 from copy import deepcopy
 from config_manager import load_config
 

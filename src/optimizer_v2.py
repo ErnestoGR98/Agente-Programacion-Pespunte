@@ -108,6 +108,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     plantilla = params["plantilla"]
     num_blocks = len(time_blocks)
     step = params.get("lot_step", 50)
+    lineas_post = params.get("lineas_post", 0)
 
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
@@ -500,6 +501,41 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     active[m_idx, op_idx, next_b]
                 ])
 
+    # 8. Exclusividad de conveyor: limitar modelos con ops POST por bloque
+    #    Si lineas_post > 0, maximo N modelos distintos pueden tener operaciones
+    #    POST activas en el mismo bloque (1 conveyor = 1 modelo a la vez).
+    if lineas_post > 0:
+        post_ops_by_model = {}
+        for m_idx, model in enumerate(models_day):
+            post_idxs = [i for i, op in enumerate(model["operations"])
+                         if op.get("input_o_proceso") == "POST"]
+            if post_idxs:
+                post_ops_by_model[m_idx] = post_idxs
+
+        if post_ops_by_model:
+            post_model_active = {}
+            for m_idx, post_op_idxs in post_ops_by_model.items():
+                for b in range(num_blocks):
+                    pma = solver_model.NewBoolVar(f"pma_{m_idx}_{b}")
+                    post_model_active[m_idx, b] = pma
+                    # pma = OR(active[m, op, b] para cada op POST)
+                    for op_idx in post_op_idxs:
+                        solver_model.Add(pma >= active[m_idx, op_idx, b])
+                    solver_model.Add(
+                        pma <= sum(active[m_idx, op_idx, b]
+                                   for op_idx in post_op_idxs)
+                    )
+
+            models_with_post = list(post_ops_by_model.keys())
+            for b in range(num_blocks):
+                solver_model.Add(
+                    sum(post_model_active[m_idx, b]
+                        for m_idx in models_with_post)
+                    <= lineas_post
+                )
+            print(f"    [POST] Conveyor exclusivity: {len(models_with_post)} modelos POST, "
+                  f"max {lineas_post} simultaneos por bloque")
+
     # --- Funcion Objetivo ---
     obj_terms = []
 
@@ -653,6 +689,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             "lot_step": params.get("lot_step", 50),
             "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
             "day_name": day_name,  # para block_availability y disabled_robots
+            "lineas_post": params.get("lineas_post", 0),
         }
 
         day_tasks[day_name] = (models_day, day_params)

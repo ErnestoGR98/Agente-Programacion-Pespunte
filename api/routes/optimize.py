@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Endpoint de optimizacion — el core del backend.
 
@@ -166,6 +168,7 @@ def _load_params() -> dict:
         "resource_capacity": resource_capacity,
         "days": days,
         "lead_time_maquila": int(opt.get("lead_time_maquila", 3)),
+        "lineas_post": int(opt.get("lineas_post", 0)),
         "weights": weights,
     }
 
