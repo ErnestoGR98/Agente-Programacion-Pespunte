@@ -360,7 +360,7 @@ def _extract_schedule(solver, x, models, days):
             hours_work = sec_total / 3600.0
             # Headcount fraccionario: horas de trabajo / horas del dia
             hours_day = day_cfg["minutes"] / 60.0
-            headcount = hours_work / hours_day
+            headcount = hours_work / hours_day if hours_day > 0 else 0
 
             schedule.append({
                 "Dia": day_cfg["name"],
@@ -403,7 +403,7 @@ def _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
         # Headcount necesario (basado en horas regulares del dia)
         hours_work = load_sec / 3600.0
         hours_day = day_cfg["minutes"] / 60.0
-        hc_needed = hours_work / hours_day
+        hc_needed = hours_work / hours_day if hours_day > 0 else 0
 
         # Peak HC: total operaciones concurrentes si todos los modelos activos se traslapan
         peak_hc = sum(
@@ -440,7 +440,7 @@ def _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
             "volumen": model["total_producir"],
             "producido": produced,
             "tardiness": tard,
-            "pct_completado": round(produced / model["total_producir"] * 100, 1),
+            "pct_completado": round(produced / model["total_producir"] * 100, 1) if model["total_producir"] > 0 else 0,
             "span_dias": sp,
             "dias_produccion": active_days,
         })

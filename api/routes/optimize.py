@@ -754,6 +754,9 @@ def run_optimization(req: OptimizeRequest):
         elif dn in compiled.plantilla_adjustments:
             day_cfg["plantilla"] = max(1, day_cfg["plantilla"] + compiled.plantilla_adjustments[dn])
 
+    # 5b. Filtrar modelos con volumen 0 (puede pasar por maquila total o avance completo)
+    models_for_opt = [m for m in models_for_opt if m["total_producir"] > 0]
+
     # 6. Optimizacion semanal
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
 
