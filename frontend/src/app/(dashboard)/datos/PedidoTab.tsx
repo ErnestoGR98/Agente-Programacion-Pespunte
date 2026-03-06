@@ -95,6 +95,14 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
 
   async function handleLoadPedido(pedidoId: string) {
     await pedido.loadPedido(pedidoId)
+    const ped = pedido.pedidos.find((p) => p.id === pedidoId)
+    if (ped) {
+      const parts = ped.nombre.replace('sem_', '').split('_')
+      if (parts.length === 2) {
+        setWeek(parseInt(parts[0]) || week)
+        setYear(parseInt(parts[1]) || year)
+      }
+    }
   }
 
   async function handleAddItem() {
@@ -135,7 +143,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
   function handleCargarOptimizador() {
     const ped = pedido.pedidos.find((p) => p.id === pedido.currentPedidoId)
     if (ped) {
-      setCurrentPedido(ped.nombre, semana)
+      setCurrentPedido(ped.nombre, ped.nombre)
       setMessage('Pedido cargado al optimizador')
     }
   }
