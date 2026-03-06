@@ -293,17 +293,22 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         obj_terms.append(W_OVERTIME * overtime_used[d])
 
-    # Hard constraint: limitar total de operaciones concurrentes por dia.
-    # El diario enforza plantilla * block_sec por bloque. Con contiguidad,
-    # las operaciones se solapan parcialmente. Factor 3 permite phasing:
-    # con plantilla=5, max 15 ops → ~3 modelos de 5 ops cada uno.
+    # Hard constraint: limitar modelos y operaciones concurrentes por dia.
+    # El diario usa cascada (precedencia entre fracciones), lo que limita
+    # cuantos modelos pueden correr simultaneamente en los bloques horarios.
+    # Con 10 bloques y cascada, 3-4 modelos es el maximo practico.
     for d in range(num_days):
+        # Limite de modelos activos por dia (hard)
+        plantilla_d = days[d]["plantilla"]
+        max_models_day = max(2, plantilla_d // 5)  # ~1 modelo por cada 5 operarios
+        solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max_models_day)
+
+        # Limite de operaciones totales por dia
         total_ops_day = []
         for m in range(num_models):
             n_ops = models[m].get("num_ops", 1)
             total_ops_day.append(y[m, d] * n_ops)
-        plantilla_d = days[d]["plantilla"]
-        max_ops = plantilla_d * 3
+        max_ops = plantilla_d * 2
         solver_model.Add(sum(total_ops_day) <= max_ops)
 
     # Penalizar lotes no multiplo de 100 (preferir centenas cerradas)
