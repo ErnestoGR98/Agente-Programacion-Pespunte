@@ -227,28 +227,38 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                         sum(terms) <= cap * day_minutes * 60
                     )
 
-    # 4. Throughput maximo por modelo/dia: la operacion mas lenta (cuello de botella)
-    #    limita cuantos pares pueden completarse en un dia, independientemente de
-    #    la capacidad total. Sin esto el solver asigna mas pares de los que el
-    #    programa diario puede realmente producir.
+    # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
+    #    profundidad de cascada. En el diario, las operaciones corren en cascada
+    #    (frac 1 antes que frac 2, etc.), asi que un modelo con 13 fracciones
+    #    necesita mas bloques que uno con 3. Cada paso de cascada consume ~0.5
+    #    bloques de startup (con multi-HC del diario, las ops manuales terminan
+    #    mas rapido y la pipeline avanza).
     for m, model in enumerate(models):
         ops = [op for op in model.get("operations", []) if op.get("recurso") != "MAQUILA"]
         if ops:
             bottleneck_rate = min(op["rate"] for op in ops if op.get("rate", 0) > 0)
         else:
-            # Fallback: estimar rate promedio desde total_sec_per_pair y num_ops
             n_ops = model.get("num_ops", 1)
             avg_sec = model["total_sec_per_pair"] / max(n_ops, 1)
             bottleneck_rate = 3600 / avg_sec if avg_sec > 0 else 100
+
+        num_ops = len(ops)
 
         for d in range(num_days):
             day_minutes = days[d]["minutes"]
             ot_minutes = days[d].get("minutes_ot", 0)
             total_minutes = day_minutes + ot_minutes
-            # Max pares = bottleneck_rate * horas totales * factor contiguidad
-            # Factor 0.80: el diario enforza contiguidad (una vez detenida, no reinicia),
-            # por lo que un modelo tipicamente usa ~80% de los bloques disponibles.
-            max_throughput = int(bottleneck_rate * total_minutes / 60 * 0.80)
+            # Estimar bloques productivos (~60 min cada uno)
+            block_duration = 60
+            total_blocks = total_minutes / block_duration
+            # Startup de cascada: cada paso necesita ~0.5 bloques antes de
+            # que el siguiente pueda empezar (con multi-HC, ops manuales
+            # terminan mas rapido)
+            cascade_startup = (num_ops - 1) * 0.5
+            effective_blocks = max(1, total_blocks - cascade_startup)
+            cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
+            # Factor adicional 0.85 por contiguidad y huecos del diario
+            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.85)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
