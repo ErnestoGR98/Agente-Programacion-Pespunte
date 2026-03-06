@@ -557,18 +557,15 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     for idle in idle_terms:
         obj_terms.append(W_IDLE * idle)
 
-    # Balance: minimizar el pico de carga (HC) para distribuir trabajo
-    # en todos los bloques del dia. Si peak es bajo, el trabajo se reparte.
-    max_block_capacity = plantilla * max(tb["minutes"] for tb in time_blocks) * 60
-    peak_load = solver_model.NewIntVar(0, max_block_capacity, "peak_load")
-    for b in range(num_blocks):
-        load_terms = []
-        for m_idx, model in enumerate(models_day):
-            for op_idx, op in enumerate(model["operations"]):
-                load_terms.append(x[m_idx, op_idx, b] * op["sec_per_pair"])
-        if load_terms:
-            solver_model.Add(peak_load >= sum(load_terms))
-    obj_terms.append(W_BALANCE * peak_load)
+    # Early completion: penalizar produccion tardia para cerrar lotes
+    # lo antes posible. Sin esto, el solver deja operaciones para el final
+    # del dia aunque podrian correr antes (ej: frac 5 en bloque 9 cuando
+    # frac 4 termino en bloque 4).
+    W_EARLY = 10  # leve pero suficiente para preferir bloques tempranos
+    for m_idx, model in enumerate(models_day):
+        for op_idx, op in enumerate(model["operations"]):
+            for b in range(num_blocks):
+                obj_terms.append(W_EARLY * x[m_idx, op_idx, b] * b)
 
     solver_model.Minimize(sum(obj_terms))
 

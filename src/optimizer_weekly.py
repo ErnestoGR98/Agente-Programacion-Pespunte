@@ -313,7 +313,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         # Limite de modelos activos por dia (hard)
         plantilla_d = days[d]["plantilla"]
-        max_models_day = max(3, plantilla_d // 3)  # ~1 modelo por cada 3 operarios (mas ops concurrentes)
+        max_models_day = max(3, plantilla_d // 5)  # max 3-4 modelos por dia para evitar sobrecargar cascada
         solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max_models_day)
 
         # Limite de operaciones totales por dia
