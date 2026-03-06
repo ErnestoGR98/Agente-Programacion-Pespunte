@@ -263,6 +263,11 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
                 solver_model.Add(x[m, d] <= max_throughput)
+                if d == 0:  # solo imprimir para el primer dia
+                    print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
+                          f"bottleneck={bottleneck_rate}, ops={num_ops}, "
+                          f"minutes={total_minutes}, cascade_eff={cascade_eff:.2f}, "
+                          f"max_throughput={max_throughput}")
 
     # 5. Balanceo: rastrear carga maxima y minima entre dias normales
     normal_day_indices = [d for d in range(num_days) if not days[d]["is_saturday"]]
