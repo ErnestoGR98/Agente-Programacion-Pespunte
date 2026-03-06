@@ -19,7 +19,7 @@ from ortools.sat.python import cp_model
 # Pesos del objetivo multi-criterio
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
-W_CHANGEOVER = 2_000    # por cambio de modelo (moderado: permite 3-4 modelos/dia, evita 6+)
+W_CHANGEOVER = 1_000    # por cambio de modelo (moderado: permite 4 modelos/dia con plantilla 19)
 W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
@@ -300,7 +300,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         # Limite de modelos activos por dia (hard)
         plantilla_d = days[d]["plantilla"]
-        max_models_day = max(2, plantilla_d // 5)  # ~1 modelo por cada 5 operarios
+        max_models_day = max(2, plantilla_d // 4)  # ~1 modelo por cada 4 operarios
         solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max_models_day)
 
         # Limite de operaciones totales por dia
