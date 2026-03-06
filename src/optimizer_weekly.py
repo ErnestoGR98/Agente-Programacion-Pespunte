@@ -257,8 +257,8 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.5
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor adicional 0.75: contiguidad + competencia entre modelos por bloques
-            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.75)
+            # Factor adicional 0.65: contiguidad + competencia entre modelos + cascade implicita
+            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.65)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:

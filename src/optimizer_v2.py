@@ -287,6 +287,19 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                             solver_model.Add(
                                 x[target_m, op_d, b] == 0).OnlyEnforceIf(buf_ok.Not())
 
+    # --- Cascada implicita entre operaciones consecutivas ---
+    # Cada operacion debe llevar ventaja acumulativa sobre la siguiente.
+    # Esto fuerza un flujo pipeline: frac1 empieza primero, frac2 despues, etc.
+    # Sin esto, el solver puede activar fracciones en cualquier orden (saltos).
+    for m_idx, model in enumerate(models_day):
+        ops = model["operations"]
+        for op_idx in range(len(ops) - 1):
+            for b in range(num_blocks):
+                cum_current = sum(x[m_idx, op_idx, bb] for bb in range(b + 1))
+                cum_next = sum(x[m_idx, op_idx + 1, bb] for bb in range(b + 1))
+                # Operacion actual siempre debe haber producido >= la siguiente
+                solver_model.Add(cum_current >= cum_next)
+
     # --- Restricciones ---
 
     # 1. Completar pares del dia para cada operacion de cada modelo
