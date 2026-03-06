@@ -542,7 +542,14 @@ def _build_tasks(day_schedule, num_blocks):
             continue
 
         actual_hc = entry.get("hc", 1)
-        copies = max(1, round(actual_hc))
+        rate = entry.get("rate", 100)
+        # Solo dividir si 1 persona necesitaria 4+ bloques (~4 horas).
+        # Preferir 1 operario mas tiempo que 2 operarios poco tiempo.
+        max_1person = rate * 4  # pares que 1 persona hace en 4 bloques
+        if total <= max_1person:
+            copies = 1
+        else:
+            copies = max(1, round(actual_hc))
 
         for copy_idx in range(copies):
             if copies > 1:
