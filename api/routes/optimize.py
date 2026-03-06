@@ -234,7 +234,7 @@ def _load_catalogo() -> dict:
             "clave_material": m.get("clave_material", ""),
             "operations": operations,
             "total_sec_per_pair": total_sec,
-            "num_ops": len(operations),
+            "num_ops": sum(1 for op in operations if op.get("recurso") != "MAQUILA"),
             "resource_summary": resource_summary,
             "robot_ops": resource_summary.get("ROBOT", 0),
             "robots_used": sorted(robots_used),
