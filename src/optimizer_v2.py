@@ -32,7 +32,7 @@ from ortools.sat.python import cp_model
 W_TARDINESS = 100_000     # por par no completado en el dia
 W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
-W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
+W_IDLE = 50               # por segundo de capacidad ociosa (leve incentivo, no forzar HC alto)
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
@@ -62,19 +62,20 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
 
 
 def _calc_dynamic_hc(models_day, resource_cap, plantilla):
-    """Calcula HC maximo por operacion segun recursos disponibles.
+    """Calcula HC maximo por operacion segun recursos y estabilidad.
 
-    En cascada, solo ~2 ops por modelo estan activas simultaneamente,
-    asi que las ops concurrentes son mucho menos que el total.
-    Distribuye plantilla entre ops concurrentes estimadas, limitado
-    por capacidad del recurso fisico (MESA, PLANA, etc).
+    Limita max_hc para que cada operacion dure al menos 2 bloques.
+    Sin esto, HC alto hace que las operaciones se completen en 1 bloque
+    y los operarios saltan entre operaciones cada hora.
     Robots siempre max_hc=1 (1 persona por robot).
     """
     num_models = len(models_day)
-    # En cascada, ~2 ops por modelo activas a la vez
     concurrent_ops = max(1, num_models * 2)
     base_hc = max(1, plantilla // concurrent_ops)
+    block_min = 60  # duracion tipica de bloque en minutos
+    min_blocks = 2  # cada operacion debe durar al menos 2 bloques
     for model in models_day:
+        pares_dia = model["pares_dia"]
         for op in model["operations"]:
             is_robot = bool(op.get("robots", []))
             if is_robot:
@@ -82,7 +83,14 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla):
             else:
                 recurso = op.get("recurso", "GENERAL")
                 cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
-                op["max_hc"] = max(1, min(cap, base_hc))
+                hc = max(1, min(cap, base_hc))
+                # Limitar HC para que la operacion dure al menos min_blocks
+                # Si rate * hc * min_blocks > pares_dia, reducir hc
+                rate_per_block = op["rate"] * block_min / 60
+                if rate_per_block > 0:
+                    max_hc_stable = max(1, int(pares_dia / (rate_per_block * min_blocks)))
+                    hc = min(hc, max_hc_stable)
+                op["max_hc"] = hc
 
 
 def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
