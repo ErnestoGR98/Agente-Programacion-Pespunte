@@ -170,9 +170,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     overtime_used = {}
     regular_caps = {}
     overtime_caps = {}
-    # Factor de eficiencia: contiguidad y comida reducen capacidad real ~10%.
-    # El diario ahora usa soft constraints, asi que no necesitamos ser muy conservadores.
-    EFF = 0.90
+    # Factor de eficiencia: contiguidad, comida y cascade overhead reducen capacidad.
+    # Con multi-HC y cascada, modelos compitiendo por bloques reduce eficiencia.
+    EFF = 0.80
     for d in range(num_days):
         day_cfg = days[d]
         regular_cap = int(day_cfg["plantilla"] * day_cfg["minutes"] * 60 * EFF)
@@ -257,8 +257,8 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.5
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor adicional 0.85 por contiguidad y huecos del diario
-            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.85)
+            # Factor adicional 0.75: contiguidad + competencia entre modelos por bloques
+            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.75)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
