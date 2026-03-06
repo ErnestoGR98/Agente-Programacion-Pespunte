@@ -119,13 +119,25 @@ def _load_params() -> dict:
     """Carga parametros de optimizacion desde Supabase."""
     # Dias laborales
     dias = _sb_get("dias_laborales", "select=*&order=orden")
+
+    # Plantilla automatica: contar operarios activos disponibles por dia
+    op_dias = _sb_get("operario_dias", "select=dia,operario_id")
+    # Solo contar operarios que estan activos
+    active_ops = _sb_get("operarios", "select=id&activo=eq.true")
+    active_ids = {o["id"] for o in active_ops}
+    plantilla_by_day = {}
+    for od in op_dias:
+        if od["operario_id"] in active_ids:
+            plantilla_by_day[od["dia"]] = plantilla_by_day.get(od["dia"], 0) + 1
+    print(f"[OPT] plantilla from DB: {plantilla_by_day}")
+
     days = [
         {
             "name": d["nombre"],
             "minutes": d["minutos"],
-            "plantilla": d["plantilla"],
+            "plantilla": plantilla_by_day.get(d["nombre"], 0),
             "minutes_ot": d["minutos_ot"],
-            "plantilla_ot": d["plantilla_ot"],
+            "plantilla_ot": plantilla_by_day.get(d["nombre"], 0),
             "is_saturday": d["es_sabado"],
         }
         for d in dias
