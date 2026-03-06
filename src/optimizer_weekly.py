@@ -19,12 +19,12 @@ from ortools.sat.python import cp_model
 # Pesos del objetivo multi-criterio
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
-W_CHANGEOVER = 10_000   # por cambio de modelo (forzar lotes grandes, menos modelos por dia)
+W_CHANGEOVER = 500      # por cambio de modelo (bajo: multiples modelos/dia es OK con plantilla grande)
 W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
-W_BALANCE = 1           # por unidad de desbalance entre dias
-W_EARLY = 5             # por par * indice_dia (desempata en favor de dias tempranos)
+W_BALANCE = 0           # desactivado: preferimos concentrar produccion temprano, no distribuir
+W_EARLY = 50            # por par * indice_dia (concentrar produccion en dias tempranos)
 
 
 def optimize(models: list, params: dict, compiled=None) -> tuple:
