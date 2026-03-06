@@ -514,9 +514,9 @@ def _filter_available(operarios, day_name):
 def _build_tasks(day_schedule, num_blocks):
     """Convierte schedule del optimizer en tareas asignables.
 
-    Si una entry tiene hc_multiplier=2 (cuello de botella), se crean
-    2 tareas con la mitad de block_pares cada una para que la cascada
-    asigne 2 operarios trabajando en simultaneo.
+    Si una entry tiene hc > 1, se crean N copias (N = round(hc)) con
+    block_pares divididos proporcionalmente, para que la cascada asigne
+    multiples operarios trabajando en simultaneo.
     """
     tasks = []
     model_totals = {}
@@ -541,16 +541,14 @@ def _build_tasks(day_schedule, num_blocks):
         if first_block >= num_blocks:
             continue
 
-        hc_mult = entry.get("hc_multiplier", 1)
-        copies = hc_mult if hc_mult > 1 else 1
+        actual_hc = entry.get("hc", 1)
+        copies = max(1, round(actual_hc))
 
         for copy_idx in range(copies):
-            if copies == 2:
-                # Dividir pares entre las 2 copias
-                if copy_idx == 0:
-                    bp_copy = [p // 2 for p in block_pares]
-                else:
-                    bp_copy = [p - p // 2 for p in block_pares]
+            if copies > 1:
+                # Dividir pares proporcionalmente entre copias
+                bp_copy = [p * (copy_idx + 1) // copies - p * copy_idx // copies
+                           for p in block_pares]
                 total_copy = sum(bp_copy)
             else:
                 bp_copy = list(block_pares)

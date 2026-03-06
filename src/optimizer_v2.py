@@ -14,13 +14,14 @@ Restricciones:
   2. Capacidad de recurso por bloque (MESA, PLANA, etc.)
   3. Headcount total por bloque <= plantilla
   4. Capacidad de robot individual por bloque (cada robot fisico = 1 maquina)
-  5. Rate limit: 1 persona por robot, 1 persona por operacion manual
+  5. Rate limit: 1 persona por robot, max_hc personas por operacion manual
   6. Contiguidad: una vez detenida, una operacion no puede reiniciar
 
 Objetivo:
-  tardiness(100k) > hc_overflow(50k) > uniformity(500) > balance(1 * peak_load_sec)
+  tardiness(100k) > hc_overflow(50k) > uniformity(5k) > idle(500) > balance(1)
   Uniformidad: SUAVE - penalty por producir menos del rate (manual y robot)
   HC/Recurso: SUAVE - penalty por exceder plantilla o capacidad de recurso
+  Idle: SUAVE - penalty por no usar toda la plantilla (incentiva multi-HC)
   Balance: minimiza el pico de HC para distribuir trabajo en todos los bloques
 """
 
@@ -31,6 +32,7 @@ from ortools.sat.python import cp_model
 W_TARDINESS = 100_000     # por par no completado en el dia
 W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
+W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
@@ -59,30 +61,28 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
                 self.StopSearch()
 
 
-def _mark_bottleneck_ops(models_day):
-    """Detecta operaciones cuello de botella y marca con hc_multiplier=2.
+def _calc_dynamic_hc(models_day, resource_cap, plantilla):
+    """Calcula HC maximo por operacion segun recursos disponibles.
 
-    Criterio: rate < mediana_del_modelo * 0.75  (solo ops manuales).
-    Esto permite que el solver asigne 2x produccion por bloque y que
-    operator_assignment ponga 2 operarios trabajando en simultaneo.
+    En cascada, solo ~2 ops por modelo estan activas simultaneamente,
+    asi que las ops concurrentes son mucho menos que el total.
+    Distribuye plantilla entre ops concurrentes estimadas, limitado
+    por capacidad del recurso fisico (MESA, PLANA, etc).
+    Robots siempre max_hc=1 (1 persona por robot).
     """
+    num_models = len(models_day)
+    # En cascada, ~2 ops por modelo activas a la vez
+    concurrent_ops = max(1, num_models * 2)
+    base_hc = max(1, plantilla // concurrent_ops)
     for model in models_day:
-        ops = model.get("operations", [])
-        if not ops:
-            continue
-        rates = [op["rate"] for op in ops if op["rate"] > 0]
-        if not rates:
-            continue
-        sorted_rates = sorted(rates)
-        median_rate = sorted_rates[len(sorted_rates) // 2]
-        threshold = median_rate * 0.75
-
-        for op in ops:
+        for op in model["operations"]:
             is_robot = bool(op.get("robots", []))
-            if not is_robot and op["rate"] < threshold:
-                op["hc_multiplier"] = 2
+            if is_robot:
+                op["max_hc"] = 1
             else:
-                op["hc_multiplier"] = 1
+                recurso = op.get("recurso", "GENERAL")
+                cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
+                op["max_hc"] = max(1, min(cap, base_hc))
 
 
 def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
@@ -113,8 +113,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
 
-    # Detectar cuellos de botella (marca ops con hc_multiplier=2)
-    _mark_bottleneck_ops(models_day)
+    # Calcular HC dinamico por operacion segun recursos y plantilla
+    _calc_dynamic_hc(models_day, resource_cap, plantilla)
 
     # Construir indices
     all_ops = []  # (m_idx, op_idx, model, op)
@@ -325,9 +325,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         if max_pares_1person < pares_dia:
                             solver_model.Add(y[m_idx, op_idx, r, b] <= max_pares_1person)
                 else:
-                    # Para operaciones manuales: hc_multiplier personas
-                    hc_mult = op.get("hc_multiplier", 1)
-                    max_pares_block = max_pares_1person * hc_mult
+                    # Para operaciones manuales: max_hc personas simultaneas
+                    max_hc = op.get("max_hc", 1)
+                    max_pares_block = max_pares_1person * max_hc
                     if max_pares_block < pares_dia:
                         solver_model.Add(x[m_idx, op_idx, b] <= max_pares_block)
 
@@ -457,7 +457,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 b = real_blocks[rb_idx]
                 next_b = real_blocks[rb_idx + 1]
                 block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
+                hc_mult = op.get("max_hc", 1) if not is_robot else 1
                 target = int(op["rate"] * block_min / 60 * hc_mult)
                 if target <= 0:
                     continue
@@ -486,7 +486,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 next_b = real_blocks[rb_idx + 1]
 
                 block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
+                hc_mult = op.get("max_hc", 1) if not is_robot else 1
                 target = int(op["rate"] * block_min / 60 * hc_mult)
 
                 if target <= 0:
@@ -536,6 +536,19 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             print(f"    [POST] Conveyor exclusivity: {len(models_with_post)} modelos POST, "
                   f"max {lineas_post} simultaneos por bloque")
 
+    # 9. Penalizar operarios ociosos: incentiva usar toda la plantilla
+    idle_terms = []
+    for b in real_blocks:
+        block_sec = time_blocks[b]["minutes"] * 60
+        total_load = []
+        for m_idx, model in enumerate(models_day):
+            for op_idx, op in enumerate(model["operations"]):
+                total_load.append(x[m_idx, op_idx, b] * op["sec_per_pair"])
+        target_sec = plantilla * block_sec
+        idle = solver_model.NewIntVar(0, target_sec, f"idle_{b}")
+        solver_model.Add(idle >= target_sec - sum(total_load))
+        idle_terms.append(idle)
+
     # --- Funcion Objetivo ---
     obj_terms = []
 
@@ -550,6 +563,10 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     # Penalty por exceder capacidad de recurso o plantilla por bloque
     for ov in hc_overflow_terms:
         obj_terms.append(W_HC_OVERFLOW * ov)
+
+    # Penalty por operarios ociosos (incentiva usar toda la plantilla)
+    for idle in idle_terms:
+        obj_terms.append(W_IDLE * idle)
 
     # Balance: minimizar el pico de carga (HC) para distribuir trabajo
     # en todos los bloques del dia. Si peak es bajo, el trabajo se reparte.
@@ -777,7 +794,7 @@ def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
                 "total_pares": total_pares,
                 "robots_used": robots_used,
                 "robots_eligible": op.get("robots", []),
-                "hc_multiplier": op.get("hc_multiplier", 1),
+                "hc_multiplier": op.get("max_hc", 1),
             })
 
     # Ordenar por modelo, fraccion
