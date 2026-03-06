@@ -236,13 +236,19 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for m, model in enumerate(models):
         ops = [op for op in model.get("operations", []) if op.get("recurso") != "MAQUILA"]
         if ops:
-            bottleneck_rate = min(op["rate"] for op in ops if op.get("rate", 0) > 0)
+            bottleneck_op = min(ops, key=lambda op: op.get("rate", 999))
+            bottleneck_rate = bottleneck_op.get("rate", 100)
+            is_robot_bn = bool(bottleneck_op.get("robots", []))
         else:
             n_ops = model.get("num_ops", 1)
             avg_sec = model["total_sec_per_pair"] / max(n_ops, 1)
             bottleneck_rate = 3600 / avg_sec if avg_sec > 0 else 100
+            is_robot_bn = False
 
         num_ops = len(ops)
+        # Robots siempre HC=1; operaciones manuales pueden usar multi-HC
+        # en el diario, lo que aumenta throughput efectivo.
+        hc_boost = 1.0 if is_robot_bn else 1.3
 
         for d in range(num_days):
             day_minutes = days[d]["minutes"]
@@ -255,8 +261,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.5
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor 0.65: contiguidad + competencia entre modelos + cascade implicita
-            max_throughput = int(bottleneck_rate * day_minutes / 60 * cascade_eff * 0.65)
+            # Factor 0.60: contiguidad + competencia entre modelos + cascade implicita
+            # hc_boost compensa que operaciones manuales usan multi-HC en el diario
+            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.60)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -264,6 +271,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                 if d == 0:  # solo imprimir para el primer dia
                     print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
                           f"bottleneck={bottleneck_rate}, ops={num_ops}, "
+                          f"hc_boost={hc_boost}, robot_bn={is_robot_bn}, "
                           f"minutes={day_minutes}, cascade_eff={cascade_eff:.2f}, "
                           f"max_throughput={max_throughput}")
 
