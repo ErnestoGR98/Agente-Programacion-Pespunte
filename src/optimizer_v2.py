@@ -572,8 +572,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     # Timeout dinamico segun complejidad del dia
     total_pares = sum(m["pares_dia"] for m in models_day)
     total_ops = sum(len(m["operations"]) for m in models_day)
-    # Base 20s + escala con pares y operaciones, tope 90s
-    timeout = min(90, max(20, 10 + total_pares // 100 + total_ops))
+    # Base 30s + escala con pares y operaciones, tope 180s
+    timeout = min(180, max(30, 15 + total_pares // 50 + total_ops * 2))
     solver.parameters.max_time_in_seconds = timeout
 
     # Workers: reducir si se ejecuta en paralelo (evitar contention)
