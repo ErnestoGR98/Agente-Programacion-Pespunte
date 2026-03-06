@@ -26,6 +26,7 @@ interface OpMaquilaEntry {
   maquila: string
   pares: number
   fracciones: number[]
+  fecha_entrega: string | null
 }
 
 /** Catalog-level: models that have MAQUILA operations (from catalogo_operaciones) */
@@ -124,6 +125,7 @@ export default function ProgramaPage() {
                     maquila: a.maquila,
                     pares: a.pares,
                     fracciones: a.fracciones,
+                    fecha_entrega: a.fecha_entrega || null,
                   }))
                 )
               })
@@ -215,6 +217,38 @@ export default function ProgramaPage() {
     for (const modelo of catalogMaquilaByModel.keys()) set.add(modelo)
     return set
   }, [maquilaEntries, opMaquilaEntries, catalogMaquilaByModel])
+
+  // Map of post-maquila dependencies: "modeloBase|fraccion" → {maquila, fecha_entrega}
+  // Post-maquila = fractions that come AFTER maquila fractions (depend on maquila delivery)
+  const maquilaDeps = useMemo(() => {
+    const map = new Map<string, { maquila: string; fecha_entrega: string | null }>()
+    for (const [modelo, maqOps] of catalogMaquilaByModel) {
+      const maxMaqFrac = Math.max(...maqOps.map((op) => op.fraccion))
+      // Find assignment with latest delivery date for this model
+      const asigs = opMaquilaEntries.filter((e) => e.modelo === modelo)
+      const latestAsig = asigs.reduce<OpMaquilaEntry | null>((best, a) => {
+        if (!best) return a
+        if (a.fecha_entrega && (!best.fecha_entrega || a.fecha_entrega > best.fecha_entrega)) return a
+        return best
+      }, null)
+      const maquilaName = latestAsig?.maquila || 'MAQUILA'
+      const fechaEntrega = latestAsig?.fecha_entrega || null
+
+      // Get all internal fractions for this model from the schedule
+      // Any fraction > maxMaqFrac is post-maquila
+      if (result?.daily_results) {
+        for (const dayData of Object.values(result.daily_results)) {
+          for (const s of dayData.schedule || []) {
+            const baseNum = s.modelo.split(' ')[0]
+            if (baseNum === modelo && s.fraccion > maxMaqFrac) {
+              map.set(`${baseNum}|${s.fraccion}`, { maquila: maquilaName, fecha_entrega: fechaEntrega })
+            }
+          }
+        }
+      }
+    }
+    return map
+  }, [catalogMaquilaByModel, opMaquilaEntries, result])
 
   const totalMaquilaPares = maquilaEntries.reduce((s, e) => s + e.pares, 0)
   const hasFabricaMaquila = maquilaEntries.length > 0
@@ -439,12 +473,12 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
+      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} maquilaDeps={maquilaDeps} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
+function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
 
@@ -600,7 +634,22 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, 
                       </span>
                     </td>
                     <td className="px-2 py-1">{s.fraccion}</td>
-                    <td className="px-2 py-1 max-w-[120px] truncate">{s.operacion}</td>
+                    <td className="px-2 py-1 max-w-[180px]">
+                      <span className="truncate block">{s.operacion}</span>
+                      {(() => {
+                        const dep = maquilaDeps.get(`${s.modelo.split(' ')[0]}|${s.fraccion}`)
+                        if (!dep) return null
+                        const fecha = dep.fecha_entrega
+                          ? new Date(dep.fecha_entrega).toLocaleString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                          : 'sin fecha'
+                        return (
+                          <span className="text-[9px] text-destructive/70 flex items-center gap-0.5">
+                            <Truck className="h-2.5 w-2.5 inline" />
+                            {dep.maquila} — llega {fecha}
+                          </span>
+                        )
+                      })()}
+                    </td>
                     <td className="px-2 py-1">
                       <Badge variant="outline" className="text-[10px]">
                         {s.robot || s.recurso}
