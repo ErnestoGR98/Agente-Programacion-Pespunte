@@ -439,23 +439,63 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
+      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} catalogMaquilaOps={catalogMaquilaOps} opMaquilaEntries={opMaquilaEntries} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
+function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, catImages, catalogMaquilaOps, opMaquilaEntries }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages>; catalogMaquilaOps: CatalogMaquilaOp[]; opMaquilaEntries: OpMaquilaEntry[] }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
 
   // Clear selection when day changes
   useEffect(() => { setSelectedOperario(null) }, [dayName])
 
-  // Maquila info is shown in the banner above, not as phantom rows in the table
+  // Build phantom MAQUILA rows for models scheduled today
+  const scheduleWithPhantoms = useMemo(() => {
+    const todayModelos = new Set(rawSchedule.map((s) => s.modelo))
+    const phantoms: typeof rawSchedule = []
+
+    for (const modelo of todayModelos) {
+      const baseNum = modelo.split(' ')[0]
+      const maqOps = catalogMaquilaOps.filter((op) => op.modelo_num === baseNum)
+      if (maqOps.length === 0) continue
+
+      for (const op of maqOps) {
+        // Find assigned maquila factory for this model+fraccion
+        const asig = opMaquilaEntries.find(
+          (e) => e.modelo === baseNum && e.fracciones.includes(op.fraccion)
+        )
+        phantoms.push({
+          modelo,
+          fraccion: op.fraccion,
+          operacion: op.operacion,
+          recurso: 'MAQUILA' as const,
+          rate: op.rate,
+          hc: 0,
+          etapa: 'MAQUILA',
+          blocks: [],
+          total: asig?.pares || 0,
+          operario: asig?.maquila || 'SIN ASIGNAR',
+        })
+      }
+    }
+
+    if (phantoms.length === 0) return rawSchedule
+
+    // Merge: group by modelo, sort by fraccion within each model
+    const merged = [...rawSchedule, ...phantoms]
+    merged.sort((a, b) => {
+      const mCmp = a.modelo.localeCompare(b.modelo)
+      if (mCmp !== 0) return mCmp
+      return a.fraccion - b.fraccion
+    })
+    return merged
+  }, [rawSchedule, catalogMaquilaOps, opMaquilaEntries])
 
   const schedule = useMemo(() => {
-    if (!cascadeSort) return rawSchedule
-    return [...rawSchedule].sort((a, b) => {
+    if (!cascadeSort) return scheduleWithPhantoms
+    return [...scheduleWithPhantoms].sort((a, b) => {
       const firstA = (a.blocks || []).findIndex((v) => v > 0)
       const firstB = (b.blocks || []).findIndex((v) => v > 0)
       const startA = firstA === -1 ? 999 : firstA
@@ -470,7 +510,7 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, 
       if (mCmp !== 0) return mCmp
       return a.fraccion - b.fraccion
     })
-  }, [rawSchedule, cascadeSort])
+  }, [scheduleWithPhantoms, cascadeSort])
 
   const totalPares = data.total_pares || 0
   const tardiness = data.total_tardiness || 0
@@ -586,28 +626,35 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, 
             <tbody>
               {schedule.map((s, i) => {
                 const bgColor = getEtapaColor(s.etapa)
+                const isPhantom = s.recurso === 'MAQUILA'
                 const isHighlighted = selectedOperario != null && s.operario === selectedOperario
                 const isDimmed = selectedOperario != null && s.operario !== selectedOperario
                 return (
-                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`}>
+                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isPhantom ? 'bg-destructive/5 border-l-2 border-l-destructive/40' : ''} ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`} style={isPhantom ? { borderStyle: 'dashed' } : undefined}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
                         {(() => { const [num, ...c] = s.modelo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
-                        {s.modelo}
-                        {maquilaModelos.has(s.modelo) && (
+                        {isPhantom ? <span className="text-destructive/60">{s.modelo}</span> : s.modelo}
+                        {(maquilaModelos.has(s.modelo) || isPhantom) && (
                           <Truck className="h-3 w-3 text-destructive" />
                         )}
                       </span>
                     </td>
-                    <td className="px-2 py-1">{s.fraccion}</td>
-                    <td className="px-2 py-1 max-w-[120px] truncate">{s.operacion}</td>
+                    <td className={`px-2 py-1 ${isPhantom ? 'text-destructive/60' : ''}`}>{s.fraccion}</td>
+                    <td className={`px-2 py-1 max-w-[120px] truncate ${isPhantom ? 'text-destructive/60 italic' : ''}`}>{s.operacion}</td>
                     <td className="px-2 py-1">
-                      <Badge variant="outline" className="text-[10px]">
-                        {s.robot || s.recurso}
-                      </Badge>
+                      {isPhantom ? (
+                        <Badge variant="outline" className="text-[10px] border-destructive/40 text-destructive">MAQUILA</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">
+                          {s.robot || s.recurso}
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-2 py-1">
-                      {s.operario === 'SIN ASIGNAR' ? (
+                      {isPhantom ? (
+                        <span className="text-[10px] font-medium text-destructive/70">{s.operario || 'SIN ASIGNAR'}</span>
+                      ) : s.operario === 'SIN ASIGNAR' ? (
                         <span className="text-[10px] font-medium text-destructive">SIN ASIGNAR</span>
                       ) : s.operario ? (
                         <button
@@ -620,9 +667,13 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, 
                         <span className="text-[10px] text-muted-foreground">-</span>
                       )}
                     </td>
-                    <td className="px-2 py-1 text-right">{s.rate}</td>
-                    <td className="px-2 py-1 text-right">{s.hc}</td>
-                    {(s.blocks || []).map((val, bi) => (
+                    <td className={`px-2 py-1 text-right ${isPhantom ? 'text-muted-foreground' : ''}`}>{s.rate}</td>
+                    <td className={`px-2 py-1 text-right ${isPhantom ? 'text-muted-foreground' : ''}`}>{isPhantom ? '-' : s.hc}</td>
+                    {isPhantom ? (
+                      blockLabels.map((_, bi) => (
+                        <td key={bi} className="px-1 py-1 text-center" style={{ backgroundColor: `${bgColor}10` }} />
+                      ))
+                    ) : (s.blocks || []).map((val, bi) => (
                       <td
                         key={bi}
                         className="px-1 py-1 text-center"
@@ -635,7 +686,7 @@ function DayView({ dayName, data, maquilaModelos, cascadeSort, onToggleCascade, 
                         {val > 0 ? val : ''}
                       </td>
                     ))}
-                    <td className="px-2 py-1 text-right font-bold">{s.total}</td>
+                    <td className={`px-2 py-1 text-right font-bold ${isPhantom ? 'text-destructive/60' : ''}`}>{isPhantom ? (s.total > 0 ? s.total : '-') : s.total}</td>
                   </tr>
                 )
               })}

@@ -300,7 +300,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         # Limite de modelos activos por dia (hard)
         plantilla_d = days[d]["plantilla"]
-        max_models_day = max(3, plantilla_d // 3)  # ~1 modelo por cada 3 operarios
+        max_models_day = max(2, plantilla_d // 4)  # ~1 modelo por cada 4 operarios
         solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max_models_day)
 
         # Limite de operaciones totales por dia
@@ -308,7 +308,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         for m in range(num_models):
             n_ops = models[m].get("num_ops", 1)
             total_ops_day.append(y[m, d] * n_ops)
-        max_ops = plantilla_d * 3  # mas operaciones, multi-HC las absorbe
+        max_ops = plantilla_d * 2
         solver_model.Add(sum(total_ops_day) <= max_ops)
 
     # Penalizar lotes no multiplo de 100 (preferir centenas cerradas)
