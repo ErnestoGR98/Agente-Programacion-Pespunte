@@ -467,10 +467,10 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     active[m_idx, op_idx, b] + stopped[prev_b] <= 1
                 )
 
-    # 7. Uniformidad de produccion (salta COMIDA):
-    #    SUAVE para todas las ops (manual y robot): penalty por shortfall.
-    #    Hard constraint causaba INFEASIBLE con multiples modelos compitiendo por HC.
-    uniformity_shortfall_terms = []
+    # 7. Uniformidad de produccion DURA (salta COMIDA):
+    #    Todo bloque activo que NO sea el ultimo debe producir exactamente
+    #    el rate (rate * hc * block_min/60). Solo el ultimo bloque activo
+    #    puede producir menos (cuando quedan pocos pares).
     for m_idx, model in enumerate(models_day):
         for op_idx, op in enumerate(model["operations"]):
             is_robot = bool(op.get("robots", []))
@@ -482,42 +482,12 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 target = int(op["rate"] * block_min / 60 * hc_mult)
                 if target <= 0:
                     continue
-                shortfall = solver_model.NewIntVar(
-                    0, target, f"uf_{m_idx}_{op_idx}_{b}"
-                )
-                solver_model.Add(
-                    x[m_idx, op_idx, b] + shortfall >= target
-                ).OnlyEnforceIf([
-                    active[m_idx, op_idx, b],
-                    active[m_idx, op_idx, next_b]
-                ])
-                uniformity_shortfall_terms.append(shortfall)
-
-    # 7b. Uniformidad DURA para bloques intermedios:
-    #     Si un bloque tiene vecinos activos en ambos lados (no es primero
-    #     ni ultimo del run contiguo), debe producir a tasa completa.
-    #     Solo el primer bloque (puede arrancar tarde) y el ultimo
-    #     (puede acabarse el buffer o la tarea) pueden ser parciales.
-    for m_idx, model in enumerate(models_day):
-        for op_idx, op in enumerate(model["operations"]):
-            is_robot = bool(op.get("robots", []))
-            for rb_idx in range(1, len(real_blocks) - 1):
-                prev_b = real_blocks[rb_idx - 1]
-                b = real_blocks[rb_idx]
-                next_b = real_blocks[rb_idx + 1]
-
-                block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("max_hc", 1) if not is_robot else 1
-                target = int(op["rate"] * block_min / 60 * hc_mult)
-
-                if target <= 0:
-                    continue
-
-                # Hard: middle block must produce at full rate
+                # HARD: si este bloque Y el siguiente estan activos,
+                # este bloque debe producir al menos el rate completo.
+                # Solo el ultimo bloque activo puede ser parcial.
                 solver_model.Add(
                     x[m_idx, op_idx, b] >= target
                 ).OnlyEnforceIf([
-                    active[m_idx, op_idx, prev_b],
                     active[m_idx, op_idx, b],
                     active[m_idx, op_idx, next_b]
                 ])
@@ -577,9 +547,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     for m_idx in range(len(models_day)):
         obj_terms.append(W_TARDINESS * tardiness[m_idx])
 
-    # Soft uniformity para todas las ops (manual + robot)
-    for sf in uniformity_shortfall_terms:
-        obj_terms.append(W_UNIFORMITY * sf)
+    # (Uniformidad ahora es HARD constraint, no necesita penalizacion suave)
 
     # Penalty por exceder capacidad de recurso o plantilla por bloque
     for ov in hc_overflow_terms:

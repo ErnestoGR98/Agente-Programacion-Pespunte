@@ -20,7 +20,7 @@ from ortools.sat.python import cp_model
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
 W_CHANGEOVER = 1_000    # por cambio de modelo (moderado: permite 4 modelos/dia con plantilla 19)
-W_ODD_LOT = 5_000       # por lote no multiplo de 100 (preferir centenas, permitir 50s si es necesario)
+W_ODD_LOT = 50_000      # por lote no multiplo de 100 (fuerte preferencia por centenas, 50 solo si no hay opcion)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
 W_BALANCE = 10          # por unidad de desbalance entre dias (distribuir trabajo parejo)
