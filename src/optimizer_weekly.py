@@ -246,19 +246,17 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
         for d in range(num_days):
             day_minutes = days[d]["minutes"]
-            ot_minutes = days[d].get("minutes_ot", 0)
-            total_minutes = day_minutes + ot_minutes
-            # Estimar bloques productivos (~60 min cada uno)
+            # Usar solo minutos regulares para throughput per-model.
+            # Overtime agrega capacidad total pero NO extiende la ventana
+            # de cascada (un modelo compartiendo el dia con otros no puede
+            # usar los bloques de overtime si los regulares estan ocupados).
             block_duration = 60
-            total_blocks = total_minutes / block_duration
-            # Startup de cascada: cada paso necesita ~0.5 bloques antes de
-            # que el siguiente pueda empezar (con multi-HC, ops manuales
-            # terminan mas rapido)
+            total_blocks = day_minutes / block_duration
             cascade_startup = (num_ops - 1) * 0.5
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor adicional 0.65: contiguidad + competencia entre modelos + cascade implicita
-            max_throughput = int(bottleneck_rate * total_minutes / 60 * cascade_eff * 0.65)
+            # Factor 0.65: contiguidad + competencia entre modelos + cascade implicita
+            max_throughput = int(bottleneck_rate * day_minutes / 60 * cascade_eff * 0.65)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -266,7 +264,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                 if d == 0:  # solo imprimir para el primer dia
                     print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
                           f"bottleneck={bottleneck_rate}, ops={num_ops}, "
-                          f"minutes={total_minutes}, cascade_eff={cascade_eff:.2f}, "
+                          f"minutes={day_minutes}, cascade_eff={cascade_eff:.2f}, "
                           f"max_throughput={max_throughput}")
 
     # 5. Balanceo: rastrear carga maxima y minima entre dias normales
