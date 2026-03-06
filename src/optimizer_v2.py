@@ -32,6 +32,7 @@ W_TARDINESS = 100_000     # por par no completado en el dia
 W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
+W_IDLE = 500              # penalizar capacidad ociosa (empujar uso de toda la plantilla)
 
 
 class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
@@ -59,30 +60,26 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
                 self.StopSearch()
 
 
-def _mark_bottleneck_ops(models_day):
-    """Detecta operaciones cuello de botella y marca con hc_multiplier=2.
+def _calc_dynamic_hc(models_day, resource_cap, plantilla):
+    """Calcula max_hc por operacion basado en recurso disponible y plantilla.
 
-    Criterio: rate < mediana_del_modelo * 0.75  (solo ops manuales).
-    Esto permite que el solver asigne 2x produccion por bloque y que
-    operator_assignment ponga 2 operarios trabajando en simultaneo.
+    Permite que multiples personas trabajen la misma operacion cuando hay
+    recursos disponibles. Esto asegura que los 19 operarios esten ocupados.
     """
-    for model in models_day:
-        ops = model.get("operations", [])
-        if not ops:
-            continue
-        rates = [op["rate"] for op in ops if op["rate"] > 0]
-        if not rates:
-            continue
-        sorted_rates = sorted(rates)
-        median_rate = sorted_rates[len(sorted_rates) // 2]
-        threshold = median_rate * 0.75
+    total_ops = sum(len(m["operations"]) for m in models_day)
+    # Base: distribuir plantilla entre operaciones activas
+    base_hc = max(1, plantilla // max(total_ops, 1))
 
-        for op in ops:
+    for model in models_day:
+        for op in model["operations"]:
+            recurso = op.get("recurso", "GENERAL")
             is_robot = bool(op.get("robots", []))
-            if not is_robot and op["rate"] < threshold:
-                op["hc_multiplier"] = 2
+            if is_robot:
+                op["max_hc"] = 1  # robots: 1 persona por robot fisico
             else:
-                op["hc_multiplier"] = 1
+                # Limitar por capacidad del recurso (maquinas disponibles)
+                cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
+                op["max_hc"] = max(1, min(cap, base_hc + 1))
 
 
 def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
@@ -113,8 +110,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
 
-    # Detectar cuellos de botella (marca ops con hc_multiplier=2)
-    _mark_bottleneck_ops(models_day)
+    # Calcular HC dinamico por operacion (multi-persona segun recurso)
+    _calc_dynamic_hc(models_day, resource_cap, plantilla)
 
     # Construir indices
     all_ops = []  # (m_idx, op_idx, model, op)
@@ -325,9 +322,9 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         if max_pares_1person < pares_dia:
                             solver_model.Add(y[m_idx, op_idx, r, b] <= max_pares_1person)
                 else:
-                    # Para operaciones manuales: hc_multiplier personas
-                    hc_mult = op.get("hc_multiplier", 1)
-                    max_pares_block = max_pares_1person * hc_mult
+                    # Para operaciones manuales: max_hc personas simultaneas
+                    max_hc = op.get("max_hc", 1)
+                    max_pares_block = max_pares_1person * max_hc
                     if max_pares_block < pares_dia:
                         solver_model.Add(x[m_idx, op_idx, b] <= max_pares_block)
 
@@ -457,8 +454,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 b = real_blocks[rb_idx]
                 next_b = real_blocks[rb_idx + 1]
                 block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
-                target = int(op["rate"] * block_min / 60 * hc_mult)
+                max_hc = op.get("max_hc", 1) if not is_robot else 1
+                target = int(op["rate"] * block_min / 60 * max_hc)
                 if target <= 0:
                     continue
                 shortfall = solver_model.NewIntVar(
@@ -486,8 +483,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 next_b = real_blocks[rb_idx + 1]
 
                 block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("hc_multiplier", 1) if not is_robot else 1
-                target = int(op["rate"] * block_min / 60 * hc_mult)
+                max_hc = op.get("max_hc", 1) if not is_robot else 1
+                target = int(op["rate"] * block_min / 60 * max_hc)
 
                 if target <= 0:
                     continue
@@ -563,6 +560,22 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
         if load_terms:
             solver_model.Add(peak_load >= sum(load_terms))
     obj_terms.append(W_BALANCE * peak_load)
+
+    # 9. Minimizar capacidad ociosa: penalizar cuando HC por bloque < plantilla
+    #    Esto empuja al solver a usar todos los operarios disponibles.
+    for b in real_blocks:
+        block_sec = time_blocks[b]["minutes"] * 60
+        if block_sec == 0:
+            continue
+        load_terms_idle = []
+        for m_idx, model in enumerate(models_day):
+            for op_idx, op in enumerate(model["operations"]):
+                load_terms_idle.append(x[m_idx, op_idx, b] * op["sec_per_pair"])
+        if load_terms_idle:
+            target_sec = plantilla * block_sec
+            idle = solver_model.NewIntVar(0, target_sec, f"idle_{b}")
+            solver_model.Add(idle >= target_sec - sum(load_terms_idle))
+            obj_terms.append(W_IDLE * idle)
 
     solver_model.Minimize(sum(obj_terms))
 
@@ -777,7 +790,7 @@ def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
                 "total_pares": total_pares,
                 "robots_used": robots_used,
                 "robots_eligible": op.get("robots", []),
-                "hc_multiplier": op.get("hc_multiplier", 1),
+                "max_hc": op.get("max_hc", 1),
             })
 
     # Ordenar por modelo, fraccion
