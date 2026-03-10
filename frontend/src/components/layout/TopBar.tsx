@@ -12,6 +12,7 @@ import {
 import { Loader2, Play, History, RotateCcw } from 'lucide-react'
 import type { Resultado } from '@/types'
 import { DAY_ORDER } from '@/types'
+import { MenuButton } from '@/components/layout/Sidebar'
 
 interface ResultVersion {
   id: string
@@ -85,29 +86,31 @@ export function TopBar() {
   }
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card px-4">
-      <div className="flex items-center gap-3">
+    <header className="flex min-h-14 items-center justify-between border-b bg-card px-3 sm:px-4 gap-2 flex-wrap py-2">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Hamburger menu - mobile only */}
+        <MenuButton />
         {currentSemana && (
-          <span className="rounded-md bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
+          <span className="rounded-md bg-primary/10 px-2 py-1 text-xs sm:text-sm font-medium text-primary">
             {currentSemana}
           </span>
         )}
         {currentPedidoNombre && (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">
             Pedido: {currentPedidoNombre}
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {/* Result version selector */}
         {versions.length > 0 && (
           <Select
             value={currentResult?.id || ''}
             onValueChange={handleLoadVersion}
           >
-            <SelectTrigger className="h-8 w-56 text-xs">
-              <History className="mr-1 h-3 w-3" />
+            <SelectTrigger className="h-8 w-40 sm:w-56 text-xs">
+              <History className="mr-1 h-3 w-3 shrink-0" />
               <SelectValue placeholder="Cargar resultado..." />
             </SelectTrigger>
             <SelectContent>
@@ -126,8 +129,8 @@ export function TopBar() {
           <>
             {/* Re-opt from day selector */}
             <Select value={reoptFromDay} onValueChange={setReoptFromDay}>
-              <SelectTrigger className="h-8 w-40 text-xs">
-                <RotateCcw className="mr-1 h-3 w-3" />
+              <SelectTrigger className="h-8 w-32 sm:w-40 text-xs">
+                <RotateCcw className="mr-1 h-3 w-3 shrink-0" />
                 <SelectValue placeholder="Desde dia..." />
               </SelectTrigger>
               <SelectContent>
@@ -143,10 +146,10 @@ export function TopBar() {
             </Select>
 
             <Input
-              placeholder="Nota (opcional)"
+              placeholder="Nota"
               value={nota}
               onChange={(e) => setNota(e.target.value)}
-              className="h-8 w-40 text-sm"
+              className="h-8 w-24 sm:w-40 text-sm"
             />
             <Button
               size="sm"
@@ -156,19 +159,20 @@ export function TopBar() {
               {optimizing ? (
                 <>
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  Optimizando...
+                  <span className="hidden sm:inline">Optimizando...</span>
+                  <span className="sm:hidden">...</span>
                 </>
               ) : (
                 <>
                   <Play className="mr-1 h-4 w-4" />
-                  Optimizar
+                  <span className="hidden sm:inline">Optimizar</span>
                 </>
               )}
             </Button>
           </>
         )}
         {error && (
-          <span className="text-sm text-destructive">{error}</span>
+          <span className="text-xs sm:text-sm text-destructive">{error}</span>
         )}
       </div>
     </header>

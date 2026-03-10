@@ -31,8 +31,8 @@ from ortools.sat.python import cp_model
 # Pesos del objetivo
 W_TARDINESS = 100_000     # por par no completado en el dia
 W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
-W_HC_OVERFLOW = 50_000    # por segundo de exceso sobre plantilla/recurso por bloque
-W_IDLE = 50               # por segundo de capacidad ociosa (leve incentivo, no forzar HC alto)
+W_HC_OVERFLOW = 5_000     # por segundo de exceso sobre plantilla/recurso por bloque (reducido para permitir mas throughput)
+W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
 W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
@@ -70,10 +70,11 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla):
     Robots siempre max_hc=1 (1 persona por robot).
     """
     num_models = len(models_day)
-    concurrent_ops = max(1, num_models * 2)
-    base_hc = max(1, plantilla // concurrent_ops)
+    # Mas generoso: distribuir plantilla por modelo (no por operacion)
+    # Con cascada, cada modelo tiene varias ops concurrentes que comparten el HC
+    base_hc = max(3, plantilla // max(1, num_models))
     block_min = 60  # duracion tipica de bloque en minutos
-    min_blocks = 2  # cada operacion debe durar al menos 2 bloques
+    min_blocks = 1  # permitir operaciones de 1 bloque para aprovechar todo el HC
     for model in models_day:
         pares_dia = model["pares_dia"]
         for op in model["operations"]:
@@ -82,7 +83,11 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla):
                 op["max_hc"] = 1
             else:
                 recurso = op.get("recurso", "GENERAL")
-                cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
+                # MESA y GENERAL son trabajo manual, no limitados por maquinas
+                if recurso in ("MESA", "GENERAL"):
+                    cap = plantilla
+                else:
+                    cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
                 hc = max(1, min(cap, base_hc))
                 # Limitar HC para que la operacion dure al menos min_blocks
                 # Si rate * hc * min_blocks > pares_dia, reducir hc
@@ -386,7 +391,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                 )
 
         for recurso, loads in resource_loads.items():
-            cap = resource_cap.get(recurso, resource_cap.get("GENERAL", 4))
+            # MESA y GENERAL son trabajo manual — capacidad = plantilla, no maquinas
+            if recurso in ("MESA", "GENERAL"):
+                cap = plantilla
+            else:
+                cap = resource_cap.get(recurso, resource_cap.get("GENERAL", 4))
             max_capacity_sec = cap * block_sec
             overflow = solver_model.NewIntVar(
                 0, max_capacity_sec, f"rcap_{recurso}_{b}"
@@ -697,31 +706,169 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         day_tasks[day_name] = (models_day, day_params)
 
-    # Ejecutar dias en paralelo
-    if day_tasks:
-        active_days = len(day_tasks)
-        print(f"  Scheduling {active_days} dias en paralelo...")
+    # Ejecutar dias SECUENCIALMENTE para permitir adelantos.
+    # Cuando un dia tiene HC ocioso, inyectamos modelos del dia siguiente
+    # para que los operarios sin maquina adelanten trabajo.
+    day_order = [d["name"] for d in days]
+    ordered_tasks = [(dn, day_tasks[dn]) for dn in day_order if dn in day_tasks]
 
-        with ThreadPoolExecutor(max_workers=active_days) as executor:
-            futures = {}
-            for day_name, (models_day, day_params) in day_tasks.items():
-                total_p = sum(m["pares_dia"] for m in models_day)
-                print(f"    -> {day_name}: {len(models_day)} modelos, {total_p} pares")
-                futures[executor.submit(schedule_day, models_day, day_params, compiled)] = day_name
+    # Track de pares adelantados: {modelo_code: pares_ya_adelantados}
+    adelanto_credits = {}  # se descuenta del dia siguiente
 
-            for future in as_completed(futures):
-                day_name = futures[future]
-                try:
-                    results[day_name] = future.result()
-                    s = results[day_name]["summary"]
-                    print(f"    <- {day_name}: {s['total_pares']} pares, "
-                          f"tardiness={s['total_tardiness']}, status={s['status']}")
-                except Exception as e:
-                    print(f"    ERROR {day_name}: {e}")
-                    results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
+    for task_idx, (day_name, (models_day, day_params)) in enumerate(ordered_tasks):
+        # Descontar pares ya adelantados del dia anterior
+        for m in models_day:
+            code = m["codigo"]
+            if code in adelanto_credits and adelanto_credits[code] > 0:
+                descuento = min(adelanto_credits[code], m["pares_dia"])
+                print(f"    [ADELANTO] {day_name} {code}: descontando {descuento}p adelantados")
+                m["pares_dia"] -= descuento
+                adelanto_credits[code] -= descuento
+        # Filtrar modelos con 0 pares
+        models_day = [m for m in models_day if m["pares_dia"] > 0]
+
+        total_p = sum(m["pares_dia"] for m in models_day)
+        print(f"    -> {day_name}: {len(models_day)} modelos, {total_p} pares")
+
+        try:
+            results[day_name] = schedule_day(models_day, day_params, compiled)
+            s = results[day_name]["summary"]
+            print(f"    <- {day_name}: {s['total_pares']} pares, "
+                  f"tardiness={s['total_tardiness']}, status={s['status']}")
+        except Exception as e:
+            print(f"    ERROR {day_name}: {e}")
+            results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
+            continue
+
+        # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
+        if task_idx + 1 >= len(ordered_tasks):
+            continue  # ultimo dia, no hay dia siguiente
+
+        summary = results[day_name]["summary"]
+        plantilla = day_params["plantilla"]
+        block_hc = summary.get("block_hc", [])
+        time_blocks = day_params["time_blocks"]
+
+        # Calcular horas-hombre ociosas (bloques productivos solamente)
+        idle_hh = 0
+        for b_idx, tb in enumerate(time_blocks):
+            if tb["minutes"] <= 0:
+                continue
+            if b_idx < len(block_hc):
+                used_hc = block_hc[b_idx]
+                idle_hh += max(0, plantilla - used_hc) * (tb["minutes"] / 60)
+
+        print(f"    [ADELANTO] {day_name}: HC ocioso = {idle_hh:.1f} horas-hombre")
+
+        # Si hay al menos 3 horas-hombre ociosas, vale la pena adelantar
+        if idle_hh < 3:
+            continue
+
+        next_day_name, (next_models, next_params) = ordered_tasks[task_idx + 1]
+        print(f"    [ADELANTO] Intentando adelantar modelos de {next_day_name}...")
+
+        # Seleccionar modelos del dia siguiente que se pueden adelantar.
+        # Priorizar modelos que YA estan en el dia actual (mismas operaciones,
+        # robots ya configurados) para minimizar cambios.
+        current_codes = {m["codigo"] for m in models_day}
+        adelanto_models = []
+
+        for nm in next_models:
+            code = nm["codigo"]
+            credit = adelanto_credits.get(code, 0)
+            pares_available = nm["pares_dia"] - credit
+            if pares_available <= 0:
+                continue
+            # Limitar pares de adelanto: maximo 30% del dia siguiente
+            # (no queremos vaciar el dia siguiente)
+            max_adelanto = max(50, int(pares_available * 0.30))
+            # Redondear al step
+            step = day_params.get("lot_step", 50)
+            max_adelanto = (max_adelanto // step) * step
+            if max_adelanto <= 0:
+                continue
+
+            # Excluir operaciones MAQUILA
+            model_data = model_lookup.get(code)
+            if not model_data:
+                continue
+            internal_ops = [
+                op for op in model_data["operations"]
+                if op.get("recurso") != "MAQUILA"
+            ]
+            if not internal_ops:
+                continue
+
+            priority = 0 if code in current_codes else 1  # primero los que ya corren hoy
+            adelanto_models.append((priority, code, nm, max_adelanto, internal_ops))
+
+        adelanto_models.sort(key=lambda t: t[0])
+
+        if not adelanto_models:
+            continue
+
+        # Construir models_day para 2da pasada: modelos originales + adelantos
+        # Los modelos originales mantienen sus pares (ya resueltos), pero para
+        # la 2da pasada solo corremos los adelantos como un schedule_day aparte.
+        adelanto_day = []
+        hh_budget = idle_hh * 3600  # convertir a segundos
+        for _, code, nm, max_pares, internal_ops in adelanto_models:
+            if hh_budget <= 0:
+                break
+            # Estimar consumo de HH de este modelo
+            avg_sec = sum(op["sec_per_pair"] for op in internal_ops) / max(1, len(internal_ops))
+            pares_fit = min(max_pares, int(hh_budget / max(1, avg_sec)))
+            step = day_params.get("lot_step", 50)
+            pares_fit = (pares_fit // step) * step
+            if pares_fit <= 0:
+                continue
+
+            adelanto_day.append({
+                "codigo": code,
+                "fabrica": nm.get("fabrica", ""),
+                "suela": nm.get("suela", ""),
+                "pares_dia": pares_fit,
+                "operations": internal_ops,
+            })
+            hh_budget -= pares_fit * avg_sec
+            print(f"      [ADELANTO] {code}: adelantar {pares_fit}p de {next_day_name}")
+
+        if not adelanto_day:
+            continue
+
+        # Correr schedule_day solo con los modelos de adelanto
+        try:
+            adelanto_result = schedule_day(adelanto_day, day_params, compiled)
+            a_summary = adelanto_result["summary"]
+            pares_adelantados = a_summary["total_pares"]
+            print(f"    [ADELANTO] Resultado: {pares_adelantados} pares adelantados para {next_day_name}")
+
+            if pares_adelantados > 0:
+                # Marcar entradas como adelanto y agregar al schedule del dia
+                for entry in adelanto_result["schedule"]:
+                    entry["adelanto"] = True
+                    entry["adelanto_de"] = next_day_name
+                results[day_name]["schedule"].extend(adelanto_result["schedule"])
+
+                # Sumar pares al summary del dia
+                results[day_name]["summary"]["total_pares"] += pares_adelantados
+                results[day_name]["summary"]["pares_adelantados"] = pares_adelantados
+
+                # Registrar creditos para descontar del dia siguiente
+                for m in adelanto_day:
+                    code = m["codigo"]
+                    # Buscar cuantos pares realmente se produjeron
+                    produced = sum(
+                        e["total_pares"] for e in adelanto_result["schedule"]
+                        if e["modelo"] == code
+                    )
+                    if produced > 0:
+                        adelanto_credits[code] = adelanto_credits.get(code, 0) + produced
+
+        except Exception as e:
+            print(f"    [ADELANTO] Error: {e}")
 
     # Reordenar por el orden logico de la semana (params["days"])
-    day_order = [d["name"] for d in days]
     ordered = {d: results[d] for d in day_order if d in results}
     return ordered
 

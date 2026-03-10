@@ -31,7 +31,7 @@ export default function OperariosPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
           <Skeleton className="h-20" />
           <Skeleton className="h-20" />
           <Skeleton className="h-20" />
@@ -59,7 +59,7 @@ export default function OperariosPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard label="Total" value={operarios.length} />
         <KpiCard label="Activos" value={activos.length} />
         <KpiCard label="Inactivos" value={inactivos.length} />

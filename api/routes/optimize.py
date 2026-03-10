@@ -808,7 +808,7 @@ def run_optimization(req: OptimizeRequest):
                         etapa = op.get("etapa", "")
                         break
 
-            schedule.append({
+            entry = {
                 "modelo": modelo_code,
                 "fraccion": s.get("fraccion", 0),
                 "operacion": s.get("operacion", ""),
@@ -820,7 +820,11 @@ def run_optimization(req: OptimizeRequest):
                 "total": s.get("total_pares", 0),
                 "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
                 "operario": s.get("operario", ""),
-            })
+            }
+            if s.get("adelanto"):
+                entry["adelanto"] = True
+                entry["adelanto_de"] = s.get("adelanto_de", "")
+            schedule.append(entry)
 
         daily_results[day_name] = {
             "status": summary.get("status", ""),

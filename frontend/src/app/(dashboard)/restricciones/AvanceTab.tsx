@@ -149,7 +149,7 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard label="Total Pares Avanzados" value={totalPares.toLocaleString()} />
         <KpiCard label="Modelos con Avance" value={`${modelosConAvance} / ${modelos.length}`} />
         <KpiCard label="Semana" value={semana} />
@@ -168,7 +168,8 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
             </Button>
           </div>
 
-          <table className="w-full text-xs border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[500px]">
             <thead>
               <tr className="border-b">
                 <th className="px-2 py-2 text-left font-semibold">MODELO</th>
@@ -220,6 +221,7 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
               </tr>
             </tfoot>
           </table>
+          </div>
         </CardContent>
       </Card>
     </div>

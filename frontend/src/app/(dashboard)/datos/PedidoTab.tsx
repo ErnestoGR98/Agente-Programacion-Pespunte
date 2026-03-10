@@ -178,7 +178,7 @@ export function PedidoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }) 
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard label="Total Pares" value={pedido.totalPares.toLocaleString()} />
         <KpiCard label="Modelos" value={pedido.modelosUnicos} />
         <KpiCard label="Items" value={pedido.items.length} />

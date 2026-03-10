@@ -19,7 +19,7 @@ from ortools.sat.python import cp_model
 # Pesos del objetivo multi-criterio
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
 W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
-W_CHANGEOVER = 1_000    # por cambio de modelo (moderado: permite 4 modelos/dia con plantilla 19)
+W_CHANGEOVER = 5_000    # por cambio de modelo (alto: consolida modelos en menos dias, evita lotes chicos dispersos)
 W_ODD_LOT = 50_000      # por lote no multiplo de 100 (fuerte preferencia por centenas, 50 solo si no hay opcion)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
@@ -246,9 +246,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             is_robot_bn = False
 
         num_ops = len(ops)
-        # Robots siempre HC=1; operaciones manuales pueden usar multi-HC
-        # en el diario, lo que aumenta throughput efectivo.
-        hc_boost = 1.0 if is_robot_bn else 1.3
+        # Robots siempre HC=1; operaciones manuales limitadas por maquinas fisicas
+        # hc_boost=1.0 para todos: el diario maneja HC real con restricciones de maquinas
+        hc_boost = 1.0
 
         for d in range(num_days):
             day_minutes = days[d]["minutes"]
@@ -258,12 +258,12 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             # usar los bloques de overtime si los regulares estan ocupados).
             block_duration = 60
             total_blocks = day_minutes / block_duration
-            cascade_startup = (num_ops - 1) * 0.5
+            cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor 0.60: contiguidad + competencia entre modelos + cascade implicita
-            # hc_boost compensa que operaciones manuales usan multi-HC en el diario
-            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.60)
+            # Factor 0.50: conservador para que el semanal no sobreasigne al diario
+            # El diario tiene restricciones fisicas de maquinas que el semanal no modela
+            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.50)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -321,7 +321,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in range(num_days):
         # Limite de modelos activos por dia (hard)
         plantilla_d = days[d]["plantilla"]
-        max_models_day = max(3, plantilla_d // 5)  # max 3-4 modelos por dia para evitar sobrecargar cascada
+        max_models_day = max(3, plantilla_d // 3)  # con plantilla 19 → 6 modelos, aprovecha todo el HC
         solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max_models_day)
 
         # Limite de operaciones totales por dia
@@ -337,6 +337,26 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         for m in range(num_models):
             obj_terms.append(W_ODD_LOT * is_odd[m, d])
 
+    # Penalizar lotes pequeños: si un modelo se programa un dia, preferir lotes
+    # grandes. Un lote de 100 pares tiene startup de cascada similar a uno de 400
+    # pero produce 4x menos. Penalty = W_SMALL_LOT * y[m,d] penaliza cada "slot"
+    # de dia usado. Combinado con W_CHANGEOVER, el solver prefiere consolidar
+    # modelos en pocos dias con lotes grandes en vez de dispersar en muchos dias.
+    W_SMALL_LOT = 3_000  # penalty por cada dia-modelo (incentiva lotes grandes)
+    for d in range(num_days):
+        for m in range(num_models):
+            # Penalty escalonado: lotes < 200 pares (z < 4 batches) reciben penalty extra
+            is_small = solver_model.NewBoolVar(f"small_{m}_{d}")
+            # small=1 si el modelo esta activo (y=1) y produce < 200 pares (z < 4)
+            # z[m,d] < 4 AND y[m,d] = 1 → is_small = 1
+            solver_model.Add(z[m, d] <= 3).OnlyEnforceIf(is_small)
+            solver_model.Add(z[m, d] >= 4).OnlyEnforceIf(is_small.Not())
+            # Solo penalizar si esta activo: is_small AND y
+            small_and_active = solver_model.NewBoolVar(f"sa_{m}_{d}")
+            solver_model.AddBoolAnd([is_small, y[m, d]]).OnlyEnforceIf(small_and_active)
+            solver_model.AddBoolOr([is_small.Not(), y[m, d].Not()]).OnlyEnforceIf(small_and_active.Not())
+            obj_terms.append(W_SMALL_LOT * small_and_active)
+
     # Minimizar desbalance (diferencia max-min de carga en dias normales)
     obj_terms.append(W_BALANCE * (max_load - min_load))
 
@@ -346,6 +366,36 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         if not days[d]["is_saturday"]:
             for m in range(num_models):
                 obj_terms.append(W_EARLY * x[m, d] * (d + 1))
+
+    # Bonificacion por afinidad de robots: modelos que comparten un robot fisico
+    # se benefician de estar en el mismo dia (el robot se usa todo el dia en vez
+    # de quedar ocioso). Para cada par de modelos que comparten robot y dia,
+    # otorgar un bonus (penalizacion negativa).
+    W_ROBOT_AFFINITY = 2_000  # bonus por par de modelos que comparten robot en mismo dia
+    robot_pairs = []  # [(m1, m2)] pares de modelos que comparten al menos 1 robot
+    for m1 in range(num_models):
+        robots_m1 = set(models[m1].get("robots_used", []))
+        if not robots_m1:
+            continue
+        for m2 in range(m1 + 1, num_models):
+            robots_m2 = set(models[m2].get("robots_used", []))
+            shared = robots_m1 & robots_m2
+            if shared:
+                robot_pairs.append((m1, m2, len(shared)))
+                print(f"    [AFFINITY] {models[m1].get('modelo_num','?')} & "
+                      f"{models[m2].get('modelo_num','?')}: comparten {shared}")
+
+    for m1, m2, n_shared in robot_pairs:
+        for d in range(num_days):
+            # both[m1,m2,d] = 1 si ambos modelos producen en dia d
+            both = solver_model.NewBoolVar(f"both_{m1}_{m2}_{d}")
+            solver_model.AddBoolAnd([y[m1, d], y[m2, d]]).OnlyEnforceIf(both)
+            solver_model.AddBoolOr([y[m1, d].Not(), y[m2, d].Not()]).OnlyEnforceIf(both.Not())
+            # Bonus: reducir costo cuando comparten dia (negativo = beneficio)
+            obj_terms.append(-W_ROBOT_AFFINITY * n_shared * both)
+
+    if robot_pairs:
+        print(f"    [AFFINITY] {len(robot_pairs)} pares de modelos con robots compartidos")
 
     solver_model.Minimize(sum(obj_terms))
 

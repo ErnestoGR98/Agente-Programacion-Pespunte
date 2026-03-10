@@ -179,7 +179,7 @@ export default function CuellosPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard label="Alertas Criticas" value={errorCount} />
         <KpiCard label="Advertencias" value={warningCount} />
         <KpiCard label="Restricciones >70%" value={activeConstraints.length} />

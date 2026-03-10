@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ImagePlus, X } from 'lucide-react'
 
 interface Props {
@@ -15,17 +16,21 @@ interface Props {
   modelo?: {
     id: string; modelo_num: string; alternativas: string[]
     imagen_url?: string | null; alternativas_imagenes?: Record<string, string>
+    fabrica_default?: string | null
   } | null
+  fabricas?: { nombre: string }[]
   onSave: (data: {
     id?: string; modeloNum: string; codigoFull: string; claveMaterial: string
     alternativas: string[]; imageFile?: File | null
     altImageFiles?: Record<string, File>
+    fabricaDefault?: string | null
   }) => Promise<void>
 }
 
-export function ModeloDialog({ open, onOpenChange, modelo, onSave }: Props) {
+export function ModeloDialog({ open, onOpenChange, modelo, fabricas = [], onSave }: Props) {
   const [modeloNum, setModeloNum] = useState('')
   const [alternativas, setAlternativas] = useState('')
+  const [fabricaDefault, setFabricaDefault] = useState<string>('')
   const [saving, setSaving] = useState(false)
   // Single image (when no alternativas)
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -43,6 +48,7 @@ export function ModeloDialog({ open, onOpenChange, modelo, onSave }: Props) {
     if (open) {
       setModeloNum(modelo?.modelo_num || '')
       setAlternativas(modelo?.alternativas?.join(', ') || '')
+      setFabricaDefault(modelo?.fabrica_default || '')
       setImageFile(null)
       setImagePreview(modelo?.imagen_url || null)
       setAltImages({})
@@ -93,6 +99,7 @@ export function ModeloDialog({ open, onOpenChange, modelo, onSave }: Props) {
       alternativas: alts,
       imageFile: parsedAlts.length === 0 ? imageFile : null,
       altImageFiles: parsedAlts.length > 0 ? altImageFiles : undefined,
+      fabricaDefault: fabricaDefault || null,
     })
     setSaving(false)
     onOpenChange(false)
@@ -129,6 +136,20 @@ export function ModeloDialog({ open, onOpenChange, modelo, onSave }: Props) {
               placeholder="NE, GC"
               className="h-8"
             />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Fabrica por defecto</Label>
+            <Select value={fabricaDefault || '__none__'} onValueChange={(v) => setFabricaDefault(v === '__none__' ? '' : v)}>
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin asignar</SelectItem>
+                {fabricas.map((f) => (
+                  <SelectItem key={f.nombre} value={f.nombre}>{f.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Images per alternativa */}

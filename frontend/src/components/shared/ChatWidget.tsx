@@ -262,32 +262,37 @@ export function ChatWidget() {
         <button
           onClick={() => setOpen(true)}
           style={{ bottom: pos.bottom, right: pos.right }}
-          className="fixed z-50 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
+          className="fixed z-50 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
         >
-          <MessageSquare className="h-6 w-6" />
+          <MessageSquare className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
       )}
 
       {/* Chat panel */}
       {open && (
         <div
-          style={{ width: size.w, height: size.h, bottom: pos.bottom, right: pos.right }}
-          className="fixed z-50 flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden"
+          style={{
+            // On mobile: fullscreen; on desktop: custom size/position
+            ...(typeof window !== 'undefined' && window.innerWidth < 640
+              ? {}
+              : { width: size.w, height: size.h, bottom: pos.bottom, right: pos.right }),
+          }}
+          className="fixed z-50 flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden inset-0 sm:inset-auto"
         >
-          {/* Resize handle — top-left corner */}
+          {/* Resize handle — top-left corner (hidden on mobile) */}
           <div
             onMouseDown={handleResizeStart}
-            className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-10 group"
+            className="absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-10 group hidden sm:block"
           >
             <svg className="w-3 h-3 m-0.5 text-muted-foreground/50 group-hover:text-muted-foreground" viewBox="0 0 12 12">
               <path d="M0 12L12 0M0 8L8 0M0 4L4 0" stroke="currentColor" strokeWidth="1.5" fill="none" />
             </svg>
           </div>
 
-          {/* Header — draggable */}
+          {/* Header — draggable on desktop */}
           <div
             onMouseDown={handleDragStart}
-            className="flex items-center justify-between px-4 py-3 border-b bg-primary text-primary-foreground cursor-move select-none"
+            className="flex items-center justify-between px-4 py-3 border-b bg-primary text-primary-foreground sm:cursor-move select-none"
           >
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />

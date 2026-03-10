@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import type { ProcessType, ResourceType } from '@/types'
-import { ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, Save, X, Check, GripVertical } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, ChevronRight, Loader2, ScrollText, Plus, Pencil, Trash2, Save, X, Check, GripVertical } from 'lucide-react'
 
 const PROCESS_TYPES: ProcessType[] = ['PRELIMINARES', 'ROBOT', 'POST', 'MAQUILA', 'N/A PRELIMINAR']
 const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
@@ -41,6 +41,7 @@ import { OperacionDialog } from './OperacionDialog'
 export default function CatalogoPage() {
   const catalogo = useCatalogo()
   const { loading, modelos, robots } = catalogo
+  const [sortMode, setSortMode] = useState<string>('nombre_asc')
   const [modeloDialog, setModeloDialog] = useState<{ open: boolean; modelo: ModeloFull | null }>({ open: false, modelo: null })
   const [confirmModelo, setConfirmModelo] = useState<{ open: boolean; action: () => Promise<void>; title: string; desc: string }>({
     open: false, action: async () => {}, title: '', desc: '',
@@ -81,6 +82,19 @@ export default function CatalogoPage() {
     }
   }
   const allRecursos = [...RESOURCE_TYPES, ...extraRecursos]
+
+  // Sort models
+  const sortedModelos = [...modelos].sort((a, b) => {
+    switch (sortMode) {
+      case 'nombre_asc': return a.modelo_num.localeCompare(b.modelo_num)
+      case 'nombre_desc': return b.modelo_num.localeCompare(a.modelo_num)
+      case 'ingreso_asc': return a.created_at.localeCompare(b.created_at)
+      case 'ingreso_desc': return b.created_at.localeCompare(a.created_at)
+      case 'ops_desc': return b.operaciones.length - a.operaciones.length
+      case 'ops_asc': return a.operaciones.length - b.operaciones.length
+      default: return 0
+    }
+  })
 
   const totalOps = modelos.reduce((sum, m) => sum + m.operaciones.length, 0)
   const robotOps = modelos.reduce(
@@ -139,6 +153,20 @@ export default function CatalogoPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={sortMode} onValueChange={setSortMode}>
+            <SelectTrigger className="h-8 w-48 text-xs">
+              <ArrowUpDown className="mr-1 h-3 w-3" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="nombre_asc">Nombre A → Z</SelectItem>
+              <SelectItem value="nombre_desc">Nombre Z → A</SelectItem>
+              <SelectItem value="ingreso_desc">Ingreso (reciente)</SelectItem>
+              <SelectItem value="ingreso_asc">Ingreso (antiguo)</SelectItem>
+              <SelectItem value="ops_desc">Mas operaciones</SelectItem>
+              <SelectItem value="ops_asc">Menos operaciones</SelectItem>
+            </SelectContent>
+          </Select>
           <TableExport title="catalogo_completo" headers={globalExportHeaders} rows={globalExportRows} onCustomPDF={handleGlobalPDF} />
           <Button size="sm" onClick={() => setModeloDialog({ open: true, modelo: null })}>
             <Plus className="mr-1 h-3 w-3" /> Nuevo Modelo
@@ -147,7 +175,7 @@ export default function CatalogoPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard label="Modelos" value={modelos.length} />
         <KpiCard label="Total Operaciones" value={totalOps} />
         <KpiCard label="Operaciones Robot" value={robotOps} />
@@ -171,7 +199,7 @@ export default function CatalogoPage() {
           Catalogo vacio. Crea un modelo o importa desde Excel.
         </div>
       ) : (
-        modelos.map((m) => (
+        sortedModelos.map((m) => (
           <ModeloCard
             key={m.id}
             modelo={m}
@@ -195,6 +223,7 @@ export default function CatalogoPage() {
         open={modeloDialog.open}
         onOpenChange={(open) => setModeloDialog({ open, modelo: modeloDialog.modelo })}
         modelo={modeloDialog.modelo}
+        fabricas={catalogo.fabricas}
         onSave={async (data) => {
           if (data.id) {
             await catalogo.updateModelo(data.id, {
@@ -202,6 +231,7 @@ export default function CatalogoPage() {
               codigo_full: data.codigoFull,
               clave_material: data.claveMaterial,
               alternativas: data.alternativas,
+              fabrica_default: data.fabricaDefault ?? null,
             })
             if (data.imageFile) {
               await catalogo.uploadModeloImagen(data.id, data.modeloNum, data.imageFile)
@@ -481,7 +511,8 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
             </div>
           </div>
 
-          <table className="w-full text-xs border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[600px]">
             <thead>
               <tr className="border-b">
                 <th className="px-2 py-1 text-left w-16">FRACC</th>
@@ -689,6 +720,7 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
               })}
             </tbody>
           </table>
+          </div>
           <div className="mt-2">
             <Button
               variant="outline"

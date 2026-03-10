@@ -55,7 +55,7 @@ export default function ResumenPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard label="Total Pares" value={summary.total_pares?.toLocaleString() || '0'} />
         <KpiCard label="Estado" value={summary.status || 'N/A'} />
         <KpiCard label="Pendientes (Tardiness)" value={summary.total_tardiness || 0} />

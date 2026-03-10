@@ -481,9 +481,10 @@ export default function ProgramaPage() {
 function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
+  const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
 
   // Clear selection when day changes
-  useEffect(() => { setSelectedOperario(null) }, [dayName])
+  useEffect(() => { setSelectedOperario(null); setSelectedRecurso(null) }, [dayName])
 
   // Maquila info is shown in the banner above, not as rows in the table
 
@@ -553,7 +554,7 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
   return (
     <div className="space-y-4">
       {/* KPIs */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <KpiCard label="Pares del Dia" value={totalPares.toLocaleString()} />
         <KpiCard label="HC Maximo" value={maxHc} />
         <KpiCard label="Plantilla" value={plantilla} />
@@ -601,7 +602,8 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
               rows={exportRows}
             />
           </div>
-          <table className="w-full text-xs border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[700px]">
             <thead>
               <tr className="border-b">
                 <th className="px-2 py-1 text-left">MODELO</th>
@@ -620,14 +622,18 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
             <tbody>
               {schedule.map((s, i) => {
                 const bgColor = getEtapaColor(s.etapa)
-                const isHighlighted = selectedOperario != null && s.operario === selectedOperario
-                const isDimmed = selectedOperario != null && s.operario !== selectedOperario
+                const recursoKey = s.robot || s.recurso
+                const isHighlighted = (selectedOperario != null && s.operario === selectedOperario) || (selectedRecurso != null && recursoKey === selectedRecurso)
+                const isDimmed = (selectedOperario != null && s.operario !== selectedOperario) || (selectedRecurso != null && recursoKey !== selectedRecurso)
                 return (
                   <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
                         {(() => { const [num, ...c] = s.modelo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
                         {s.modelo}
+                        {s.adelanto && (
+                          <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">ADL {s.adelanto_de}</Badge>
+                        )}
                         {maquilaModelos.has(s.modelo) && (
                           <Truck className="h-3 w-3 text-destructive" />
                         )}
@@ -651,17 +657,22 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
                       })()}
                     </td>
                     <td className="px-2 py-1">
-                      <Badge variant="outline" className="text-[10px]">
-                        {s.robot || s.recurso}
-                      </Badge>
+                      <button
+                        className="cursor-pointer"
+                        onClick={() => { setSelectedOperario(null); setSelectedRecurso(selectedRecurso === recursoKey ? null : recursoKey) }}
+                      >
+                        <Badge variant="outline" className={`text-[10px] hover:bg-accent ${selectedRecurso === recursoKey ? 'ring-1 ring-primary bg-primary/10 font-bold' : ''}`}>
+                          {recursoKey}
+                        </Badge>
+                      </button>
                     </td>
                     <td className="px-2 py-1">
                       {s.operario === 'SIN ASIGNAR' ? (
                         <span className="text-[10px] font-medium text-destructive">SIN ASIGNAR</span>
                       ) : s.operario ? (
                         <button
-                          className={`text-[10px] font-medium cursor-pointer hover:underline ${isHighlighted ? 'underline text-primary font-bold' : ''}`}
-                          onClick={() => setSelectedOperario(selectedOperario === s.operario ? null : s.operario!)}
+                          className={`text-[10px] font-medium cursor-pointer hover:underline ${selectedOperario === s.operario ? 'underline text-primary font-bold' : ''}`}
+                          onClick={() => { setSelectedRecurso(null); setSelectedOperario(selectedOperario === s.operario ? null : s.operario!) }}
                         >
                           {s.operario}
                         </button>
@@ -697,6 +708,7 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
               )}
             </tbody>
           </table>
+          </div>
         </CardContent>
       </Card>
     </div>

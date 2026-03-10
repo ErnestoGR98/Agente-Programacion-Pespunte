@@ -354,6 +354,8 @@ export interface DailyScheduleEntry {
   robot?: string
   operario?: string
   pendiente?: number
+  adelanto?: boolean
+  adelanto_de?: string
 }
 
 export interface OperatorTimelineEntry {

@@ -6,12 +6,27 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, Users, Settings,
   CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen,
-  Sun, Moon,
+  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useTheme } from 'next-themes'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, createContext, useContext } from 'react'
+
+// Context to share sidebar state with layout
+interface SidebarContextType {
+  open: boolean
+  setOpen: (v: boolean) => void
+  pinned: boolean
+  setPinned: (v: boolean) => void
+}
+export const SidebarContext = createContext<SidebarContextType>({
+  open: false,
+  setOpen: () => {},
+  pinned: false,
+  setPinned: () => {},
+})
+export function useSidebar() { return useContext(SidebarContext) }
 
 interface NavItem {
   href: string
@@ -53,122 +68,193 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
+export function MenuButton() {
+  const { open, setOpen, pinned } = useSidebar()
+  // When pinned, the hamburger is not needed (sidebar is always visible)
+  if (pinned) return null
+  return (
+    <button
+      onClick={() => setOpen(!open)}
+      className="p-2 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      aria-label="Toggle menu"
+    >
+      {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+    </button>
+  )
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const appStep = useAppStore((s) => s.appStep)
   const { user, signOut } = useAuth()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const { open, setOpen, pinned, setPinned } = useSidebar()
   useEffect(() => setMounted(true), [])
 
+  // Close overlay on route change (only when not pinned)
+  useEffect(() => {
+    if (!pinned) setOpen(false)
+  }, [pathname, pinned, setOpen])
+
+  // Sidebar is visible when pinned OR when open (overlay)
+  const visible = pinned || open
+
   return (
-    <aside className="flex h-screen w-56 flex-col border-r bg-card">
-      {/* Logo / titulo */}
-      <div className="flex items-center gap-2 border-b px-4 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">
-          P
-        </div>
-        <div>
-          <p className="text-sm font-semibold">Pespunte Agent</p>
-          <p className="text-xs text-muted-foreground">
-            {appStep === 0 && 'Sin datos'}
-            {appStep === 1 && 'Pedido cargado'}
-            {appStep === 2 && 'Optimizado'}
-          </p>
-        </div>
-      </div>
+    <>
+      {/* Overlay backdrop — only when open as overlay (not pinned) */}
+      {open && !pinned && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          onClick={() => setOpen(false)}
+        />
+      )}
 
-      {/* Navegacion */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {NAV_GROUPS.map((group, gi) => (
-          <div key={group.label} className={gi > 0 ? 'mt-3' : ''}>
-            <div className="rounded-lg bg-muted/60 border border-border/50 px-1 py-2">
-              <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground/60">
-                {group.label}
-              </p>
-              <ul className="space-y-0.5">
-                {group.items.map((item) => {
-                  const disabled = appStep < item.minStep
-                  const active = pathname === item.href
-                  const Icon = item.icon
-
-                  return (
-                    <li key={item.href}>
-                      {disabled ? (
-                        <span className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed">
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </span>
-                      ) : (
-                        <Link
-                          href={item.href}
-                          className={cn(
-                            'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
-                            active
-                              ? 'bg-primary/10 text-primary font-medium'
-                              : 'text-muted-foreground hover:bg-background hover:text-accent-foreground',
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </Link>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
+      <aside className={cn(
+        'flex h-screen w-56 flex-col border-r bg-card shrink-0',
+        pinned
+          // Pinned: relative in flow, always visible
+          ? 'relative z-0'
+          // Not pinned: fixed overlay with slide transition
+          : 'fixed z-50 transition-transform duration-200',
+        !pinned && (visible ? 'translate-x-0' : '-translate-x-full'),
+      )}>
+        {/* Logo / titulo */}
+        <div className="flex items-center gap-2 border-b px-4 py-4">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold shrink-0">
+            P
           </div>
-        ))}
-      </nav>
-
-      {/* Usuario + logout */}
-      {user && (
-        <div className="border-t px-4 py-3">
-          <div className="flex items-center justify-between">
-            <span className="truncate text-xs text-muted-foreground" title={user.email ?? ''}>
-              {user.email}
-            </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">Pespunte Agent</p>
+            <p className="text-xs text-muted-foreground">
+              {appStep === 0 && 'Sin datos'}
+              {appStep === 1 && 'Pedido cargado'}
+              {appStep === 2 && 'Optimizado'}
+            </p>
+          </div>
+          <div className="flex items-center gap-0.5">
+            {/* Pin/Unpin — hidden on small screens where pinning doesn't make sense */}
             <button
-              onClick={signOut}
-              className="ml-2 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              title="Cerrar sesion"
+              onClick={() => {
+                if (pinned) {
+                  setPinned(false)
+                  setOpen(false)
+                } else {
+                  setPinned(true)
+                  setOpen(false)
+                }
+              }}
+              className="hidden sm:flex p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              title={pinned ? 'Despinear barra lateral' : 'Fijar barra lateral'}
             >
-              <LogOut className="h-3.5 w-3.5" />
+              {pinned ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            </button>
+            {/* Close button */}
+            <button
+              onClick={() => {
+                if (pinned) setPinned(false)
+                setOpen(false)
+              }}
+              className="p-1 rounded-md text-muted-foreground hover:bg-accent"
+              title="Cerrar"
+            >
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-      )}
 
-      {/* Theme toggle */}
-      <div className="border-t px-4 py-2 flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">Tema</span>
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-          title={mounted ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : ''}
-        >
-          {mounted ? (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <div className="h-4 w-4" />}
-        </button>
-      </div>
+        {/* Navegacion */}
+        <nav className="flex-1 overflow-y-auto px-2 py-3">
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={group.label} className={gi > 0 ? 'mt-3' : ''}>
+              <div className="rounded-lg bg-muted/60 border border-border/50 px-1 py-2">
+                <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground/60">
+                  {group.label}
+                </p>
+                <ul className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const disabled = appStep < item.minStep
+                    const active = pathname === item.href
+                    const Icon = item.icon
 
-      {/* Step indicator */}
-      <div className="border-t px-4 py-3">
-        <div className="flex items-center gap-1">
-          {[0, 1, 2].map((step) => (
-            <div
-              key={step}
-              className={cn(
-                'h-1.5 flex-1 rounded-full',
-                step <= appStep ? 'bg-primary' : 'bg-muted',
-              )}
-            />
+                    return (
+                      <li key={item.href}>
+                        {disabled ? (
+                          <span className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground/40 cursor-not-allowed">
+                            <Icon className="h-4 w-4" />
+                            {item.label}
+                          </span>
+                        ) : (
+                          <Link
+                            href={item.href}
+                            className={cn(
+                              'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                              active
+                                ? 'bg-primary/10 text-primary font-medium'
+                                : 'text-muted-foreground hover:bg-background hover:text-accent-foreground',
+                            )}
+                          >
+                            <Icon className="h-4 w-4" />
+                            {item.label}
+                          </Link>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </div>
           ))}
+        </nav>
+
+        {/* Usuario + logout */}
+        {user && (
+          <div className="border-t px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="truncate text-xs text-muted-foreground" title={user.email ?? ''}>
+                {user.email}
+              </span>
+              <button
+                onClick={signOut}
+                className="ml-2 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                title="Cerrar sesion"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Theme toggle */}
+        <div className="border-t px-4 py-2 flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Tema</span>
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            title={mounted ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : ''}
+          >
+            {mounted ? (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <div className="h-4 w-4" />}
+          </button>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground text-center">
-          Paso {appStep + 1} de 3
-        </p>
-      </div>
-    </aside>
+
+        {/* Step indicator */}
+        <div className="border-t px-4 py-3">
+          <div className="flex items-center gap-1">
+            {[0, 1, 2].map((step) => (
+              <div
+                key={step}
+                className={cn(
+                  'h-1.5 flex-1 rounded-full',
+                  step <= appStep ? 'bg-primary' : 'bg-muted',
+                )}
+              />
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground text-center">
+            Paso {appStep + 1} de 3
+          </p>
+        </div>
+      </aside>
+    </>
   )
 }

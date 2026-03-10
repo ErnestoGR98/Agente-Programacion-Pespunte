@@ -24,22 +24,30 @@ export interface ModeloFull {
   num_ops: number
   imagen_url: string | null
   alternativas_imagenes: Record<string, string>
+  fabrica_default: string | null
+  created_at: string
   operaciones: OperacionFull[]
+}
+
+export interface FabricaOption {
+  nombre: string
 }
 
 export function useCatalogo() {
   const [modelos, setModelos] = useState<ModeloFull[]>([])
   const [robots, setRobots] = useState<Robot[]>([])
+  const [fabricas, setFabricas] = useState<FabricaOption[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
 
-    const [modRes, opsRes, robRes, tiposRes] = await Promise.all([
+    const [modRes, opsRes, robRes, tiposRes, fabRes] = await Promise.all([
       supabase.from('catalogo_modelos').select('*').order('modelo_num'),
       supabase.from('catalogo_operaciones').select('*').order('fraccion'),
       supabase.from('robots').select('*').eq('estado', 'ACTIVO').order('orden'),
       supabase.from('robot_tipos').select('*'),
+      supabase.from('fabricas').select('nombre,orden').order('orden'),
     ])
 
     const mods = modRes.data || []
@@ -55,6 +63,7 @@ export function useCatalogo() {
         .map((t: { tipo: string }) => t.tipo) as MaquinaTipo[],
     })) as Robot[]
     setRobots(robs)
+    setFabricas((fabRes.data || []) as FabricaOption[])
 
     // Fetch robot assignments for all operations
     const opIds = ops.map((o: { id: string }) => o.id)
@@ -87,6 +96,8 @@ export function useCatalogo() {
       num_ops: Number(m.num_ops),
       imagen_url: (m.imagen_url as string) || null,
       alternativas_imagenes: (m.alternativas_imagenes as Record<string, string>) || {},
+      fabrica_default: (m.fabrica_default as string) || null,
+      created_at: (m.created_at as string) || '',
       operaciones: ops
         .filter((o: { modelo_id: string }) => o.modelo_id === m.id)
         .map((o: Record<string, unknown>) => ({
@@ -122,7 +133,7 @@ export function useCatalogo() {
     await load()
   }
 
-  async function updateModelo(id: string, data: { modelo_num?: string; codigo_full?: string; clave_material?: string; alternativas?: string[]; imagen_url?: string | null }) {
+  async function updateModelo(id: string, data: { modelo_num?: string; codigo_full?: string; clave_material?: string; alternativas?: string[]; imagen_url?: string | null; fabrica_default?: string | null }) {
     await supabase.from('catalogo_modelos').update(data).eq('id', id)
     await load()
   }
@@ -292,7 +303,7 @@ export function useCatalogo() {
   }
 
   return {
-    loading, modelos, robots, reload: load,
+    loading, modelos, robots, fabricas, reload: load,
     addModelo, updateModelo, deleteModelo, uploadModeloImagen, uploadAlternativaImagen,
     addOperacion, updateOperacion, deleteOperacion, reorderOperacion,
   }

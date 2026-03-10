@@ -91,7 +91,7 @@ export function RestriccionesTab({
   return (
     <div className="space-y-4 mt-4">
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard label="Total" value={data.restricciones.length} />
         <KpiCard label="Activas" value={data.activas} />
         <KpiCard label="Inactivas" value={data.inactivas} />
@@ -107,7 +107,7 @@ export function RestriccionesTab({
         <Card>
           <CardHeader><CardTitle className="text-base">Nueva Restriccion</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className={`grid gap-4 ${hideModelo ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            <div className={`grid gap-3 sm:gap-4 ${hideModelo ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Tipo</Label>
                 <Select value={tipo} onValueChange={(v) => {

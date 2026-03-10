@@ -112,8 +112,8 @@ function WeeklyHeatmap({
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <div className="grid gap-1" style={{
-            gridTemplateColumns: `80px repeat(${BLOCK_LABELS.length}, 1fr)`,
+          <div className="grid gap-1 min-w-[700px]" style={{
+            gridTemplateColumns: `60px repeat(${BLOCK_LABELS.length}, 1fr)`,
           }}>
             {/* Header */}
             <div />

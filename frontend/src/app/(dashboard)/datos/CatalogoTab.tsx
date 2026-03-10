@@ -45,7 +45,7 @@ export function CatalogoTab({ pedido }: { pedido: ReturnType<typeof usePedido> }
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard label="Modelos" value={pedido.catalogo.length} />
         <KpiCard label="Total Operaciones" value={totalOps} />
         <KpiCard

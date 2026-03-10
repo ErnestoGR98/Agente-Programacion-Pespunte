@@ -243,7 +243,7 @@ export function ReglasTab() {
       </p>
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard label="Total" value={reglas.reglas.length} />
         <KpiCard label="Activas" value={reglas.activas} />
         <KpiCard label="Inactivas" value={reglas.inactivas} />
@@ -268,7 +268,7 @@ export function ReglasTab() {
         <Card>
           <CardHeader><CardTitle className="text-base">Nueva Regla</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className={`grid gap-4 ${hideModelo ? 'grid-cols-2' : (tipo === 'PRECEDENCIA_OPERACION' ? 'grid-cols-2' : 'grid-cols-3')}`}>
+            <div className={`grid gap-3 sm:gap-4 ${hideModelo ? 'grid-cols-1 sm:grid-cols-2' : (tipo === 'PRECEDENCIA_OPERACION' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3')}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Tipo</Label>
                 <Select value={tipo} onValueChange={(v) => {

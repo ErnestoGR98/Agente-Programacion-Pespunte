@@ -28,7 +28,7 @@ export function PesosTab({ config }: { config: ReturnType<typeof useConfiguracio
           />
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {config.pesos.map((p) => (
               <div key={p.id} className="space-y-1">
                 <Label className="text-xs">{p.nombre}</Label>
@@ -53,7 +53,7 @@ export function PesosTab({ config }: { config: ReturnType<typeof useConfiguracio
           />
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {config.parametros.map((p) => {
               const meta = PARAM_LABELS[p.nombre]
               return (

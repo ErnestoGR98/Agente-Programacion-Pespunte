@@ -119,7 +119,7 @@ export default function RobotsPage() {
         <h2 className="text-sm font-semibold">Resumen por Robot</h2>
         <TableExport title="Robots - Resumen" headers={statsHeaders} rows={statsRows} />
       </div>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {robotUsage.map((r) => (
           <Card key={r.nombre}>
             <CardContent className="pt-3 pb-2">
@@ -187,8 +187,9 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
         <TableExport title="Robots - Timeline Diario" headers={timelineHeaders} rows={timelineRows} />
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="grid gap-1" style={{
-          gridTemplateColumns: `100px repeat(${BLOCK_LABELS.length}, 1fr)`,
+        <div className="overflow-x-auto">
+        <div className="grid gap-1 min-w-[700px]" style={{
+          gridTemplateColumns: `80px repeat(${BLOCK_LABELS.length}, 1fr)`,
         }}>
           {/* Header */}
           <div />
@@ -226,6 +227,7 @@ function RobotTimeline({ dayData }: { dayData: DailyResult }) {
               </Fragment>
             )
           })}
+        </div>
         </div>
       </CardContent>
     </Card>
