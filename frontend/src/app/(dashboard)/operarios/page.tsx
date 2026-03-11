@@ -129,7 +129,7 @@ export default function OperariosPage() {
                               className="text-xs"
                               style={{ backgroundColor: group.color + '20', color: group.color }}
                             >
-                              {group.label.slice(0, 6)} {count}/{group.skills.length}
+                              {group.short} {count}/{group.skills.length}
                             </Badge>
                           )
                         })}

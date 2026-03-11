@@ -461,75 +461,71 @@ export const RESOURCE_COLORS: Record<string, string> = {
   GENERAL: '#94A3B8',
 }
 
-// --- Habilidades Granulares (20 skills) ---
+// --- Habilidades de Operarios (11 skills en 5 categorias) ---
 
 export type SkillType =
-  // Preliminar (9)
-  | 'ARMADO_PALETS' | 'PISTOLA' | 'HEBILLAS' | 'DESHEBRADOS' | 'ALIMENTAR_LINEA'
-  | 'MAQ_PINTURA' | 'REMACH_NEUMATICA' | 'REMACH_MECANICA' | 'PERFORADORA_JACK'
-  // Robot (4) — no hay robots 2AG, solo 2A
-  | 'ROBOT_3020' | 'ROBOT_CHACHE' | 'ROBOT_DOBLE_ACCION' | 'ROBOT_6040'
-  // Pespunte Convencional (6)
+  | 'PRELIMINARES'
+  | 'ROBOTS'
+  | 'MAQ_COMPLEMENTARIAS'
   | 'ZIGZAG' | 'PLANA_RECTA' | 'DOS_AGUJAS' | 'POSTE_CONV' | 'RIBETE' | 'CODO'
+  | 'MAQUILA' | 'GENERAL'
 
-export const SKILL_GROUPS: Record<string, { label: string; color: string; skills: SkillType[] }> = {
+export const SKILL_GROUPS: Record<string, { label: string; short: string; color: string; skills: SkillType[] }> = {
   PRELIMINAR: {
     label: 'Preliminares',
+    short: 'Prelim',
     color: '#F59E0B', // amber
-    skills: [
-      'ARMADO_PALETS', 'PISTOLA', 'HEBILLAS', 'DESHEBRADOS', 'ALIMENTAR_LINEA',
-      'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK',
-    ],
+    skills: ['PRELIMINARES'],
   },
   ROBOT: {
     label: 'Robots',
+    short: 'Robots',
     color: '#10B981', // emerald
-    skills: ['ROBOT_3020', 'ROBOT_CHACHE', 'ROBOT_6040'],
+    skills: ['ROBOTS'],
   },
-  ROBOT_MOD: {
-    label: 'Modificadores Robot',
-    color: '#059669', // emerald-dark
-    skills: ['ROBOT_DOBLE_ACCION'],
+  MAQ_COMP: {
+    label: 'Máquinas Complementarias',
+    short: 'Compl',
+    color: '#8B5CF6', // violet
+    skills: ['MAQ_COMPLEMENTARIAS'],
   },
-  PESPUNTE_CONV: {
-    label: 'Pespunte Convencional',
+  PESPUNTE: {
+    label: 'Máquinas Pespunte',
+    short: 'Pesp',
     color: '#3B82F6', // blue
     skills: ['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'],
+  },
+  OTROS: {
+    label: 'Otros',
+    short: 'Otros',
+    color: '#6B7280', // gray
+    skills: ['MAQUILA', 'GENERAL'],
   },
 }
 
 export const SKILL_LABELS: Record<SkillType, string> = {
-  ARMADO_PALETS: 'Armado de Palets',
-  PISTOLA: 'Uso de Pistola',
-  HEBILLAS: 'Armado de Hebillas',
-  DESHEBRADOS: 'Deshebrados',
-  ALIMENTAR_LINEA: 'Alimentar Linea',
-  MAQ_PINTURA: 'Maq. Pintura',
-  REMACH_NEUMATICA: 'Remach. Neumatica',
-  REMACH_MECANICA: 'Remach. Mecanica',
-  PERFORADORA_JACK: 'Perforadora Jack',
-  ROBOT_3020: '3020',
-  ROBOT_CHACHE: 'Chache (4530)',
-  ROBOT_6040: '6040',
-  ROBOT_DOBLE_ACCION: 'Doble Accion (2A)',
+  PRELIMINARES: 'Preliminares',
+  ROBOTS: 'Robots',
+  MAQ_COMPLEMENTARIAS: 'Máq. Complementarias',
   ZIGZAG: 'Zigzag',
   PLANA_RECTA: 'Plana-Recta',
   DOS_AGUJAS: '2 Agujas',
   POSTE_CONV: 'Poste',
   RIBETE: 'Ribete',
   CODO: 'Codo',
+  MAQUILA: 'Maquila',
+  GENERAL: 'General',
 }
 
 /** Derive resource types from skills (for optimizer compatibility) */
 export function deriveRecursos(skills: SkillType[]): ResourceType[] {
   const set = new Set(skills)
   const recursos: ResourceType[] = []
-  const PRELIM: SkillType[] = SKILL_GROUPS.PRELIMINAR.skills
-  if (PRELIM.some((s) => set.has(s))) recursos.push('MESA')
-  const robotSkills = [...SKILL_GROUPS.ROBOT.skills, ...SKILL_GROUPS.ROBOT_MOD.skills]
-  if (robotSkills.some((s) => set.has(s))) recursos.push('ROBOT')
+  if (set.has('PRELIMINARES')) recursos.push('MESA')
+  if (set.has('ROBOTS')) recursos.push('ROBOT')
   if (set.has('PLANA_RECTA')) recursos.push('PLANA')
   if (set.has('POSTE_CONV')) recursos.push('POSTE')
+  if (set.has('GENERAL')) recursos.push('GENERAL')
   return recursos
 }
 

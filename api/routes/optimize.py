@@ -337,29 +337,13 @@ def _normalize_recurso(recurso: str) -> str:
     return "GENERAL"
 
 
-_PRELIM_SKILLS = {
-    'ARMADO_PALETS', 'PISTOLA', 'HEBILLAS', 'DESHEBRADOS', 'ALIMENTAR_LINEA',
-    'MAQ_PINTURA', 'REMACH_NEUMATICA', 'REMACH_MECANICA', 'PERFORADORA_JACK',
-}
-_SKILL_TO_ROBOT_TIPO = {
-    'ROBOT_3020': '3020', 'ROBOT_CHACHE': 'CHACHE',
-    'ROBOT_DOBLE_ACCION': 'DOBLE_ACCION', 'ROBOT_6040': '6040',
-}
-
-
 def _load_operarios() -> list:
-    """Carga operarios con habilidades y deriva recursos/robots."""
+    """Carga operarios con habilidades simplificadas y deriva recursos/robots."""
     rows = _sb_get("operarios", "select=*&activo=eq.true&order=nombre")
 
-    # Build robot-type lookup from junction table: {'3020': ['3020-M1', ...], ...}
-    all_robots = _sb_get("robots", "select=id,nombre&estado=eq.ACTIVO")
-    all_robot_tipos = _sb_get("robot_tipos", "select=robot_id,tipo")
-    robot_name_by_id = {r["id"]: r["nombre"] for r in all_robots}
-    robot_by_tipo: dict[str, list[str]] = {}
-    for rt in all_robot_tipos:
-        rname = robot_name_by_id.get(rt["robot_id"])
-        if rname:
-            robot_by_tipo.setdefault(rt["tipo"], []).append(rname)
+    # All active robot names — used when operator has ROBOTS skill
+    all_robots = _sb_get("robots", "select=nombre&estado=eq.ACTIVO")
+    all_robot_names = [r["nombre"] for r in all_robots]
 
     result = []
     for r in rows:
@@ -368,21 +352,23 @@ def _load_operarios() -> list:
         dias = _sb_get("operario_dias", f"select=dia&operario_id=eq.{op_id}")
         skills = {x["habilidad"] for x in habs}
 
-        # Derive recursos_habilitados from skills
+        # Derive recursos_habilitados from simplified skills
         recursos: set[str] = set()
-        if skills & _PRELIM_SKILLS:
+        robots_hab: list[str] = []
+
+        if 'PRELIMINARES' in skills:
             recursos.add('MESA')
+        if 'ROBOTS' in skills:
+            recursos.add('ROBOT')
+            robots_hab = list(all_robot_names)  # can operate any robot
+        if 'MAQ_COMPLEMENTARIAS' in skills:
+            recursos.add('MESA')  # complementary machines are mesa-area
         if 'PLANA_RECTA' in skills:
             recursos.add('PLANA')
         if 'POSTE_CONV' in skills:
             recursos.add('POSTE')
-
-        # Derive robots_habilitados from robot-type skills
-        robots_hab: list[str] = []
-        for skill, tipo in _SKILL_TO_ROBOT_TIPO.items():
-            if skill in skills:
-                recursos.add('ROBOT')
-                robots_hab.extend(robot_by_tipo.get(tipo, []))
+        if 'GENERAL' in skills:
+            recursos.add('GENERAL')
 
         result.append({
             "id": op_id,
