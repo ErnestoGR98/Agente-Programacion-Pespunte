@@ -123,8 +123,22 @@ function deriveGrid(
     }
     return result
   }
+  // Pre-compute chain lengths to sort roots: longest chain first
+  function chainLength(start: number, vis: Set<number>): number {
+    let len = 0
+    let cur: number | undefined = start
+    while (cur !== undefined && !vis.has(cur)) {
+      vis.add(cur); len++
+      const succs: number[] = (adj.get(cur) || []).filter((t: number) => !vis.has(t))
+      cur = succs.length > 0 ? succs.sort((a: number, b: number) => a - b)[0] : undefined
+    }
+    return len
+  }
+  const rootLengths = roots.map((r) => ({ root: r, len: chainLength(r, new Set(visited)) }))
+  rootLengths.sort((a, b) => b.len - a.len || a.root - b.root)
+
   const groupBoundaries: number[] = []
-  for (const root of roots) {
+  for (const { root } of rootLengths) {
     if (!visited.has(root)) {
       groupBoundaries.push(chains.length)
       const sub = buildChainWithBranches(root)
@@ -251,7 +265,78 @@ export function CascadeEditor({
   onConnectRef.current = onConnect
   const onDeleteEdgeRef = useRef(onDeleteEdge)
   onDeleteEdgeRef.current = onDeleteEdge
-  const derived = useMemo(() => deriveGrid(effectiveOps, effectiveReglas), [effectiveOps, effectiveReglas])
+  // Stabilize row order: match new rows to previous rows by any shared frac
+  const prevRowOrderRef = useRef<number[][]>([])
+  const derived = useMemo(() => {
+    const raw = deriveGrid(effectiveOps, effectiveReglas)
+    const prevOrder = prevRowOrderRef.current
+
+    // If no previous state, use as-is
+    if (prevOrder.length === 0 || raw.grid.length === 0) {
+      prevRowOrderRef.current = raw.grid.map((row) => row.filter((v): v is number => v !== null))
+      return raw
+    }
+
+    const newRows = raw.grid.filter((row) => row.some((v) => v !== null))
+    const emptyRows = raw.grid.filter((row) => row.every((v) => v === null))
+
+    // Map each frac → which new row it belongs to
+    const fracToNewRow = new Map<number, number>()
+    for (let i = 0; i < newRows.length; i++) {
+      for (const v of newRows[i]) {
+        if (v !== null) fracToNewRow.set(v, i)
+      }
+    }
+
+    const stabilized: (number | null)[][] = []
+    const placedNewIdx = new Set<number>()
+
+    // First: for each previous row, find the best matching new row
+    // (the new row that contains the most fracs from the previous row)
+    for (const prevFracs of prevOrder) {
+      if (prevFracs.length === 0) continue
+      // Count how many fracs from this prev row land in each new row
+      const hits = new Map<number, number>()
+      for (const f of prevFracs) {
+        const idx = fracToNewRow.get(f)
+        if (idx !== undefined) hits.set(idx, (hits.get(idx) || 0) + 1)
+      }
+      // Pick the new row with the most overlap (not yet placed)
+      let bestIdx = -1
+      let bestCount = 0
+      for (const [idx, count] of hits) {
+        if (!placedNewIdx.has(idx) && count > bestCount) {
+          bestIdx = idx
+          bestCount = count
+        }
+      }
+      if (bestIdx >= 0) {
+        stabilized.push(newRows[bestIdx])
+        placedNewIdx.add(bestIdx)
+      }
+    }
+
+    // Then: append any new rows not matched to previous order
+    for (let i = 0; i < newRows.length; i++) {
+      if (!placedNewIdx.has(i)) stabilized.push(newRows[i])
+    }
+
+    // Pad with empty rows
+    for (const row of emptyRows) stabilized.push(row)
+    while (stabilized.length < 5) stabilized.push(Array(raw.grid[0]?.length ?? 3).fill(null))
+
+    // Rebuild placements for stabilized grid
+    const stablePlacements = new Map<string, number>()
+    for (let r = 0; r < stabilized.length; r++) {
+      for (let c = 0; c < stabilized[r].length; c++) {
+        const v = stabilized[r][c]
+        if (v !== null) stablePlacements.set(`${r},${c}`, v)
+      }
+    }
+
+    prevRowOrderRef.current = stabilized.map((row) => row.filter((v): v is number => v !== null))
+    return { grid: stabilized, placements: stablePlacements, groupBoundaries: raw.groupBoundaries }
+  }, [effectiveOps, effectiveReglas])
 
   // Manual placements: "row,col" → fraccion
   const [manualPlacements, setManualPlacements] = useState<Map<string, number>>(new Map())
