@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useOperarios, type OperarioFull } from '@/lib/hooks/useOperarios'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { TableExport } from '@/components/shared/TableExport'
@@ -12,7 +12,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Trash2, Plus, Pencil } from 'lucide-react'
+import { Trash2, Plus, Pencil, ChevronUp } from 'lucide-react'
 import { OperarioForm } from './OperarioForm'
 import { HeadcountTable } from './HeadcountTable'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -23,8 +23,8 @@ export default function OperariosPage() {
     loading, operarios, dias,
     toggleActivo, deleteOperario, saveOperario,
   } = useOperarios()
-  const [editing, setEditing] = useState<OperarioFull | null>(null)
-  const [showForm, setShowForm] = useState(false)
+  // null = closed, 'new' = new form at top, op.id = inline editing
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null)
 
   if (loading) {
@@ -44,11 +44,9 @@ export default function OperariosPage() {
   const activos = operarios.filter((o) => o.activo)
   const inactivos = operarios.filter((o) => !o.activo)
 
-  function skillSummary(op: OperarioFull) {
-    return Object.entries(SKILL_GROUPS).map(([, g]) => {
-      const count = g.skills.filter((s) => op.habilidades.includes(s)).length
-      return count > 0 ? `${g.label.slice(0, 6)}: ${count}` : null
-    }).filter(Boolean).join(' | ')
+  async function handleSave(data: Parameters<typeof saveOperario>[0]) {
+    await saveOperario(data)
+    setEditingId(null)
   }
 
   return (
@@ -68,21 +66,19 @@ export default function OperariosPage() {
       {/* Boton agregar */}
       <Button
         size="sm"
-        onClick={() => { setEditing(null); setShowForm(true) }}
+        onClick={() => setEditingId(editingId === 'new' ? null : 'new')}
       >
-        <Plus className="mr-1 h-3 w-3" /> Agregar Operario
+        {editingId === 'new' ? <ChevronUp className="mr-1 h-3 w-3" /> : <Plus className="mr-1 h-3 w-3" />}
+        {editingId === 'new' ? 'Cerrar' : 'Agregar Operario'}
       </Button>
 
-      {/* Formulario */}
-      {showForm && (
+      {/* New operario form (at top) */}
+      {editingId === 'new' && (
         <OperarioForm
-          operario={editing}
-          onSave={async (data) => {
-            await saveOperario(data)
-            setShowForm(false)
-            setEditing(null)
-          }}
-          onCancel={() => { setShowForm(false); setEditing(null) }}
+          key="new"
+          operario={null}
+          onSave={handleSave}
+          onCancel={() => setEditingId(null)}
         />
       )}
 
@@ -116,57 +112,75 @@ export default function OperariosPage() {
             </TableHeader>
             <TableBody>
               {operarios.map((op) => (
-                <TableRow key={op.id} className={!op.activo ? 'opacity-50' : ''}>
-                  <TableCell className="font-medium">{op.nombre}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(SKILL_GROUPS).map(([key, group]) => {
-                        const count = group.skills.filter((s) => op.habilidades.includes(s)).length
-                        if (count === 0) return null
-                        return (
-                          <Badge
-                            key={key}
-                            variant="secondary"
-                            className="text-xs"
-                            style={{ backgroundColor: group.color + '20', color: group.color }}
-                          >
-                            {group.label.slice(0, 6)} {count}/{group.skills.length}
-                          </Badge>
-                        )
-                      })}
-                    </div>
-                  </TableCell>
-                  <TableCell>{(op.eficiencia * 100).toFixed(0)}%</TableCell>
-                  <TableCell>
-                    {op.dias.includes('Sab') ? (
-                      <Badge variant="secondary" className="text-xs">Si</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Checkbox
-                      checked={op.activo}
-                      onCheckedChange={(v) => toggleActivo(op.id, v === true)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost" size="icon"
-                        onClick={() => { setEditing(op); setShowForm(true) }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost" size="icon"
-                        onClick={() => setDeleteTarget({ id: op.id, nombre: op.nombre })}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <Fragment key={op.id}>
+                  <TableRow
+                    className={`${!op.activo ? 'opacity-50' : ''} ${editingId === op.id ? 'bg-accent/30' : ''}`}
+                  >
+                    <TableCell className="font-medium">{op.nombre}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(SKILL_GROUPS).map(([key, group]) => {
+                          const count = group.skills.filter((s) => op.habilidades.includes(s)).length
+                          if (count === 0) return null
+                          return (
+                            <Badge
+                              key={key}
+                              variant="secondary"
+                              className="text-xs"
+                              style={{ backgroundColor: group.color + '20', color: group.color }}
+                            >
+                              {group.label.slice(0, 6)} {count}/{group.skills.length}
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    </TableCell>
+                    <TableCell>{(op.eficiencia * 100).toFixed(0)}%</TableCell>
+                    <TableCell>
+                      {op.dias.includes('Sab') ? (
+                        <Badge variant="secondary" className="text-xs">Si</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Checkbox
+                        checked={op.activo}
+                        onCheckedChange={(v) => toggleActivo(op.id, v === true)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost" size="icon"
+                          onClick={() => setEditingId(editingId === op.id ? null : op.id)}
+                        >
+                          {editingId === op.id ? <ChevronUp className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon"
+                          onClick={() => setDeleteTarget({ id: op.id, nombre: op.nombre })}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {editingId === op.id && (
+                    <TableRow key={`${op.id}-form`}>
+                      <TableCell colSpan={6} className="p-0 border-b-2 border-primary/20">
+                        <div className="p-3 bg-accent/10">
+                          <OperarioForm
+                            key={op.id}
+                            operario={op}
+                            onSave={handleSave}
+                            onCancel={() => setEditingId(null)}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
               ))}
             </TableBody>
           </Table>

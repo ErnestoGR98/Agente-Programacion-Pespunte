@@ -10,7 +10,7 @@ export function useRestricciones(semana?: string) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let query = supabase.from('restricciones').select('*').order('created_at')
+    let query = supabase.from('restricciones').select('*').not('semana', 'is', null).order('created_at')
     if (semana) query = query.eq('semana', semana)
     const { data } = await query
     setRestricciones(data || [])
