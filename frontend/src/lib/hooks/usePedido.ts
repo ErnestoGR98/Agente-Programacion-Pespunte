@@ -204,16 +204,16 @@ export function usePedido() {
   }
 
   function getFabricaForModelo(modeloNum: string): string {
-    const cat = catalogo.find((m: Record<string, unknown>) => m.modelo_num === modeloNum)
+    const cat = catalogo.find((m) => m.modelo_num === modeloNum)
     if (!cat) return ''
     // Primero buscar en modelo_fabrica (asignacion explicita)
-    const mf = modeloFabricas.find((m) => m.modelo_id === (cat as Record<string, unknown>).id)
+    const mf = modeloFabricas.find((m) => m.modelo_id === cat.id)
     if (mf) {
       const fab = fabricas.find((f) => f.id === mf.fabrica_id)
       if (fab?.nombre) return fab.nombre
     }
     // Fallback: fabrica_default del catalogo
-    const fabDefault = (cat as Record<string, unknown>).fabrica_default as string | null
+    const fabDefault = (cat as any).fabrica_default as string | null
     return fabDefault || ''
   }
 
