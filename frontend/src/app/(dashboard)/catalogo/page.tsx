@@ -104,7 +104,7 @@ export default function CatalogoPage() {
 
   // Global export: all models combined
   const globalExportHeaders = ['MODELO', 'FRACC', 'OPERACION', 'INPUT/PROCESO', 'ETAPA', 'RECURSO', 'RATE', 'ROBOTS']
-  const globalExportRows = modelos.flatMap((m) =>
+  const globalExportRows = sortedModelos.flatMap((m) =>
     m.operaciones.map((op) => [
       m.modelo_num, op.fraccion, op.operacion, op.input_o_proceso, op.etapa, op.recurso, op.rate, op.robots.join(', '),
     ] as (string | number)[])
@@ -122,7 +122,7 @@ export default function CatalogoPage() {
   const catalogoPDFHeaders = ['FRACC', 'OPERACION', 'INPUT/PROCESO', 'ETAPA', 'RECURSO', 'RATE', 'ROBOTS']
 
   function handleGlobalPDF() {
-    exportCatalogoPDF('catalogo_completo', catalogoPDFHeaders, buildCatalogGroups(modelos))
+    exportCatalogoPDF('catalogo_completo', catalogoPDFHeaders, buildCatalogGroups(sortedModelos))
   }
 
   function confirmEditModelo(m: ModeloFull) {

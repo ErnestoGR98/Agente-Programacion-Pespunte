@@ -52,8 +52,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
     min_lot = params.get("min_lot_size", 100)
     step = params.get("lot_step", 50)
-    lead_time_maquila = params.get("lead_time_maquila", 0)
-
     # Detectar modelos con operaciones MAQUILA y calcular sec_per_pair ajustado
     # MAQUILA es trabajo externo: no consume capacidad interna
     maquila_models = set()
@@ -128,12 +126,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             solver_model.Add(last_day[m] >= d).OnlyEnforceIf(y[m, d])
         # span >= last - first (minimizacion lo empuja al valor exacto)
         solver_model.Add(span[m] >= last_day[m] - first_day[m])
-
-    # MAQUILA: modelos con operaciones externas necesitan span minimo = lead_time
-    # Esto garantiza un hueco de N dias entre produccion pre-MAQUILA y post-MAQUILA
-    if lead_time_maquila > 0 and maquila_models:
-        for m in maquila_models:
-            solver_model.Add(span[m] >= lead_time_maquila)
 
     # --- Restricciones ---
 

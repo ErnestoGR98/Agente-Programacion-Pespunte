@@ -28,12 +28,12 @@ Objetivo:
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ortools.sat.python import cp_model
 
-# Pesos del objetivo
-W_TARDINESS = 100_000     # por par no completado en el dia
-W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
-W_HC_OVERFLOW = 5_000     # por segundo de exceso sobre plantilla/recurso por bloque (reducido para permitir mas throughput)
-W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
-W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
+# Pesos del objetivo (defaults, overridden by params if available)
+_W_TARDINESS = 100_000     # por par no completado en el dia
+_W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
+_W_HC_OVERFLOW = 5_000     # por segundo de exceso sobre plantilla/recurso por bloque
+_W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
+_W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
 
 class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
@@ -122,6 +122,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     num_blocks = len(time_blocks)
     step = params.get("lot_step", 50)
     lineas_post = params.get("lineas_post", 0)
+
+    # Read weights from params (DB-configurable), fallback to module defaults
+    W_TARDINESS = int(params.get("w_diario_tardiness", _W_TARDINESS))
+    W_HC_OVERFLOW = int(params.get("w_diario_hc_overflow", _W_HC_OVERFLOW))
+    W_IDLE = int(params.get("w_diario_idle", _W_IDLE))
 
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}

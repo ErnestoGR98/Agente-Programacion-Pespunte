@@ -146,5 +146,4 @@ def get_default_params() -> dict:
         "resource_types": RESOURCE_TYPES,
         "resource_capacity": config["resource_capacity"].copy(),
         "days": deepcopy(config["days"]),
-        "lead_time_maquila": opt.get("lead_time_maquila", 3),
     }

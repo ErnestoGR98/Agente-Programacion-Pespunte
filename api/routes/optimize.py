@@ -177,9 +177,12 @@ def _load_params() -> dict:
         "resource_types": ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"],
         "resource_capacity": resource_capacity,
         "days": days,
-        "lead_time_maquila": int(opt.get("lead_time_maquila", 3)),
         "lineas_post": int(opt.get("lineas_post", 0)),
         "weights": weights,
+        # Daily optimizer weights (read from parametros_optimizacion)
+        "w_diario_tardiness": int(opt.get("w_diario_tardiness", 100000)),
+        "w_diario_hc_overflow": int(opt.get("w_diario_hc_overflow", 5000)),
+        "w_diario_idle": int(opt.get("w_diario_idle", 500)),
     }
 
 

@@ -49,7 +49,6 @@ def get_default_config() -> dict:
             "factor_eficiencia": 0.90,
             "factor_contiguidad": 0.80,
             "timeout_solver": 90,
-            "lead_time_maquila": 3,
         },
         "fabricas": ["FABRICA 1", "FABRICA 2", "FABRICA 3"],
         "days": [
