@@ -320,13 +320,26 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
     # --- Restricciones ---
 
-    # 1. Completar pares del dia para cada operacion de cada modelo
+    # 1. Completar pares del dia para cada operacion de cada modelo.
+    #    Permitir sobreproduccion para completar bloques al rate exacto.
+    #    total_op = pares_dia - tardiness + overproduction
+    overproduction = {}
     for m_idx, model in enumerate(models_day):
         pares_dia = model["pares_dia"]
+        # Max overproduction: rate * max_hc (un bloque extra completo)
+        max_over = max(
+            int(op["rate"] * op.get("max_hc", 1))
+            for op in model["operations"]
+        ) if model["operations"] else 0
+        overproduction[m_idx] = solver_model.NewIntVar(
+            0, max_over, f"over_{m_idx}"
+        )
         for op_idx in range(len(model["operations"])):
             total_op = sum(x[m_idx, op_idx, b] for b in range(num_blocks))
-            # Todas las operaciones deben completar lo mismo (mismo par pasa por todas)
-            solver_model.Add(total_op + tardiness[m_idx] == pares_dia)
+            # Produccion = pares_dia - tardiness + sobreproduccion
+            solver_model.Add(
+                total_op + tardiness[m_idx] == pares_dia + overproduction[m_idx]
+            )
 
     # 2. Linking x y active + limite por rate
     for m_idx, model in enumerate(models_day):
@@ -506,28 +519,59 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
     # 7. Uniformidad de produccion DURA (salta COMIDA):
     #    Todo bloque activo que NO sea el ultimo debe producir exactamente
-    #    el rate (rate * hc * block_min/60). Solo el ultimo bloque activo
-    #    puede producir menos (cuando quedan pocos pares).
+    #    el rate (rate * hc * block_min/60). El ultimo bloque activo debe
+    #    producir al menos step * hc_mult (minimo 50 pares/persona).
+    #    Con overproduction habilitada, el solver puede completar el ultimo
+    #    bloque al rate completo produciendo ligeramente mas que pares_dia.
     for m_idx, model in enumerate(models_day):
         for op_idx, op in enumerate(model["operations"]):
             is_robot = bool(op.get("robots", []))
+            hc_mult = op.get("max_hc", 1) if not is_robot else 1
             for rb_idx in range(len(real_blocks) - 1):
                 b = real_blocks[rb_idx]
                 next_b = real_blocks[rb_idx + 1]
                 block_min = time_blocks[b]["minutes"]
-                hc_mult = op.get("max_hc", 1) if not is_robot else 1
                 target = int(op["rate"] * block_min / 60 * hc_mult)
                 if target <= 0:
                     continue
                 # HARD: si este bloque Y el siguiente estan activos,
                 # este bloque debe producir al menos el rate completo.
-                # Solo el ultimo bloque activo puede ser parcial.
                 solver_model.Add(
                     x[m_idx, op_idx, b] >= target
                 ).OnlyEnforceIf([
                     active[m_idx, op_idx, b],
                     active[m_idx, op_idx, next_b]
                 ])
+
+            # Ultimo bloque activo: minimo step * hc_mult pares (ej: 50 * 3 = 150)
+            # Esto evita bloques con numeros raros como 90, 99, etc.
+            min_last_block = step * hc_mult
+            for rb_idx in range(len(real_blocks)):
+                b = real_blocks[rb_idx]
+                block_min = time_blocks[b]["minutes"]
+                target = int(op["rate"] * block_min / 60 * hc_mult)
+                if target <= 0 or min_last_block <= 0:
+                    continue
+                # Si este es el ultimo bloque activo (activo aqui, no activo en siguiente)
+                if rb_idx < len(real_blocks) - 1:
+                    next_b = real_blocks[rb_idx + 1]
+                    is_last = solver_model.NewBoolVar(
+                        f"islast_{m_idx}_{op_idx}_{b}")
+                    # is_last = active[b] AND NOT active[next_b]
+                    solver_model.Add(
+                        is_last <= active[m_idx, op_idx, b])
+                    solver_model.Add(
+                        is_last <= 1 - active[m_idx, op_idx, next_b])
+                    solver_model.Add(
+                        is_last >= active[m_idx, op_idx, b]
+                        - active[m_idx, op_idx, next_b])
+                else:
+                    # Ultimo real_block: si esta activo, es el ultimo
+                    is_last = active[m_idx, op_idx, b]
+                # Minimo step*hc pares en ultimo bloque
+                solver_model.Add(
+                    x[m_idx, op_idx, b] >= min_last_block
+                ).OnlyEnforceIf(is_last)
 
     # 8. Exclusividad de conveyor: limitar modelos con ops POST por bloque
     #    Si lineas_post > 0, maximo N modelos distintos pueden tener operaciones
@@ -594,6 +638,12 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     for idle in idle_terms:
         obj_terms.append(W_IDLE * idle)
 
+    # Penalizar sobreproduccion (leve: preferir completar bloques al rate,
+    # pero no sobreproducir mas de lo necesario para llenar el ultimo bloque)
+    W_OVER = 5  # mucho menor que tardiness para preferir sobreproducir a no completar
+    for m_idx in range(len(models_day)):
+        obj_terms.append(W_OVER * overproduction[m_idx])
+
     # Early completion: penalizar produccion tardia para cerrar lotes
     # lo antes posible. Sin esto, el solver deja operaciones para el final
     # del dia aunque podrian correr antes (ej: frac 5 en bloque 9 cuando
@@ -634,7 +684,8 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     # --- Extraer solucion ---
     schedule = _extract_day_schedule(solver, x, y, active, robot_ops_idx,
                                       models_day, time_blocks)
-    summary = _build_day_summary(solver, x, tardiness, models_day, time_blocks,
+    summary = _build_day_summary(solver, x, tardiness, overproduction,
+                                  models_day, time_blocks,
                                   plantilla, resource_cap, status)
 
     return {"schedule": schedule, "summary": summary}
@@ -986,8 +1037,8 @@ def _extract_day_schedule(solver, x, y, active, robot_ops_idx,
     return schedule
 
 
-def _build_day_summary(solver, x, tardiness, models_day, time_blocks,
-                        plantilla, resource_cap, status):
+def _build_day_summary(solver, x, tardiness, overproduction, models_day,
+                        time_blocks, plantilla, resource_cap, status):
     """Construye resumen del dia."""
     num_blocks = len(time_blocks)
 
@@ -1016,8 +1067,14 @@ def _build_day_summary(solver, x, tardiness, models_day, time_blocks,
         if t > 0:
             tardiness_by_model[model["codigo"]] = t
 
-    # Pares totales
-    total_pares = sum(m["pares_dia"] for m in models_day) - total_tard
+    # Overproduction total (pares extra para completar bloques al rate)
+    total_over = sum(
+        solver.Value(overproduction[m_idx])
+        for m_idx in range(len(models_day))
+    )
+
+    # Pares totales (reales producidos = pares_dia - tardiness + overproduction)
+    total_pares = sum(m["pares_dia"] for m in models_day) - total_tard + total_over
 
     return {
         "status": solver.StatusName(status),

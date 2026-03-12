@@ -601,13 +601,22 @@ def _build_tasks(day_schedule, num_blocks):
 
         actual_hc = entry.get("hc", 1)
         rate = entry.get("rate", 100)
-        # Solo dividir si 1 persona necesitaria 4+ bloques (~4 horas).
-        # Preferir 1 operario mas tiempo que 2 operarios poco tiempo.
-        max_1person = rate * 4  # pares que 1 persona hace en 4 bloques
-        if total <= max_1person:
-            copies = 1
+        # Detectar si algun bloque individual excede capacidad de 1 persona.
+        # Ej: rate=100, block tiene 300 pares → necesita 3 personas en paralelo.
+        max_block_pares = max(block_pares) if block_pares else 0
+        rate_per_block = rate  # bloques de 60 min = rate por hora
+        needs_multi_hc = max_block_pares > rate_per_block * 1.05  # 5% tolerancia
+
+        if needs_multi_hc:
+            # Forzar split: cada persona hace rate pares/bloque
+            copies = max(2, round(actual_hc))
         else:
-            copies = max(1, round(actual_hc))
+            # Solo dividir si 1 persona necesitaria 4+ bloques (~4 horas).
+            max_1person = rate * 4
+            if total <= max_1person:
+                copies = 1
+            else:
+                copies = max(1, round(actual_hc))
 
         for copy_idx in range(copies):
             if copies > 1:
