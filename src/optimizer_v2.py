@@ -454,10 +454,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             solver_model.Add(sum(total_load) <= max_hc_sec + overflow)
             hc_overflow_terms.append(overflow)
 
-    # 4b. Capacidad de operarios por recurso por bloque - HARD
+    # 4b. Capacidad de operarios por recurso por bloque - SOFT
     #     Limita hc_used simultaneo por recurso al numero real de operarios con esa skill.
-    #     Evita programar mas trabajo PLANA/POSTE del que la plantilla puede cubrir.
+    #     Permite exceder con penalty alto para evitar INFEASIBLE en pedidos grandes.
     op_capacity = params.get("operator_capacity", {})
+    op_cap_overflow_terms = []
     if op_capacity:
         for b in range(num_blocks):
             # Group hc_used by recurso
@@ -475,11 +476,13 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                         if part not in hc_by_recurso:
                             hc_by_recurso[part] = []
                         hc_by_recurso[part].append(hc_used[m_idx, op_idx, b])
-            # Add constraint for each recurso that has operator data
+            # Add SOFT constraint for each recurso that has operator data
             for recurso, hc_vars in hc_by_recurso.items():
                 cap = op_capacity.get(recurso)
                 if cap is not None and hc_vars:
-                    solver_model.Add(sum(hc_vars) <= cap)
+                    overflow = solver_model.NewIntVar(0, cap, f"opcap_{recurso}_{b}")
+                    solver_model.Add(sum(hc_vars) <= cap + overflow)
+                    op_cap_overflow_terms.append(overflow)
 
     # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 operacion a la vez.
@@ -691,6 +694,11 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
     # Penalty por exceder capacidad de recurso o plantilla por bloque
     for ov in hc_overflow_terms:
         obj_terms.append(W_HC_OVERFLOW * ov)
+
+    # Penalty por exceder capacidad de operarios por recurso (PLANA/POSTE)
+    W_OP_CAP = W_HC_OVERFLOW * 2  # alto para preferir respetar, pero no infeasible
+    for ov in op_cap_overflow_terms:
+        obj_terms.append(W_OP_CAP * ov)
 
     # Penalty por operarios ociosos (incentiva usar toda la plantilla)
     for idle in idle_terms:
