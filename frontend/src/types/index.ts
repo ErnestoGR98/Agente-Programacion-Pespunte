@@ -337,6 +337,7 @@ export interface DailyResult {
   total_tardiness: number
   pares_adelantados?: number
   pares_rezago?: number
+  tardiness_by_model?: Record<string, number>
   plantilla: number
   schedule: DailyScheduleEntry[]
   operator_timelines?: Record<string, OperatorTimelineEntry[]>

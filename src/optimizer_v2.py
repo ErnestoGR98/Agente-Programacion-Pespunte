@@ -454,6 +454,33 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             solver_model.Add(sum(total_load) <= max_hc_sec + overflow)
             hc_overflow_terms.append(overflow)
 
+    # 4b. Capacidad de operarios por recurso por bloque - HARD
+    #     Limita hc_used simultaneo por recurso al numero real de operarios con esa skill.
+    #     Evita programar mas trabajo PLANA/POSTE del que la plantilla puede cubrir.
+    op_capacity = params.get("operator_capacity", {})
+    if op_capacity:
+        for b in range(num_blocks):
+            # Group hc_used by recurso
+            hc_by_recurso = {}  # {recurso: [hc_used vars]}
+            for m_idx, model in enumerate(models_day):
+                for op_idx, op in enumerate(model["operations"]):
+                    if bool(op.get("robots", [])):
+                        continue  # robots have dedicated operators, skip
+                    recurso = op["recurso"]
+                    if recurso in ("MESA", "GENERAL"):
+                        continue  # MESA is abundant, already capped by plantilla
+                    # For compound resources like "PLANA,POSTE", count toward each part
+                    parts = [p.strip() for p in recurso.split(",")] if "," in recurso else [recurso]
+                    for part in parts:
+                        if part not in hc_by_recurso:
+                            hc_by_recurso[part] = []
+                        hc_by_recurso[part].append(hc_used[m_idx, op_idx, b])
+            # Add constraint for each recurso that has operator data
+            for recurso, hc_vars in hc_by_recurso.items():
+                cap = op_capacity.get(recurso)
+                if cap is not None and hc_vars:
+                    solver_model.Add(sum(hc_vars) <= cap)
+
     # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 operacion a la vez.
     #    robot_active[m, op, r, b] = 1 si robot r esta asignado a (m, op) en bloque b
@@ -734,7 +761,7 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
 
 
 def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
-                   compiled=None) -> dict:
+                   compiled=None, operarios: list = None) -> dict:
     """
     Genera programas horarios para todos los dias de la semana EN PARALELO.
 
@@ -815,6 +842,27 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             elif day_name in compiled.plantilla_adjustments:
                 plantilla = max(1, plantilla + compiled.plantilla_adjustments[day_name])
 
+        # Count available operators per resource type for this day
+        op_cap_by_recurso = {}
+        if operarios:
+            day_prefix = day_name.split()[0] if day_name else ""
+            for op in operarios:
+                if not op.get("activo", True):
+                    continue
+                dias = op.get("dias_disponibles", [])
+                available = not dias  # empty = available every day
+                if not available:
+                    for d in dias:
+                        if d == day_name or day_name.startswith(d) or d.startswith(day_prefix):
+                            available = True
+                            break
+                if not available:
+                    continue
+                for r in op.get("recursos_habilitados", []):
+                    op_cap_by_recurso[r] = op_cap_by_recurso.get(r, 0) + 1
+            if op_cap_by_recurso:
+                print(f"    [OP_CAP] {day_name}: {op_cap_by_recurso}")
+
         day_params = {
             "time_blocks": params["time_blocks"],
             "resource_capacity": params["resource_capacity"],
@@ -823,6 +871,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
             "day_name": day_name,  # para block_availability y disabled_robots
             "lineas_post": params.get("lineas_post", 0),
+            "operator_capacity": op_cap_by_recurso,  # operators per resource type
         }
 
         day_tasks[day_name] = (models_day, day_params)

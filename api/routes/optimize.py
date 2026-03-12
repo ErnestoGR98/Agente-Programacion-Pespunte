@@ -767,7 +767,7 @@ def run_optimization(req: OptimizeRequest):
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
 
     # 7. Scheduling diario
-    raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled)
+    raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled, operarios=operarios)
 
     # 8. Asignacion de operarios (ANTES de renombrar campos,
     #    porque operator_assignment.py espera block_pares/total_pares/robots_used)
@@ -845,6 +845,8 @@ def run_optimization(req: OptimizeRequest):
             day_dict["pares_adelantados"] = summary["pares_adelantados"]
         if summary.get("pares_rezago"):
             day_dict["pares_rezago"] = summary["pares_rezago"]
+        if summary.get("tardiness_by_model"):
+            day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
         daily_results[day_name] = day_dict
 
     # 10. Preservar dias congelados del resultado anterior (reopt_from_day)

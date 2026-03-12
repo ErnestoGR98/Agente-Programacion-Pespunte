@@ -542,6 +542,18 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
       .reduce((sum, e) => sum + e.Pares, 0)
   }, [weeklySchedule, dayName])
   const tardiness = data.total_tardiness || 0
+  const tardinessByModel = data.tardiness_by_model || {}
+
+  // Compute adelanto detail by model from schedule entries flagged as adelanto
+  const adelantoByModel = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const s of rawSchedule) {
+      if (s.adelanto && s.total > 0) {
+        map[s.modelo] = (map[s.modelo] || 0) + s.total
+      }
+    }
+    return map
+  }, [rawSchedule])
   const plantilla = data.plantilla || 0
   const status = data.status || '?'
   const maxHc = schedule.reduce((max, s) => Math.max(max, s.hc), 0)
@@ -605,16 +617,36 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                   </div>
                 )}
                 {paresAdelantados > 0 && (
-                  <div className="flex justify-between text-blue-500">
-                    <span>Adelanto</span>
-                    <span className="font-mono">+{paresAdelantados.toLocaleString()}</span>
-                  </div>
+                  <details className="group">
+                    <summary className="flex justify-between text-blue-500 cursor-pointer list-none">
+                      <span>Adelanto</span>
+                      <span className="font-mono">+{paresAdelantados.toLocaleString()}</span>
+                    </summary>
+                    <div className="pl-2 mt-0.5 space-y-0.5 text-blue-400">
+                      {Object.entries(adelantoByModel).map(([modelo, pares]) => (
+                        <div key={modelo} className="flex justify-between">
+                          <span className="truncate mr-2">{modelo}</span>
+                          <span className="font-mono">{pares.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
                 {tardiness > 0 && (
-                  <div className="flex justify-between text-amber-500">
-                    <span>No alcanzados</span>
-                    <span className="font-mono">−{tardiness.toLocaleString()}</span>
-                  </div>
+                  <details className="group">
+                    <summary className="flex justify-between text-amber-500 cursor-pointer list-none">
+                      <span>No alcanzados</span>
+                      <span className="font-mono">−{tardiness.toLocaleString()}</span>
+                    </summary>
+                    <div className="pl-2 mt-0.5 space-y-0.5 text-amber-400">
+                      {Object.entries(tardinessByModel).map(([modelo, pares]) => (
+                        <div key={modelo} className="flex justify-between">
+                          <span className="truncate mr-2">{modelo}</span>
+                          <span className="font-mono">−{pares.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </div>
             )}
@@ -718,6 +750,9 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                         {s.modelo}
                         {s.adelanto && (
                           <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">ADL {s.adelanto_de}</Badge>
+                        )}
+                        {!s.adelanto && tardinessByModel[s.modelo] > 0 && s.fraccion === 1 && (
+                          <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">−{tardinessByModel[s.modelo]}p rezago</Badge>
                         )}
                         {maquilaModelos.has(s.modelo) && (
                           <Truck className="h-3 w-3 text-destructive" />
