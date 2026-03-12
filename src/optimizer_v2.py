@@ -719,6 +719,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
     # Track de pares adelantados: {modelo_code: pares_ya_adelantados}
     adelanto_credits = {}  # se descuenta del dia siguiente
+    # Track de tardiness carry-over: {modelo_code: pares_pendientes_dia_anterior}
+    tardiness_carryover = {}
 
     for task_idx, (day_name, (models_day, day_params)) in enumerate(ordered_tasks):
         # Descontar pares ya adelantados del dia anterior
@@ -729,6 +731,18 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 print(f"    [ADELANTO] {day_name} {code}: descontando {descuento}p adelantados")
                 m["pares_dia"] -= descuento
                 adelanto_credits[code] -= descuento
+
+        # Sumar pares de tardiness del dia anterior (rezago)
+        pares_rezago = 0
+        for m in models_day:
+            code = m["codigo"]
+            if code in tardiness_carryover and tardiness_carryover[code] > 0:
+                extra = tardiness_carryover[code]
+                print(f"    [REZAGO] {day_name} {code}: +{extra}p de tardiness del dia anterior")
+                m["pares_dia"] += extra
+                pares_rezago += extra
+                tardiness_carryover[code] = 0
+
         # Filtrar modelos con 0 pares
         models_day = [m for m in models_day if m["pares_dia"] > 0]
 
@@ -738,12 +752,21 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         try:
             results[day_name] = schedule_day(models_day, day_params, compiled)
             s = results[day_name]["summary"]
+            if pares_rezago > 0:
+                s["pares_rezago"] = pares_rezago
             print(f"    <- {day_name}: {s['total_pares']} pares, "
-                  f"tardiness={s['total_tardiness']}, status={s['status']}")
+                  f"tardiness={s['total_tardiness']}, rezago={pares_rezago}, status={s['status']}")
         except Exception as e:
             print(f"    ERROR {day_name}: {e}")
             results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
             continue
+
+        # --- Carry-over tardiness al dia siguiente ---
+        day_tardiness = results[day_name]["summary"].get("tardiness_by_model", {})
+        if day_tardiness and task_idx + 1 < len(ordered_tasks):
+            for code, tard in day_tardiness.items():
+                tardiness_carryover[code] = tardiness_carryover.get(code, 0) + tard
+                print(f"    [REZAGO] {code}: {tard}p pendientes → se pasan al siguiente dia")
 
         # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
         if task_idx + 1 >= len(ordered_tasks):
@@ -961,8 +984,14 @@ def _build_day_summary(solver, x, tardiness, models_day, time_blocks,
         block_hc.append(round(hc, 1))
         block_pares.append(total_pares_b)
 
-    # Tardiness total
-    total_tard = sum(solver.Value(tardiness[m]) for m in range(len(models_day)))
+    # Tardiness por modelo y total
+    tardiness_by_model = {}
+    total_tard = 0
+    for m_idx, model in enumerate(models_day):
+        t = solver.Value(tardiness[m_idx])
+        total_tard += t
+        if t > 0:
+            tardiness_by_model[model["codigo"]] = t
 
     # Pares totales
     total_pares = sum(m["pares_dia"] for m in models_day) - total_tard
@@ -971,6 +1000,7 @@ def _build_day_summary(solver, x, tardiness, models_day, time_blocks,
         "status": solver.StatusName(status),
         "total_pares": total_pares,
         "total_tardiness": total_tard,
+        "tardiness_by_model": tardiness_by_model,
         "plantilla": plantilla,
         "block_hc": block_hc,
         "block_pares": block_pares,

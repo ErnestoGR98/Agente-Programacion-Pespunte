@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
-import type { DailyResult, AsignacionMaquila } from '@/types'
+import type { DailyResult, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
 import { Truck, ArrowDownWideNarrow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
@@ -473,12 +473,12 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} maquilaModelos={maquilaModelos} maquilaDeps={maquilaDeps} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
+      {dayData && <DayView dayName={day} data={dayData} weeklySchedule={result.weekly_schedule} maquilaModelos={maquilaModelos} maquilaDeps={maquilaDeps} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
+function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; weeklySchedule?: WeeklyScheduleEntry[]; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
   const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
@@ -508,6 +508,14 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
   }, [rawSchedule, cascadeSort])
 
   const totalPares = data.total_pares || 0
+  const paresAdelantados = data.pares_adelantados || 0
+  const paresRezago = data.pares_rezago || 0
+  const weeklyPares = useMemo(() => {
+    if (!weeklySchedule) return 0
+    return weeklySchedule
+      .filter((e) => e.Dia === dayName)
+      .reduce((sum, e) => sum + e.Pares, 0)
+  }, [weeklySchedule, dayName])
   const tardiness = data.total_tardiness || 0
   const plantilla = data.plantilla || 0
   const status = data.status || '?'
@@ -555,7 +563,38 @@ function DayView({ dayName, data, maquilaModelos, maquilaDeps, cascadeSort, onTo
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        <KpiCard label="Pares del Dia" value={totalPares.toLocaleString()} />
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs text-muted-foreground">Pares del Dia</p>
+            <p className="text-2xl font-bold">{totalPares.toLocaleString()}</p>
+            {weeklyPares > 0 && (
+              <div className="mt-1 space-y-0.5 text-[10px]">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Programados</span>
+                  <span className="font-mono">{weeklyPares.toLocaleString()}</span>
+                </div>
+                {paresRezago > 0 && (
+                  <div className="flex justify-between text-orange-500">
+                    <span>Rezago dia ant.</span>
+                    <span className="font-mono">+{paresRezago.toLocaleString()}</span>
+                  </div>
+                )}
+                {paresAdelantados > 0 && (
+                  <div className="flex justify-between text-blue-500">
+                    <span>Adelanto</span>
+                    <span className="font-mono">+{paresAdelantados.toLocaleString()}</span>
+                  </div>
+                )}
+                {tardiness > 0 && (
+                  <div className="flex justify-between text-amber-500">
+                    <span>No alcanzados</span>
+                    <span className="font-mono">−{tardiness.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
         <KpiCard label="HC Maximo" value={maxHc} />
         <KpiCard label="Plantilla" value={plantilla} />
         <KpiCard

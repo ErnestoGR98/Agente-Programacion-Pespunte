@@ -832,7 +832,7 @@ def run_optimization(req: OptimizeRequest):
                 entry["adelanto_de"] = s.get("adelanto_de", "")
             schedule.append(entry)
 
-        daily_results[day_name] = {
+        day_dict = {
             "status": summary.get("status", ""),
             "total_pares": summary.get("total_pares", 0),
             "total_tardiness": summary.get("total_tardiness", 0),
@@ -841,6 +841,11 @@ def run_optimization(req: OptimizeRequest):
             "operator_timelines": op_day.get("operator_timelines", {}),
             "unassigned_ops": op_day.get("unassigned", []),
         }
+        if summary.get("pares_adelantados"):
+            day_dict["pares_adelantados"] = summary["pares_adelantados"]
+        if summary.get("pares_rezago"):
+            day_dict["pares_rezago"] = summary["pares_rezago"]
+        daily_results[day_name] = day_dict
 
     # 10. Preservar dias congelados del resultado anterior (reopt_from_day)
     base_name = req.semana or req.pedido_nombre
