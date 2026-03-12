@@ -242,11 +242,24 @@ export interface MaquilaCard {
   unassigned?: boolean
 }
 
+export interface DayKpis {
+  totalPares: number
+  weeklyPares: number
+  paresAdelantados: number
+  paresRezago: number
+  tardiness: number
+  maxHc: number
+  plantilla: number
+  status: string
+  unassignedCount: number
+}
+
 export interface ProgramaDayGroup {
   day: string
   rows: (string | number)[][]
   etapas: string[]       // etapa per row (same length as rows)
   maquilaCards?: MaquilaCard[]
+  kpis?: DayKpis
 }
 
 /** Load an image URL as base64 data URI for jsPDF.
@@ -374,6 +387,7 @@ export function exportProgramaPDF(
     let cx = margin
     let cy = 36
     let colIdx = 0
+    let rowMaxH = 0  // tallest card in current row
 
     for (const card of maquilaCards) {
       const isUn = card.unassigned
@@ -383,6 +397,7 @@ export function exportProgramaPDF(
 
       // Card border
       const cardH = 10 + card.operations.length * 3.5 + 2
+      if (cardH > rowMaxH) rowMaxH = cardH
       doc.setDrawColor(r, g, b)
       doc.setLineWidth(0.3)
       doc.roundedRect(cx, cy, cardW, cardH, 1.5, 1.5, 'S')
@@ -406,7 +421,8 @@ export function exportProgramaPDF(
       if (colIdx >= cols) {
         colIdx = 0
         cx = margin
-        cy += cardH + gap
+        cy += rowMaxH + gap  // advance by tallest card in row
+        rowMaxH = 0
       } else {
         cx += cardW + gap
       }
@@ -427,6 +443,68 @@ export function exportProgramaPDF(
     doc.text(new Date().toLocaleDateString('es-MX'), 14, 22)
 
     let startY = 28
+
+    // KPIs row
+    if (group.kpis) {
+      const k = group.kpis
+      const pageW = doc.internal.pageSize.getWidth()
+      const kpiMargin = 14
+      const kpiGap = 3
+      const kpiCols = 5
+      const kpiW = (pageW - kpiMargin * 2 - kpiGap * (kpiCols - 1)) / kpiCols
+      const kpiH = 14
+      const kpis: { label: string; value: string; detail?: string; detailColor?: [number, number, number] }[] = [
+        {
+          label: 'Pares del Dia',
+          value: k.totalPares.toLocaleString(),
+          detail: k.weeklyPares > 0
+            ? `Prog: ${k.weeklyPares.toLocaleString()}${k.paresRezago > 0 ? `  Rez: +${k.paresRezago.toLocaleString()}` : ''}${k.paresAdelantados > 0 ? `  Adel: +${k.paresAdelantados.toLocaleString()}` : ''}${k.tardiness > 0 ? `  Pend: -${k.tardiness.toLocaleString()}` : ''}`
+            : undefined,
+        },
+        { label: 'HC Maximo', value: String(k.maxHc) },
+        { label: 'Plantilla', value: String(k.plantilla) },
+        {
+          label: 'Estado',
+          value: k.status,
+          detail: k.tardiness > 0 ? `${k.tardiness} pares pendientes` : undefined,
+          detailColor: k.tardiness > 0 ? [245, 158, 11] : undefined,
+        },
+        {
+          label: 'Sin Operario',
+          value: String(k.unassignedCount),
+          detail: k.unassignedCount > 0 ? 'operaciones sin asignar' : 'todo asignado',
+          detailColor: k.unassignedCount > 0 ? [239, 68, 68] : [34, 197, 94],
+        },
+      ]
+      let kx = kpiMargin
+      for (const kpi of kpis) {
+        // Box border
+        doc.setDrawColor(100, 100, 100)
+        doc.setLineWidth(0.2)
+        doc.roundedRect(kx, startY, kpiW, kpiH, 1, 1, 'S')
+        // Label
+        doc.setFontSize(5.5)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(140, 140, 140)
+        doc.text(kpi.label, kx + 2, startY + 3.5)
+        // Value
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(0, 0, 0)
+        doc.text(kpi.value, kx + 2, startY + 9)
+        // Detail
+        if (kpi.detail) {
+          doc.setFontSize(4.5)
+          doc.setFont('helvetica', 'normal')
+          const dc = kpi.detailColor || [140, 140, 140]
+          doc.setTextColor(dc[0], dc[1], dc[2])
+          doc.text(kpi.detail, kx + 2, startY + 12.5)
+        }
+        kx += kpiW + kpiGap
+      }
+      doc.setTextColor(0, 0, 0)
+      startY += kpiH + 4
+    }
 
     // Legend
     doc.setFontSize(6)

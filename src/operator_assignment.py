@@ -1,11 +1,13 @@
 """
-operator_assignment.py - Asignacion de operarios en cascada + relevo (post-proceso).
+operator_assignment.py - Asignacion de operarios en cascada + relevo + relleno.
 
 FASE 1 - Cascada secuencial por bloques (0..9):
   1. Libera operarios cuya tarea ya termino (ultimo bloque activo < bloque actual)
   2. Asigna operarios libres a tareas sin operario que tengan pares en este bloque
   3. Al asignar, el operario se COMPROMETE a TODA la tarea restante
      -> NO puede tomar otra tarea hasta que termine la actual
+  4. Scoring con escasez: penaliza usar operarios multi-skill (MESA+PLANA)
+     en tareas de recurso abundante (MESA), preservandolos para recurso escaso.
 
 FASE 2 - Relevo (post-cascada):
   Para tareas que quedaron SIN ASIGNAR (ningun operario con el recurso correcto):
@@ -14,9 +16,16 @@ FASE 2 - Relevo (post-cascada):
   Ejemplo: HUGO (MESA) releva a DIANA (MESA+PLANA) en su tarea
            MESA, liberando a DIANA para hacer la tarea PLANA sin asignar.
 
+FASE 3 - Relleno por bloque (post-relevo):
+  Para huecos que aun quedan SIN ASIGNAR despues de cascada + relevo:
+  1. Busca operarios libres en cada bloque individual
+  2. Asigna SOLO ese bloque (sin compromiso full-task)
+  3. Permite que un operario cubra bloques sueltos de distintas tareas
+
 REGLA FUNDAMENTAL: un operario NUNCA tiene dos tareas simultaneas.
 Cascada = operario termina tarea A, queda libre, toma tarea B.
 Relevo = operario idle toma tarea de operario ocupado, liberandolo para otra.
+Relleno = operario libre en un bloque especifico cubre un hueco puntual.
 """
 
 
@@ -142,6 +151,9 @@ def assign_operators_day(day_schedule: list, operarios: list,
     robot_usage = {}  # {robot_name: set(bloques reservados)}
     op_block_map = {}  # {op_nombre: set(bloques asignados)} - previene doble asignacion
 
+    # Pre-computar escasez de recurso para scoring inteligente
+    recurso_scarcity = _compute_recurso_scarcity(tasks, available)
+
     # ===================================================================
     # CASCADA: bloque por bloque, secuencial
     # ===================================================================
@@ -170,12 +182,17 @@ def assign_operators_day(day_schedule: list, operarios: list,
         # --- Asignar un operario libre a cada tarea ---
         for task in needy:
             _commit_operator(task, b, num_blocks, op_states, robot_usage,
-                             op_block_map)
+                             op_block_map, recurso_scarcity)
 
     # ===================================================================
     # RELEVO: reasignar operarios via intercambio (post-cascada)
     # ===================================================================
     _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map)
+
+    # ===================================================================
+    # RELLENO: asignar bloques individuales a operarios libres (post-relevo)
+    # ===================================================================
+    _block_fill_pass(tasks, op_states, num_blocks, robot_usage, op_block_map)
 
     # ===================================================================
     # VALIDACION: eliminar asignaciones dobles (safety net)
@@ -209,11 +226,13 @@ def assign_operators_day(day_schedule: list, operarios: list,
 # ---------------------------------------------------------------------------
 
 def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
-                     op_block_map):
+                     op_block_map, recurso_scarcity=None):
     """
     Busca un operario libre y lo COMPROMETE a toda la tarea restante.
     El operario queda ocupado desde start_block hasta el ultimo bloque activo.
     Usa op_block_map para verificar que no haya doble asignacion.
+    recurso_scarcity: dict opcional de escasez por recurso para penalizar
+    uso de operarios multi-skill en tareas de recurso abundante.
     """
     recurso = task["recurso"]
     robots_needed = task["robots_available"]
@@ -263,6 +282,21 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
         score += int(op_st["eficiencia"] * 10)
         # Nivel bonus: priorizar operarios expertos en este recurso
         score += _get_nivel_score(op_st, recurso)
+
+        # Scarcity penalty: penalizar uso de operario multi-skill en recurso abundante
+        if recurso_scarcity:
+            task_scarcity = recurso_scarcity.get(recurso, 1.0)
+            # Para recursos compuestos, usar max scarcity
+            if "," in recurso:
+                parts = [p.strip() for p in recurso.split(",")]
+                task_scarcity = max(
+                    recurso_scarcity.get(p, 1.0) for p in parts)
+            for other_r in op_st["recursos"]:
+                if other_r == recurso:
+                    continue
+                other_scarcity = recurso_scarcity.get(other_r, 0)
+                if other_scarcity > task_scarcity * 1.5:
+                    score -= int((other_scarcity - task_scarcity) * 100)
 
         candidates.append((score, op_id, robot))
 
@@ -523,6 +557,96 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
 # Validacion anti-overlap
 # ---------------------------------------------------------------------------
 
+def _block_fill_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
+    """FASE 3: relleno bloque-por-bloque para huecos residuales.
+
+    Despues de cascada + relevo, busca operarios libres en bloques
+    individuales para cubrir huecos SIN ASIGNAR.  A diferencia de la
+    cascada, aqui NO se compromete al operario a toda la tarea — solo
+    se asigna el bloque puntual.
+    """
+    # Recopilar huecos (task, bloque) sin asignar
+    gaps = []
+    for task in tasks:
+        for b in range(num_blocks):
+            bp = task["block_pares"][b] if b < len(task["block_pares"]) else 0
+            if bp > 0 and b not in task["block_assignments"]:
+                gaps.append((task, b))
+
+    if not gaps:
+        return
+
+    # MRV primero (menos elegibles), luego bloque temprano
+    gaps.sort(key=lambda g: (g[0]["eligible_count"], g[1]))
+
+    for task, b in gaps:
+        # Verificar que sigue sin asignar (un fill previo pudo resolverlo)
+        if b in task["block_assignments"]:
+            continue
+
+        recurso = task["recurso"]
+        robots_needed = task["robots_available"]
+
+        candidates = []
+        for op_id, op_st in op_states.items():
+            if not _recurso_match(recurso, op_st["recursos"]):
+                continue
+            used = op_block_map.get(op_st["nombre"], set())
+            if b in used:
+                continue
+
+            robot = None
+            if robots_needed:
+                robot = _find_robot(op_st, robots_needed, robot_usage, [b])
+                if robot is None:
+                    continue
+
+            # Scoring
+            score = 0
+            # Continuidad: mismo task en bloque adyacente
+            for adj in [b - 1, b + 1]:
+                ba_adj = task["block_assignments"].get(adj, {})
+                if ba_adj.get("op_name") == op_st["nombre"]:
+                    score += 120
+                    break
+            # Mismo modelo en bloque adyacente (otra task)
+            if score < 120:
+                for other_task in tasks:
+                    if other_task is task:
+                        continue
+                    if other_task["modelo"] != task["modelo"]:
+                        continue
+                    found = False
+                    for adj in [b - 1, b + 1]:
+                        ba_adj = other_task["block_assignments"].get(adj, {})
+                        if ba_adj.get("op_name") == op_st["nombre"]:
+                            score += 80
+                            found = True
+                            break
+                    if found:
+                        break
+            score += _get_nivel_score(op_st, recurso)
+            score += int(op_st["eficiencia"] * 10)
+
+            candidates.append((score, op_id, robot))
+
+        if not candidates:
+            continue
+
+        candidates.sort(key=lambda c: -c[0])
+        _, best_op_id, best_robot = candidates[0]
+        op_st = op_states[best_op_id]
+
+        task["block_assignments"][b] = {
+            "op_name": op_st["nombre"],
+            "pares": task["block_pares"][b],
+            "robot": best_robot,
+        }
+        op_block_map.setdefault(op_st["nombre"], set()).add(b)
+        if best_robot:
+            robot_usage.setdefault(best_robot, set()).add(b)
+
+
 def _validate_no_overlap(tasks, num_blocks):
     """Safety net: elimina asignaciones dobles de operarios en el mismo bloque.
 
@@ -569,6 +693,35 @@ def _filter_available(operarios, day_name):
     return result
 
 
+def _compute_recurso_scarcity(tasks, available_ops):
+    """Calcula demanda/oferta por recurso para priorizar operarios multi-skill.
+
+    Retorna dict {recurso: ratio} donde ratio alto = recurso escaso.
+    Ejemplo: PLANA tiene 6 tareas y 3 operarios → scarcity=2.0
+             MESA tiene 4 tareas y 8 operarios → scarcity=0.5
+    """
+    demand = {}
+    for t in tasks:
+        r = t["recurso"]
+        # Para recursos compuestos (PLANA,POSTE), contar en cada parte
+        if "," in r:
+            for part in r.split(","):
+                part = part.strip()
+                demand[part] = demand.get(part, 0) + 1
+        else:
+            demand[r] = demand.get(r, 0) + 1
+
+    supply = {}
+    for op in available_ops:
+        for r in op.get("recursos_habilitados", []):
+            supply[r] = supply.get(r, 0) + 1
+
+    scarcity = {}
+    for r in demand:
+        scarcity[r] = demand[r] / max(supply.get(r, 1), 1)
+    return scarcity
+
+
 def _build_tasks(day_schedule, num_blocks):
     """Convierte schedule del optimizer en tareas asignables.
 
@@ -599,30 +752,39 @@ def _build_tasks(day_schedule, num_blocks):
         if first_block >= num_blocks:
             continue
 
-        actual_hc = entry.get("hc", 1)
-        rate = entry.get("rate", 100)
-        # Detectar si algun bloque individual excede capacidad de 1 persona.
-        # Ej: rate=100, block tiene 300 pares → necesita 3 personas en paralelo.
-        max_block_pares = max(block_pares) if block_pares else 0
-        rate_per_block = rate  # bloques de 60 min = rate por hora
-        needs_multi_hc = max_block_pares > rate_per_block * 1.05  # 5% tolerancia
-
-        if needs_multi_hc:
-            # Forzar split: cada persona hace rate pares/bloque
-            copies = max(2, round(actual_hc))
+        # Usar hc_per_block del solver para saber cuantas personas por bloque.
+        # Cada bloque tiene x = rate * hc, asi que dividir por hc da rate exacto.
+        hc_per_block = entry.get("hc_per_block", [])
+        if hc_per_block:
+            max_hc_block = max(hc_per_block)
+            copies = max(1, max_hc_block)
         else:
-            # Solo dividir si 1 persona necesitaria 4+ bloques (~4 horas).
-            max_1person = rate * 4
-            if total <= max_1person:
+            # Fallback si hc_per_block no disponible (compatibilidad)
+            actual_hc = entry.get("hc", 1)
+            rate = entry.get("rate", 100)
+            max_block_pares = max(block_pares) if block_pares else 0
+            if max_block_pares > rate * 1.05:
+                copies = max(2, round(actual_hc))
+            elif total <= rate * 4:
                 copies = 1
             else:
                 copies = max(1, round(actual_hc))
 
         for copy_idx in range(copies):
             if copies > 1:
-                # Dividir pares proporcionalmente entre copias
-                bp_copy = [p * (copy_idx + 1) // copies - p * copy_idx // copies
-                           for p in block_pares]
+                if hc_per_block:
+                    # Division exacta: cada persona recibe bp // hc del bloque
+                    bp_copy = []
+                    for b_idx, bp in enumerate(block_pares):
+                        hc_b = hc_per_block[b_idx] if b_idx < len(hc_per_block) else 0
+                        if hc_b > 0 and copy_idx < hc_b:
+                            bp_copy.append(bp // hc_b)
+                        else:
+                            bp_copy.append(0)
+                else:
+                    # Fallback: division proporcional
+                    bp_copy = [p * (copy_idx + 1) // copies - p * copy_idx // copies
+                               for p in block_pares]
                 total_copy = sum(bp_copy)
             else:
                 bp_copy = list(block_pares)

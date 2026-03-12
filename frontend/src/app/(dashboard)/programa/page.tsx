@@ -8,12 +8,19 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
-import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
+import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER, SKILL_LABELS, SKILL_GROUPS } from '@/types'
+import type { SkillType } from '@/types'
 import type { DailyResult, DailyScheduleEntry, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
-import { Truck, ArrowDownWideNarrow, User, Cpu } from 'lucide-react'
+
+/** Map each skill to its group color */
+const SKILL_COLOR: Record<string, string> = {}
+for (const g of Object.values(SKILL_GROUPS)) {
+  for (const s of g.skills) SKILL_COLOR[s] = g.color
+}
+import { Truck, ArrowDownWideNarrow, User, Cpu, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { exportProgramaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
+import { exportProgramaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard, type DayKpis } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -318,7 +325,8 @@ export default function ProgramaPage() {
     const groups: ProgramaDayGroup[] = dayNames
       .filter((d) => result.daily_results![d]?.schedule?.length)
       .map((d) => {
-        const raw = result.daily_results![d].schedule
+        const dayD = result.daily_results![d]
+        const raw = dayD.schedule
         const sched = cascadeSort
           ? [...raw].sort((a, b) => {
               const startA = (a.blocks || []).findIndex((v) => v > 0)
@@ -334,6 +342,21 @@ export default function ProgramaPage() {
               return a.fraccion - b.fraccion
             })
           : raw
+        // Compute KPIs for this day
+        const wPares = (result.weekly_schedule || [])
+          .filter((e) => e.Dia === d)
+          .reduce((sum, e) => sum + e.Pares, 0)
+        const kpis: DayKpis = {
+          totalPares: dayD.total_pares || 0,
+          weeklyPares: wPares,
+          paresAdelantados: dayD.pares_adelantados || 0,
+          paresRezago: dayD.pares_rezago || 0,
+          tardiness: dayD.total_tardiness || 0,
+          maxHc: raw.reduce((max, s) => Math.max(max, s.hc), 0),
+          plantilla: dayD.plantilla || 0,
+          status: dayD.status || '?',
+          unassignedCount: (dayD.unassigned_ops || []).length,
+        }
         return {
           day: d,
           rows: sched.map((s) => [
@@ -344,6 +367,7 @@ export default function ProgramaPage() {
           ] as (string | number)[]),
           etapas: sched.map((s) => s.etapa || ''),
           maquilaCards: cards.length > 0 ? cards : undefined,
+          kpis,
         }
       })
     // Pre-load modelo images for PDF
@@ -783,6 +807,9 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
       {viewTab === 'recurso' && (
         <CascadeByRecurso schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} />
       )}
+
+      {/* Operarios no utilizados */}
+      <IdleOperators schedule={schedule} dayName={dayName} />
     </div>
   )
 }
@@ -858,6 +885,111 @@ function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
             ))}
           </tbody>
         </table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Shows operators not utilized on this day with the reason and their skills */
+function IdleOperators({ schedule, dayName }: {
+  schedule: DailyScheduleEntry[]; dayName: string
+}) {
+  const [allOperarios, setAllOperarios] = useState<{
+    nombre: string; activo: boolean; dias: string[]; habilidades: SkillType[]
+  }[]>([])
+
+  useEffect(() => {
+    async function load() {
+      const { data: ops } = await supabase
+        .from('operarios')
+        .select('id, nombre, activo')
+        .order('nombre')
+      if (!ops) return
+      const ids = ops.map((o: { id: string }) => o.id)
+      const [diasRes, habRes] = await Promise.all([
+        supabase.from('operario_dias').select('operario_id, dia').in('operario_id', ids),
+        supabase.from('operario_habilidades').select('operario_id, habilidad').in('operario_id', ids),
+      ])
+      const diasMap = new Map<string, string[]>()
+      for (const d of diasRes.data || []) {
+        if (!diasMap.has(d.operario_id)) diasMap.set(d.operario_id, [])
+        diasMap.get(d.operario_id)!.push(d.dia)
+      }
+      const habMap = new Map<string, SkillType[]>()
+      for (const h of habRes.data || []) {
+        if (!habMap.has(h.operario_id)) habMap.set(h.operario_id, [])
+        habMap.get(h.operario_id)!.push(h.habilidad as SkillType)
+      }
+      setAllOperarios(ops.map((o: { id: string; nombre: string; activo: boolean }) => ({
+        nombre: o.nombre,
+        activo: o.activo,
+        dias: diasMap.get(o.id) || [],
+        habilidades: habMap.get(o.id) || [],
+      })))
+    }
+    load()
+  }, [])
+
+  const dayPrefix = dayName.split(' ')[0]
+
+  const idle = useMemo(() => {
+    const working = new Set<string>()
+    for (const s of schedule) {
+      if (s.operario && s.operario !== 'SIN ASIGNAR') working.add(s.operario)
+    }
+
+    const result: { nombre: string; motivo: string; habilidades: SkillType[] }[] = []
+    for (const op of allOperarios) {
+      if (working.has(op.nombre)) continue
+
+      if (!op.activo) {
+        result.push({ nombre: op.nombre, motivo: 'Inactivo', habilidades: op.habilidades })
+      } else if (op.dias.length > 0 && !op.dias.some(d => d === dayName || dayName.startsWith(d) || d.startsWith(dayPrefix))) {
+        result.push({ nombre: op.nombre, motivo: `No disponible ${dayPrefix}`, habilidades: op.habilidades })
+      } else {
+        result.push({ nombre: op.nombre, motivo: 'Disponible, sin asignación', habilidades: op.habilidades })
+      }
+    }
+    return result
+  }, [allOperarios, schedule, dayName, dayPrefix])
+
+  if (idle.length === 0) return null
+
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-3">
+        <div className="flex items-center gap-2 mb-2">
+          <UserX className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Operarios no utilizados — {dayName}</h3>
+          <Badge variant="outline" className="text-[10px]">{idle.length}</Badge>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          {idle.map((op) => (
+            <div key={op.nombre} className="flex items-center gap-2 px-2 py-1.5 rounded bg-accent/30 text-xs">
+              <span className="font-medium truncate min-w-0 shrink">{op.nombre}</span>
+              <div className="flex items-center gap-1 flex-wrap shrink-0">
+                {op.habilidades.map((h) => {
+                  const color = SKILL_COLOR[h] || '#94A3B8'
+                  return (
+                    <span
+                      key={h}
+                      className="text-[8px] px-1 py-0 rounded font-medium"
+                      style={{ backgroundColor: `${color}20`, color }}
+                    >
+                      {SKILL_LABELS[h] || h}
+                    </span>
+                  )
+                })}
+              </div>
+              <Badge
+                variant={op.motivo === 'Inactivo' ? 'destructive' : op.motivo.startsWith('No disponible') ? 'secondary' : 'outline'}
+                className="text-[9px] ml-auto shrink-0"
+              >
+                {op.motivo}
+              </Badge>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
