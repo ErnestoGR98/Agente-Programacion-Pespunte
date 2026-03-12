@@ -51,7 +51,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
   )
   const loteRegla = reglas.find((r) => r.tipo === 'LOTE_MINIMO_CUSTOM')
 
-  async function createPrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo') {
+  async function createPrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo' | 'rate') {
     await supabase.from('restricciones').insert({
       semana: null,
       tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
@@ -71,7 +71,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
     await load()
   }
 
-  async function updateBuffer(id: string, buffer: number | 'todo') {
+  async function updateBuffer(id: string, buffer: number | 'todo' | 'rate') {
     const regla = reglas.find((r) => r.id === id)
     if (!regla) return
     const parametros = { ...regla.parametros as Record<string, unknown>, buffer_pares: buffer }

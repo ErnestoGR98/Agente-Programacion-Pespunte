@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import type { Fabrica, Robot, DiaLaboral, ResourceType, DayName, SkillType } from '@/types'
+import type { Fabrica, Robot, DiaLaboral, ResourceType, DayName, SkillType, NivelHabilidad, HabilidadConNivel } from '@/types'
 import { deriveRecursos } from '@/types'
 
 export interface OperarioFull {
@@ -13,6 +13,7 @@ export interface OperarioFull {
   eficiencia: number
   activo: boolean
   habilidades: SkillType[]
+  habilidades_nivel: HabilidadConNivel[]  // skills con nivel de competencia
   recursos: ResourceType[]  // derived from habilidades
   robots: string[]           // robot nombres (legacy, derived)
   robot_ids: string[]        // robot ids (legacy, derived)
@@ -56,9 +57,15 @@ export function useOperarios() {
     const diasRels = diasRelRes.data || []
 
     const full: OperarioFull[] = ops.map((o: Record<string, unknown>) => {
-      const opHabs = habilidades
+      const opHabRows = habilidades
         .filter((h: { operario_id: string }) => h.operario_id === o.id)
-        .map((h: { habilidad: SkillType }) => h.habilidad)
+      const opHabs = opHabRows.map((h: { habilidad: SkillType }) => h.habilidad)
+      const opHabsNivel: HabilidadConNivel[] = opHabRows.map(
+        (h: { habilidad: SkillType; nivel?: number }) => ({
+          habilidad: h.habilidad,
+          nivel: (h.nivel ?? 2) as NivelHabilidad,
+        })
+      )
       return {
         id: o.id as string,
         nombre: o.nombre as string,
@@ -67,6 +74,7 @@ export function useOperarios() {
         eficiencia: Number(o.eficiencia),
         activo: o.activo as boolean,
         habilidades: opHabs,
+        habilidades_nivel: opHabsNivel,
         recursos: deriveRecursos(opHabs),
         robots: [],
         robot_ids: [],
@@ -99,6 +107,7 @@ export function useOperarios() {
     eficiencia: number
     activo: boolean
     habilidades: SkillType[]
+    habilidades_nivel?: HabilidadConNivel[]
     dias: DayName[]
   }) {
     let opId = data.id
@@ -126,8 +135,16 @@ export function useOperarios() {
     await supabase.from('operario_dias').delete().eq('operario_id', opId)
 
     if (data.habilidades.length > 0) {
+      // Use habilidades_nivel if provided, otherwise default nivel=2
+      const nivelMap = new Map(
+        (data.habilidades_nivel || []).map((hn) => [hn.habilidad, hn.nivel])
+      )
       await supabase.from('operario_habilidades').insert(
-        data.habilidades.map((h) => ({ operario_id: opId, habilidad: h }))
+        data.habilidades.map((h) => ({
+          operario_id: opId,
+          habilidad: h,
+          nivel: nivelMap.get(h) ?? 2,
+        }))
       )
     }
     if (data.dias.length > 0) {

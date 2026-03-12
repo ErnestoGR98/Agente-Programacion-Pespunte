@@ -4,7 +4,7 @@
 
 // --- Enums ---
 
-export type ResourceType = 'MESA' | 'ROBOT' | 'PLANA' | 'POSTE' | 'MAQUILA' | 'GENERAL' | (string & {})
+export type ResourceType = 'MESA' | 'ROBOT' | 'PLANA' | 'POSTE' | 'MAQUILA' | (string & {})
 
 export type ProcessType = 'PRELIMINARES' | 'ROBOT' | 'POST' | 'MAQUILA' | 'N/A PRELIMINAR'
 
@@ -425,7 +425,7 @@ export interface ChatResponse {
 
 // --- Constantes ---
 
-export const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA', 'GENERAL']
+export const RESOURCE_TYPES: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA']
 
 export const DAY_NAMES: DayName[] = ['Sab', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie']
 
@@ -458,7 +458,6 @@ export const RESOURCE_COLORS: Record<string, string> = {
   PLANA: '#F59E0B',
   POSTE: '#8B5CF6',
   MAQUILA: '#6B7280',
-  GENERAL: '#94A3B8',
 }
 
 // --- Habilidades de Operarios (11 skills en 5 categorias) ---
@@ -468,7 +467,26 @@ export type SkillType =
   | 'ROBOTS'
   | 'MAQ_COMPLEMENTARIAS'
   | 'ZIGZAG' | 'PLANA_RECTA' | 'DOS_AGUJAS' | 'POSTE_CONV' | 'RIBETE' | 'CODO'
-  | 'MAQUILA' | 'GENERAL'
+
+/** Nivel de competencia: 1=puede, 2=normal, 3=experto */
+export type NivelHabilidad = 1 | 2 | 3
+
+export interface HabilidadConNivel {
+  habilidad: SkillType
+  nivel: NivelHabilidad
+}
+
+export const NIVEL_LABELS: Record<NivelHabilidad, string> = {
+  1: 'Puede',
+  2: 'Normal',
+  3: 'Experto',
+}
+
+export const NIVEL_COLORS: Record<NivelHabilidad, string> = {
+  1: '#94A3B8', // slate
+  2: '#3B82F6', // blue
+  3: '#F59E0B', // amber/gold
+}
 
 export const SKILL_GROUPS: Record<string, { label: string; short: string; color: string; skills: SkillType[] }> = {
   PRELIMINAR: {
@@ -495,12 +513,6 @@ export const SKILL_GROUPS: Record<string, { label: string; short: string; color:
     color: '#3B82F6', // blue
     skills: ['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'],
   },
-  OTROS: {
-    label: 'Otros',
-    short: 'Otros',
-    color: '#6B7280', // gray
-    skills: ['MAQUILA', 'GENERAL'],
-  },
 }
 
 export const SKILL_LABELS: Record<SkillType, string> = {
@@ -513,8 +525,6 @@ export const SKILL_LABELS: Record<SkillType, string> = {
   POSTE_CONV: 'Poste',
   RIBETE: 'Ribete',
   CODO: 'Codo',
-  MAQUILA: 'Maquila',
-  GENERAL: 'General',
 }
 
 /** Derive resource types from skills (for optimizer compatibility) */
@@ -525,7 +535,6 @@ export function deriveRecursos(skills: SkillType[]): ResourceType[] {
   if (set.has('ROBOTS')) recursos.push('ROBOT')
   if (set.has('PLANA_RECTA')) recursos.push('PLANA')
   if (set.has('POSTE_CONV')) recursos.push('POSTE')
-  if (set.has('GENERAL')) recursos.push('GENERAL')
   return recursos
 }
 
@@ -538,7 +547,7 @@ export const BLOCK_LABELS = [
 
 export const DEFAULT_CAPACITIES: Record<string, number> = {
   MESA: 15, ROBOT: 8, PLANA: 8, 'POSTE-LINEA': 6,
-  'MESA-LINEA': 10, 'PLANA-LINEA': 8, GENERAL: 10,
+  'MESA-LINEA': 10, 'PLANA-LINEA': 8,
 }
 
 export const CHART_COLORS = [

@@ -604,20 +604,21 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
                     <td className="px-1 py-0.5">
                       {editing && ed ? (
                         <Select
-                          value={ed.etapa}
+                          value={ed.etapa || '_NONE'}
                           onValueChange={(v) => {
                             if (v === '_NEW') {
                               const label = window.prompt('Nombre de la nueva etapa:')?.trim()
                               if (label) updateOp(op.id, 'etapa', label.toUpperCase().replace(/\s+/g, '-'))
                               return
                             }
-                            updateOp(op.id, 'etapa', v)
+                            updateOp(op.id, 'etapa', v === '_NONE' ? '' : v)
                           }}
                         >
                           <SelectTrigger className="h-6 text-[10px] w-32 px-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="_NONE" className="text-xs text-muted-foreground">Sin etapa</SelectItem>
                             {allEtapas.map((et) => (
                               <SelectItem key={et} value={et} className="text-xs">{et}</SelectItem>
                             ))}
@@ -625,7 +626,7 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className="text-muted-foreground">{op.etapa}</span>
+                        <span className="text-muted-foreground">{op.etapa || ''}</span>
                       )}
                     </td>
 

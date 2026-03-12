@@ -36,6 +36,57 @@ def _recurso_match(task_recurso: str, op_recursos: set) -> bool:
     return task_recurso in op_recursos
 
 
+# Mapping: skill → recurso(s) that it enables
+_SKILL_TO_RECURSO = {
+    'PRELIMINARES': ['MESA'],
+    'ROBOTS': ['ROBOT'],
+    'MAQ_COMPLEMENTARIAS': ['MESA'],
+    'PLANA_RECTA': ['PLANA'],
+    'POSTE_CONV': ['POSTE'],
+    'ZIGZAG': ['PLANA'],
+    'DOS_AGUJAS': ['PLANA'],
+    'RIBETE': ['PLANA'],
+    'CODO': ['PLANA'],
+}
+
+# Bonus points per nivel for operator scoring
+_NIVEL_BONUS = {1: 0, 2: 50, 3: 120}
+
+
+def _build_nivel_map(habilidades_nivel: list) -> dict:
+    """Build {recurso: max_nivel} from operator's skill+nivel list.
+
+    Each skill maps to one or more recursos. For each recurso we keep the
+    highest nivel across all skills that map to it.
+    Returns dict like {'MESA': 3, 'ROBOT': 2, 'PLANA': 1}.
+    """
+    niveles = {}
+    for hn in habilidades_nivel:
+        skill = hn.get("habilidad", "")
+        nivel = hn.get("nivel", 2)
+        for recurso in _SKILL_TO_RECURSO.get(skill, []):
+            niveles[recurso] = max(niveles.get(recurso, 0), nivel)
+    return niveles
+
+
+def _get_nivel_score(op_state: dict, task_recurso: str) -> int:
+    """Get nivel bonus for an operator on a task's recurso.
+
+    For compound resources like 'PLANA,POSTE', returns the max bonus.
+    """
+    niveles = op_state.get("niveles_recurso", {})
+    if not niveles:
+        return _NIVEL_BONUS.get(2, 50)  # default nivel 2 if no data
+
+    if "," in task_recurso:
+        parts = [p.strip() for p in task_recurso.split(",")]
+        best = max((_NIVEL_BONUS.get(niveles.get(p, 0), 0) for p in parts), default=0)
+        return best
+
+    nivel = niveles.get(task_recurso, 0)
+    return _NIVEL_BONUS.get(nivel, 0)
+
+
 # ---------------------------------------------------------------------------
 # API publica
 # ---------------------------------------------------------------------------
@@ -74,12 +125,15 @@ def assign_operators_day(day_schedule: list, operarios: list,
     op_states = {}
     for op in available:
         op_id = op.get("id", op.get("nombre", ""))
+        # Build nivel map: {recurso: max_nivel} from habilidades_nivel
+        niveles_recurso = _build_nivel_map(op.get("habilidades_nivel", []))
         op_states[op_id] = {
             "id": op_id,
             "nombre": op.get("nombre", ""),
             "recursos": set(op.get("recursos_habilitados", [])),
             "robots": set(op.get("robots_habilitados", [])),
             "eficiencia": op.get("eficiencia", 1.0),
+            "niveles_recurso": niveles_recurso,
             "current_task": None,     # tarea actual (referencia)
             "task_end_block": -1,     # ultimo bloque activo de tarea actual
             "prev_end_block": -1,     # para score de cascada
@@ -207,6 +261,8 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
         if op_st["prev_modelo"] == task["modelo"]:
             score += 50
         score += int(op_st["eficiencia"] * 10)
+        # Nivel bonus: priorizar operarios expertos en este recurso
+        score += _get_nivel_score(op_st, recurso)
 
         candidates.append((score, op_id, robot))
 
@@ -378,6 +434,8 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
                 score = int(busy_st["eficiencia"] * 10)
                 if busy_st.get("prev_modelo") == task_u["modelo"]:
                     score += 50
+                # Nivel bonus: prefer busy→task_u if busy is expert at recurso_u
+                score += _get_nivel_score(busy_st, recurso_u)
                 relay_candidates.append(
                     (score, idle_id, busy_id, task_b, remaining_b))
 

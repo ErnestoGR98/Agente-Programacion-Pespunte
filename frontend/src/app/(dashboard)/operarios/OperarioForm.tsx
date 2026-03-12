@@ -7,7 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { SKILL_GROUPS, SKILL_LABELS, type SkillType, type DayName } from '@/types'
+import {
+  SKILL_GROUPS, SKILL_LABELS, NIVEL_LABELS, NIVEL_COLORS,
+  type SkillType, type DayName, type NivelHabilidad, type HabilidadConNivel,
+} from '@/types'
 
 export function OperarioForm({
   operario,
@@ -18,28 +21,56 @@ export function OperarioForm({
   onSave: (data: {
     id?: string; nombre: string; fabrica_id: string | null
     eficiencia: number; activo: boolean
-    habilidades: SkillType[]; dias: DayName[]
+    habilidades: SkillType[]; habilidades_nivel: HabilidadConNivel[]
+    dias: DayName[]
   }) => Promise<void>
   onCancel: () => void
 }) {
   const [nombre, setNombre] = useState(operario?.nombre || '')
   const [eficiencia, setEficiencia] = useState(operario?.eficiencia || 1.0)
   const [activo, setActivo] = useState(operario?.activo ?? true)
-  const [habilidades, setHabilidades] = useState<SkillType[]>(operario?.habilidades || [])
   const [sabado, setSabado] = useState(operario?.dias?.includes('Sab') ?? false)
   const [saving, setSaving] = useState(false)
 
+  // Map of skill → nivel (only for enabled skills)
+  const initNiveles = new Map<SkillType, NivelHabilidad>(
+    (operario?.habilidades_nivel || []).map((hn) => [hn.habilidad, hn.nivel])
+  )
+  const [niveles, setNiveles] = useState<Map<SkillType, NivelHabilidad>>(initNiveles)
+
+  const habilidades = Array.from(niveles.keys())
+
   function toggleSkill(s: SkillType) {
-    setHabilidades((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])
+    setNiveles((prev) => {
+      const next = new Map(prev)
+      if (next.has(s)) {
+        next.delete(s)
+      } else {
+        next.set(s, 2) // default nivel=2 (Normal)
+      }
+      return next
+    })
+  }
+
+  function setNivel(s: SkillType, nivel: NivelHabilidad) {
+    setNiveles((prev) => {
+      const next = new Map(prev)
+      next.set(s, nivel)
+      return next
+    })
   }
 
   function toggleGroup(groupSkills: SkillType[]) {
-    const allSelected = groupSkills.every((s) => habilidades.includes(s))
-    if (allSelected) {
-      setHabilidades((prev) => prev.filter((s) => !groupSkills.includes(s)))
-    } else {
-      setHabilidades((prev) => [...new Set([...prev, ...groupSkills])])
-    }
+    const allSelected = groupSkills.every((s) => niveles.has(s))
+    setNiveles((prev) => {
+      const next = new Map(prev)
+      if (allSelected) {
+        groupSkills.forEach((s) => next.delete(s))
+      } else {
+        groupSkills.forEach((s) => { if (!next.has(s)) next.set(s, 2) })
+      }
+      return next
+    })
   }
 
   async function handleSubmit() {
@@ -47,6 +78,9 @@ export function OperarioForm({
     setSaving(true)
     const dias: DayName[] = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie']
     if (sabado) dias.push('Sab')
+    const habsNivel: HabilidadConNivel[] = Array.from(niveles.entries()).map(
+      ([habilidad, nivel]) => ({ habilidad, nivel })
+    )
     await onSave({
       id: operario?.id,
       nombre: nombre.trim().toUpperCase(),
@@ -54,6 +88,7 @@ export function OperarioForm({
       eficiencia,
       activo,
       habilidades,
+      habilidades_nivel: habsNivel,
       dias,
     })
     setSaving(false)
@@ -83,12 +118,25 @@ export function OperarioForm({
           </div>
         </div>
 
-        {/* Habilidades agrupadas */}
+        {/* Habilidades agrupadas con nivel */}
         <div className="space-y-3">
-          <Label className="text-xs font-semibold">Habilidades</Label>
+          <div className="flex items-center gap-4">
+            <Label className="text-xs font-semibold">Habilidades</Label>
+            <div className="flex gap-2 text-[10px] text-muted-foreground">
+              {([1, 2, 3] as NivelHabilidad[]).map((n) => (
+                <span key={n} className="flex items-center gap-0.5">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full"
+                    style={{ backgroundColor: NIVEL_COLORS[n] }}
+                  />
+                  {NIVEL_LABELS[n]}
+                </span>
+              ))}
+            </div>
+          </div>
           {Object.entries(SKILL_GROUPS).map(([key, group]) => {
-            const allSelected = group.skills.every((s) => habilidades.includes(s))
-            const someSelected = group.skills.some((s) => habilidades.includes(s))
+            const allSelected = group.skills.every((s) => niveles.has(s))
+            const someSelected = group.skills.some((s) => niveles.has(s))
             return (
               <div key={key} className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -104,19 +152,41 @@ export function OperarioForm({
                     {group.label}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    ({group.skills.filter((s) => habilidades.includes(s)).length}/{group.skills.length})
+                    ({group.skills.filter((s) => niveles.has(s)).length}/{group.skills.length})
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 ml-6">
-                  {group.skills.map((s) => (
-                    <label key={s} className="flex items-center gap-1 text-xs">
-                      <Checkbox
-                        checked={habilidades.includes(s)}
-                        onCheckedChange={() => toggleSkill(s)}
-                      />
-                      {SKILL_LABELS[s]}
-                    </label>
-                  ))}
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 ml-6">
+                  {group.skills.map((s) => {
+                    const enabled = niveles.has(s)
+                    const nivel = niveles.get(s) ?? 2
+                    return (
+                      <div key={s} className="flex items-center gap-1.5">
+                        <Checkbox
+                          checked={enabled}
+                          onCheckedChange={() => toggleSkill(s)}
+                        />
+                        <span className="text-xs min-w-[70px]">{SKILL_LABELS[s]}</span>
+                        {enabled && (
+                          <div className="flex gap-0.5">
+                            {([1, 2, 3] as NivelHabilidad[]).map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => setNivel(s, n)}
+                                className="w-4 h-4 rounded-full border transition-all"
+                                style={{
+                                  backgroundColor: nivel >= n ? NIVEL_COLORS[n] : 'transparent',
+                                  borderColor: NIVEL_COLORS[n],
+                                  opacity: nivel >= n ? 1 : 0.3,
+                                }}
+                                title={NIVEL_LABELS[n]}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -146,7 +216,7 @@ export function OperarioForm({
               setNombre('')
               setEficiencia(1.0)
               setActivo(true)
-              setHabilidades([])
+              setNiveles(new Map())
               setSabado(false)
             }}
           >

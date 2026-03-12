@@ -348,7 +348,7 @@ def _load_operarios() -> list:
     result = []
     for r in rows:
         op_id = r["id"]
-        habs = _sb_get("operario_habilidades", f"select=habilidad&operario_id=eq.{op_id}")
+        habs = _sb_get("operario_habilidades", f"select=habilidad,nivel&operario_id=eq.{op_id}")
         dias = _sb_get("operario_dias", f"select=dia&operario_id=eq.{op_id}")
         skills = {x["habilidad"] for x in habs}
 
@@ -367,14 +367,19 @@ def _load_operarios() -> list:
             recursos.add('PLANA')
         if 'POSTE_CONV' in skills:
             recursos.add('POSTE')
-        if 'GENERAL' in skills:
-            recursos.add('GENERAL')
+
+        # Pass skill+nivel pairs for operator assignment scoring
+        habilidades_nivel = [
+            {"habilidad": x["habilidad"], "nivel": x.get("nivel", 2)}
+            for x in habs
+        ]
 
         result.append({
             "id": op_id,
             "nombre": r["nombre"],
             "recursos_habilitados": list(recursos),
             "robots_habilitados": robots_hab,
+            "habilidades_nivel": habilidades_nivel,
             "eficiencia": float(r["eficiencia"]),
             "dias_disponibles": [x["dia"] for x in dias],
             "activo": True,
@@ -767,10 +772,22 @@ def run_optimization(req: OptimizeRequest):
     # 8. Asignacion de operarios (ANTES de renombrar campos,
     #    porque operator_assignment.py espera block_pares/total_pares/robots_used)
     op_results = {}
+    print(f"[OPT] operarios loaded: {len(operarios)}")
+    for op in operarios:
+        print(f"  {op['nombre']}: recursos={op['recursos_habilitados']}, robots={op.get('robots_habilitados', [])[:3]}...")
     if operarios:
+        # Debug: print first day's schedule entries
+        first_day = next(iter(raw_daily), None)
+        if first_day:
+            for s in raw_daily[first_day].get("schedule", [])[:5]:
+                print(f"  [SCHED] {s['modelo']} F{s['fraccion']}: recurso={s['recurso']}, robots_eligible={s.get('robots_eligible', [])}, robots_used={s.get('robots_used', [])}")
         op_results = assign_operators_week(
             raw_daily, operarios, params["time_blocks"]
         )
+        # Debug: print assignment results
+        if first_day and first_day in op_results:
+            for a in op_results[first_day].get("assignments", [])[:8]:
+                print(f"  [ASSIGN] {a['modelo']} F{a.get('fraccion',0)}: {a.get('recurso','?')} -> {a.get('operario','?')}")
 
     # 9. Aplanar: mover summary fields al top level y renombrar campos de schedule
     # para coincidir con DailyResult/DailyScheduleEntry del frontend.
