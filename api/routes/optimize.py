@@ -363,7 +363,8 @@ def _load_operarios() -> list:
             robots_hab = list(all_robot_names)  # can operate any robot
         if 'MAQ_COMPLEMENTARIAS' in skills:
             recursos.add('MESA')  # complementary machines are mesa-area
-        if 'PLANA_RECTA' in skills:
+        # All flat-bed pespunte machines → PLANA
+        if skills & {'PLANA_RECTA', 'ZIGZAG', 'DOS_AGUJAS', 'RIBETE', 'CODO'}:
             recursos.add('PLANA')
         if 'POSTE_CONV' in skills:
             recursos.add('POSTE')
