@@ -9,8 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
-import type { DailyResult, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
-import { Truck, ArrowDownWideNarrow } from 'lucide-react'
+import type { DailyResult, DailyScheduleEntry, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
+import { Truck, ArrowDownWideNarrow, User, Cpu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { exportProgramaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard } from '@/lib/export'
@@ -482,6 +482,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
   const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
+  const [viewTab, setViewTab] = useState<'programa' | 'operario' | 'recurso'>('programa')
 
   // Clear selection when day changes
   useEffect(() => { setSelectedOperario(null); setSelectedRecurso(null) }, [dayName])
@@ -619,7 +620,28 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         ))}
       </div>
 
-      {/* Schedule table */}
+      {/* View tabs */}
+      <div className="flex items-center gap-1">
+        {([
+          { key: 'programa', label: 'Programa', icon: ArrowDownWideNarrow },
+          { key: 'operario', label: 'Por Operario', icon: User },
+          { key: 'recurso', label: 'Por Recurso', icon: Cpu },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <Button
+            key={key}
+            variant={viewTab === key ? 'default' : 'outline'}
+            size="sm"
+            className="h-7 text-xs gap-1"
+            onClick={() => setViewTab(key)}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </Button>
+        ))}
+      </div>
+
+      {/* Programa table view */}
+      {viewTab === 'programa' && (
       <Card>
         <CardContent className="pt-4 overflow-x-auto">
           <div className="flex items-center justify-between mb-2">
@@ -750,6 +772,166 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {/* Operario cascade view */}
+      {viewTab === 'operario' && (
+        <CascadeByOperario schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} />
+      )}
+
+      {/* Recurso cascade view */}
+      {viewTab === 'recurso' && (
+        <CascadeByRecurso schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} />
+      )}
     </div>
+  )
+}
+
+/** Cascade view grouped by OPERARIO — each row is an operator, cells show what they do per block */
+function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
+  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (e: string) => string; dayName: string
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, { blocks: (DailyScheduleEntry | null)[] }>()
+    for (const s of schedule) {
+      const name = s.operario || 'SIN ASIGNAR'
+      if (!map.has(name)) map.set(name, { blocks: new Array(blockLabels.length).fill(null) })
+      const entry = map.get(name)!
+      ;(s.blocks || []).forEach((val, bi) => {
+        if (val > 0 && bi < blockLabels.length) {
+          entry.blocks[bi] = s // last writer wins (most ops occupy 1-2 blocks per operator)
+        }
+      })
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === 'SIN ASIGNAR') return 1
+      if (b[0] === 'SIN ASIGNAR') return -1
+      return a[0].localeCompare(b[0])
+    })
+  }, [schedule, blockLabels])
+
+  return (
+    <Card>
+      <CardContent className="pt-4 overflow-x-auto">
+        <h3 className="text-sm font-semibold mb-2">Cascada por Operario — {dayName}</h3>
+        <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse min-w-[700px]">
+          <thead>
+            <tr className="border-b">
+              <th className="px-2 py-1 text-left min-w-[200px]">OPERARIO</th>
+              {blockLabels.map((b) => (
+                <th key={b} className="px-1 py-1 text-center w-[90px]">{b}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {grouped.map(([name, data]) => (
+              <tr key={name} className="border-b hover:bg-accent/30">
+                <td className="px-2 py-1.5 font-medium text-[10px]">
+                  {name === 'SIN ASIGNAR'
+                    ? <span className="text-destructive">{name}</span>
+                    : name}
+                </td>
+                {data.blocks.map((s, bi) => {
+                  if (!s) return <td key={bi} className="px-1 py-1.5 text-center text-muted-foreground/30">—</td>
+                  const bgColor = getEtapaColor(s.etapa)
+                  const pares = (s.blocks || [])[bi] || 0
+                  return (
+                    <td
+                      key={bi}
+                      className="px-1 py-0.5 text-center"
+                      style={{ backgroundColor: `${bgColor}25` }}
+                    >
+                      <div className="text-[9px] font-medium truncate" style={{ color: bgColor }}>
+                        {s.modelo}
+                      </div>
+                      <div className="text-[8px] text-muted-foreground truncate">
+                        F{s.fraccion} · {(s.robot || s.recurso)}
+                      </div>
+                      <div className="text-[10px] font-bold" style={{ color: bgColor }}>
+                        {pares}p
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Cascade view grouped by RECURSO (robot/machine) — each row is a resource, cells show what it produces per block */
+function CascadeByRecurso({ schedule, blockLabels, getEtapaColor, dayName }: {
+  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (e: string) => string; dayName: string
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, { blocks: (DailyScheduleEntry | null)[] }>()
+    for (const s of schedule) {
+      const recurso = s.robot || s.recurso
+      if (!recurso) continue
+      if (!map.has(recurso)) map.set(recurso, { blocks: new Array(blockLabels.length).fill(null) })
+      const entry = map.get(recurso)!
+      ;(s.blocks || []).forEach((val, bi) => {
+        if (val > 0 && bi < blockLabels.length) {
+          entry.blocks[bi] = s
+        }
+      })
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [schedule, blockLabels])
+
+  return (
+    <Card>
+      <CardContent className="pt-4 overflow-x-auto">
+        <h3 className="text-sm font-semibold mb-2">Cascada por Recurso — {dayName}</h3>
+        <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse min-w-[700px]">
+          <thead>
+            <tr className="border-b">
+              <th className="px-2 py-1 text-left min-w-[120px]">RECURSO</th>
+              {blockLabels.map((b) => (
+                <th key={b} className="px-1 py-1 text-center w-[90px]">{b}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {grouped.map(([recurso, data]) => (
+              <tr key={recurso} className="border-b hover:bg-accent/30">
+                <td className="px-2 py-1.5">
+                  <Badge variant="outline" className="text-[10px]">{recurso}</Badge>
+                </td>
+                {data.blocks.map((s, bi) => {
+                  if (!s) return <td key={bi} className="px-1 py-1.5 text-center text-muted-foreground/30">—</td>
+                  const bgColor = getEtapaColor(s.etapa)
+                  const pares = (s.blocks || [])[bi] || 0
+                  return (
+                    <td
+                      key={bi}
+                      className="px-1 py-0.5 text-center"
+                      style={{ backgroundColor: `${bgColor}25` }}
+                    >
+                      <div className="text-[9px] font-medium truncate" style={{ color: bgColor }}>
+                        {s.modelo}
+                      </div>
+                      <div className="text-[8px] text-muted-foreground truncate">
+                        F{s.fraccion} · {s.operario ? s.operario.split(' ').slice(0, 2).join(' ') : '-'}
+                      </div>
+                      <div className="text-[10px] font-bold" style={{ color: bgColor }}>
+                        {pares}p
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
