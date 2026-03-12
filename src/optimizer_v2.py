@@ -427,26 +427,49 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
             hc_overflow_terms.append(overflow)
 
     # 5. Capacidad de robot individual por bloque
-    #    Cada robot fisico solo puede trabajar 1 fraccion a la vez
-    #    Para robot r y bloque b: sum_{m,op} y[m,op,r,b] * sec_per_pair <= block_sec
+    #    Cada robot fisico solo puede trabajar 1 operacion a la vez.
+    #    robot_active[m, op, r, b] = 1 si robot r esta asignado a (m, op) en bloque b
+    #    Para cada robot r y bloque b: sum_{m,op} robot_active <= 1  (exclusividad)
+    #    Linking: y[m,op,r,b] > 0 => robot_active = 1
     all_robots_in_day = set()
     for m_idx, op_idx in robot_ops_idx:
         op = models_day[m_idx]["operations"][op_idx]
         for r in op["robots"]:
             all_robots_in_day.add(r)
 
+    robot_active = {}
+    for m_idx, op_idx in robot_ops_idx:
+        op = models_day[m_idx]["operations"][op_idx]
+        pares_dia = models_day[m_idx]["pares_dia"]
+        for r in op["robots"]:
+            for b in range(num_blocks):
+                ra = solver_model.NewBoolVar(f"ra_{m_idx}_{op_idx}_{r}_{b}")
+                robot_active[m_idx, op_idx, r, b] = ra
+                # Linking: y > 0 => ra = 1, ra = 0 => y = 0
+                solver_model.Add(y[m_idx, op_idx, r, b] <= pares_dia * ra)
+                solver_model.Add(y[m_idx, op_idx, r, b] >= ra)  # ra=1 => y>=1
+
+    # Exclusividad: cada robot puede estar en max 1 operacion por bloque
     for b in range(num_blocks):
-        block_sec = time_blocks[b]["minutes"] * 60
         for robot in all_robots_in_day:
-            robot_load = []
+            uses = []
             for m_idx, op_idx in robot_ops_idx:
                 op = models_day[m_idx]["operations"][op_idx]
                 if robot in op["robots"]:
-                    robot_load.append(
-                        y[m_idx, op_idx, robot, b] * op["sec_per_pair"]
+                    uses.append(robot_active[m_idx, op_idx, robot, b])
+            if len(uses) > 1:
+                solver_model.Add(sum(uses) <= 1)
+
+    # Capacidad de rate por robot por bloque (1 persona por robot)
+    for b in range(num_blocks):
+        block_sec = time_blocks[b]["minutes"] * 60
+        for robot in all_robots_in_day:
+            for m_idx, op_idx in robot_ops_idx:
+                op = models_day[m_idx]["operations"][op_idx]
+                if robot in op["robots"]:
+                    solver_model.Add(
+                        y[m_idx, op_idx, robot, b] * op["sec_per_pair"] <= block_sec
                     )
-            if robot_load:
-                solver_model.Add(sum(robot_load) <= block_sec)
 
     # Bloques productivos (excluir bloques con 0 minutos, e.g. COMIDA)
     real_blocks = [b for b in range(num_blocks) if time_blocks[b]["minutes"] > 0]
