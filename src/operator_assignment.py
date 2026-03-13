@@ -309,7 +309,7 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
         # Verificar robot si es necesario
         robot = None
         if robots_needed:
-            robot = _find_robot(op_st, robots_needed, robot_usage, span_blocks)
+            robot = _find_robot(op_st, robots_needed, robot_usage, remaining_active)
             if robot is None:
                 continue
 
@@ -370,11 +370,11 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
     # Registrar bloques usados
     op_block_map.setdefault(op_st["nombre"], set()).update(remaining_active)
 
-    # Reservar robot para todo el span
+    # Reservar robot solo para bloques activos (no todo el span)
     if best_robot:
         if best_robot not in robot_usage:
             robot_usage[best_robot] = set()
-        robot_usage[best_robot].update(span_blocks)
+        robot_usage[best_robot].update(remaining_active)
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +446,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
                 continue
             robot = None
             if robots_u:
-                robot = _find_robot(op_st, robots_u, robot_usage, span_u)
+                robot = _find_robot(op_st, robots_u, robot_usage, remaining_u)
                 if robot is None:
                     continue
             op_st["current_task"] = task_u
@@ -459,7 +459,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
                 }
             op_block_map.setdefault(op_st["nombre"], set()).update(remaining_u)
             if robot:
-                robot_usage.setdefault(robot, set()).update(span_u)
+                robot_usage.setdefault(robot, set()).update(remaining_u)
             direct_done = True
             break
 
@@ -539,7 +539,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
             robot_for_idle = None
             if robots_b:
                 robot_for_idle = _find_robot(
-                    idle_st, robots_b, robot_usage, span_b)
+                    idle_st, robots_b, robot_usage, remaining_b)
                 if robot_for_idle is None:
                     if old_robot:
                         robot_usage.setdefault(old_robot, set()).update(
@@ -549,7 +549,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
             robot_for_busy = None
             if robots_u:
                 robot_for_busy = _find_robot(
-                    busy_st, robots_u, robot_usage, span_u)
+                    busy_st, robots_u, robot_usage, remaining_u)
                 if robot_for_busy is None:
                     if old_robot:
                         robot_usage.setdefault(old_robot, set()).update(
@@ -577,7 +577,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
             op_block_map.setdefault(idle_st["nombre"], set()).update(
                 remaining_b)
             if robot_for_idle:
-                robot_usage.setdefault(robot_for_idle, set()).update(span_b)
+                robot_usage.setdefault(robot_for_idle, set()).update(remaining_b)
 
             # 3. B toma task_u desde relay_b
             busy_st["prev_end_block"] = relay_b - 1
@@ -593,7 +593,7 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
             op_block_map.setdefault(busy_st["nombre"], set()).update(
                 remaining_u)
             if robot_for_busy:
-                robot_usage.setdefault(robot_for_busy, set()).update(span_u)
+                robot_usage.setdefault(robot_for_busy, set()).update(remaining_u)
 
             break  # Relevo ejecutado, pasar a siguiente tarea
 
@@ -855,8 +855,8 @@ def _build_tasks(day_schedule, num_blocks):
                 "recurso": entry.get("recurso", "GENERAL"),
                 "rate": entry.get("rate", 100),
                 "hc": entry.get("hc", 1),
-                "robots_available": entry.get("robots_used", [])
-                                              or entry.get("robots_eligible", []),
+                "robots_available": entry.get("robots_eligible", [])
+                                              or entry.get("robots_used", []),
                 "block_pares": bp_copy,
                 "total_pares": total_copy,
                 "pares_dia_modelo": model_totals.get(entry["modelo"], total),
