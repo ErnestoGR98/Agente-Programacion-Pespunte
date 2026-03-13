@@ -208,6 +208,7 @@ function BalanceChart({ summary, dailyResults }: { summary: { days?: Array<{ dia
 
   const chartData = days.map((d) => ({
     dia: d.dia,
+    'HC Promedio': d.hc_necesario,
     'HC Pico': peakByDay[d.dia] || Math.ceil(d.hc_necesario),
     'HC Disponible': d.hc_disponible,
   }))
@@ -223,6 +224,7 @@ function BalanceChart({ summary, dailyResults }: { summary: { days?: Array<{ dia
             <YAxis />
             <Tooltip />
             <Legend />
+            <Bar dataKey="HC Promedio" fill="#93C5FD" />
             <Bar dataKey="HC Pico" fill="#3B82F6" />
             <Bar dataKey="HC Disponible" fill="#D1D5DB" />
           </BarChart>
