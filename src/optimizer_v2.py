@@ -1040,7 +1040,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 "pares_dia": pares_fit,
                 "operations": internal_ops,
             })
-            hh_budget -= pares_fit * avg_sec
+            hh_budget -= pares_fit * bottleneck_sec
             print(f"      [ADELANTO] {code}: adelantar {pares_fit}p de {next_day_name}")
 
         if not adelanto_day:
