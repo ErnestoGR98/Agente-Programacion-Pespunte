@@ -340,12 +340,10 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Robot-bottleneck models get tighter factor (0.55 * sharing_factor)
-            # Manual models keep 0.70 — the daily solver handles physical constraints
+            # Robot-bottleneck models get tighter factor than manual ones.
+            # Per-robot sharing constraint already limits contention, so no sharing_factor here.
             if is_robot_bn:
-                sharing_count = model_sharing_count.get(m, 0)
-                sharing_factor = 1.0 / (1.0 + sharing_count * 0.4)
-                throughput_factor = 0.55 * sharing_factor
+                throughput_factor = 0.65
             else:
                 throughput_factor = 0.70
             max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
@@ -499,7 +497,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # --- Resolver ---
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 30
+    solver.parameters.max_time_in_seconds = 45
     solver.parameters.num_workers = 8
     status = solver.Solve(solver_model)
 
