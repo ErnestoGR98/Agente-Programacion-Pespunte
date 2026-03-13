@@ -771,8 +771,9 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     # Timeout dinamico segun complejidad del dia
     total_pares = sum(m["pares_dia"] for m in models_day)
     total_ops = sum(len(m["operations"]) for m in models_day)
-    # Base 30s + escala con pares y operaciones, tope 180s
-    timeout = min(180, max(30, 15 + total_pares // 50 + total_ops * 2))
+    # Base 15s + escala con pares y operaciones, tope 60s
+    # (Render free tier tiene CPU limitada; early stop compensa)
+    timeout = min(60, max(15, 10 + total_pares // 100 + total_ops))
     solver.parameters.max_time_in_seconds = timeout
 
     # Workers: reducir si se ejecuta en paralelo (evitar contention)
@@ -944,7 +945,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             "resource_capacity": params["resource_capacity"],
             "plantilla": plantilla,
             "lot_step": params.get("lot_step", 100),
-            "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
+            "num_workers": 2,  # Render free tier: pocos cores disponibles
             "day_name": day_name,  # para block_availability y disabled_robots
             "lineas_post": params.get("lineas_post", 0),
             "operator_capacity": op_cap_by_recurso,  # operators per resource type

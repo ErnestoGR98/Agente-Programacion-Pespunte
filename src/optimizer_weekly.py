@@ -405,7 +405,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # --- Resolver ---
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 60
+    solver.parameters.max_time_in_seconds = 30
     solver.parameters.num_workers = 8
     status = solver.Solve(solver_model)
 
