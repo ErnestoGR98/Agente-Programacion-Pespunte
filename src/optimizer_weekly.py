@@ -233,54 +233,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                         sum(terms) <= cap * day_minutes * 60
                     )
 
-    # 3c. Robot time budget per physical robot per day (time-based, not pares-based)
-    #     Each robot is 1 sequential machine. Constraint: total robot-seconds used
-    #     by all models sharing a robot <= available seconds per day.
-    #     The daily solver handles exact robot exclusivity; this is a rough budget.
-    num_robots = resource_cap.get("ROBOT", 0)
-    robot_to_models = {}  # needed for affinity later
-    if num_robots > 0:
-        productive_blocks = sum(
-            1 for tb in params.get("time_blocks", [])
-            if tb.get("label", "") != "COMIDA"
-        )
-        if productive_blocks == 0:
-            productive_blocks = 10  # fallback
-        robot_seconds_per_day = productive_blocks * 3600  # total seconds available per robot
-
-        # Map robot_name -> [(model_idx, sec_per_pair_on_this_robot)]
-        for m, model in enumerate(models):
-            for op in model.get("operations", []):
-                op_robots = op.get("robots", [])
-                if op_robots:
-                    spp = op.get("sec_per_pair", 0)
-                    if spp <= 0:
-                        rate = op.get("rate", 100)
-                        spp = int(3600 / rate) if rate > 0 else 60
-                    for rname in op_robots:
-                        if rname not in robot_to_models:
-                            robot_to_models[rname] = []
-                        robot_to_models[rname].append((m, spp))
-
-        # Per-robot time constraint: sum of robot-seconds used <= available
-        for rname, model_secs in robot_to_models.items():
-            # Deduplicate: if model m appears twice for same robot, sum sec_per_pair
-            model_total_spp = {}
-            for m_idx, spp in model_secs:
-                model_total_spp[m_idx] = model_total_spp.get(m_idx, 0) + spp
-
-            budget = int(robot_seconds_per_day * 0.90)  # 90% efficiency
-            for d in range(num_days):
-                terms = [x[m_idx, d] * spp for m_idx, spp in model_total_spp.items()]
-                if terms:
-                    solver_model.Add(sum(terms) <= budget)
-
-            if len(model_total_spp) >= 2:
-                models_str = ", ".join(
-                    models[m].get("modelo_num", "?") for m in model_total_spp
-                )
-                print(f"    [ROBOT TIME] {rname}: {len(model_total_spp)} models "
-                      f"({models_str}), budget={budget}s/day")
+    # NOTE: Robot-level constraints removed from weekly solver.
+    # The daily solver handles robot exclusivity via y[m,op,r,b] variables.
+    # Weekly solver focuses on headcount capacity and balance only.
 
     # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
     #    profundidad de cascada. En el diario, las operaciones corren en cascada
@@ -294,12 +249,10 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         if ops:
             bottleneck_op = min(ops, key=lambda op: op.get("rate", 999))
             bottleneck_rate = bottleneck_op.get("rate", 100)
-            is_robot_bn = bool(bottleneck_op.get("robots", []))
         else:
             n_ops = model.get("num_ops", 1)
             avg_sec = model["total_sec_per_pair"] / max(n_ops, 1)
             bottleneck_rate = 3600 / avg_sec if avg_sec > 0 else 100
-            is_robot_bn = False
 
         num_ops = len(ops)
         # Robots siempre HC=1; operaciones manuales limitadas por maquinas fisicas
@@ -317,12 +270,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Robot-bottleneck models get tighter factor than manual ones.
-            # Per-robot sharing constraint already limits contention, so no sharing_factor here.
-            if is_robot_bn:
-                throughput_factor = 0.65
-            else:
-                throughput_factor = 0.70
+            # Factor 0.70: the daily solver handles physical machine constraints,
+            # so the weekly just needs a moderate cap to avoid wild overestimation.
+            throughput_factor = 0.70
             max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
@@ -331,7 +281,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                 if d == 0:  # solo imprimir para el primer dia
                     print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
                           f"bottleneck={bottleneck_rate}, ops={num_ops}, "
-                          f"robot_bn={is_robot_bn}, factor={throughput_factor:.2f}, "
+                          f"factor={throughput_factor:.2f}, "
                           f"minutes={day_minutes}, cascade_eff={cascade_eff:.2f}, "
                           f"max_throughput={max_throughput}")
 
@@ -474,7 +424,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # --- Resolver ---
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 45
+    solver.parameters.max_time_in_seconds = 30
     solver.parameters.num_workers = 8
     status = solver.Solve(solver_model)
 
