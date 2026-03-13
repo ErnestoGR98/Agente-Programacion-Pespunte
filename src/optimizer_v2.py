@@ -968,8 +968,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         print(f"    [ADELANTO] {day_name}: HC ocioso = {idle_hh:.1f} horas-hombre")
 
-        # Si hay al menos 1 hora-hombre ociosa, vale la pena adelantar
-        if idle_hh < 1:
+        # Si hay al menos 3 horas-hombre ociosas, vale la pena adelantar
+        if idle_hh < 3:
             continue
 
         next_day_name, (next_models, next_params) = ordered_tasks[task_idx + 1]
@@ -982,29 +982,43 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         adelanto_models = []
         step = day_params.get("lot_step", 50)
 
+        # Robots ya usados en el schedule principal de este dia
+        used_robots = set()
+        for entry in results[day_name].get("schedule", []):
+            for r in entry.get("robots_used", []) or []:
+                if r:
+                    used_robots.add(r)
+
         for nm in next_models:
             code = nm["codigo"]
             credit = adelanto_credits.get(code, 0)
             pares_available = nm["pares_dia"] - credit
             if pares_available <= 0:
                 continue
-            # Limitar pares de adelanto: maximo 60% del dia siguiente
-            # (adelantos/rezagos tienen menos restriccion para aprovechar HC)
-            max_adelanto = max(step, int(pares_available * 0.60))
+            # Limitar pares de adelanto: maximo 30% del dia siguiente
+            max_adelanto = max(50, int(pares_available * 0.30))
             # Redondear al step
             max_adelanto = (max_adelanto // step) * step
             if max_adelanto <= 0:
                 continue
 
-            # Excluir operaciones MAQUILA
+            # Excluir operaciones MAQUILA y modelos con conflicto de robots
             model_data = model_lookup.get(code)
             if not model_data:
                 continue
-            internal_ops = [
-                op for op in model_data["operations"]
-                if op.get("recurso") != "MAQUILA"
-            ]
-            if not internal_ops:
+            internal_ops = []
+            has_robot_conflict = False
+            for op in model_data["operations"]:
+                if op.get("recurso") == "MAQUILA":
+                    continue
+                # Si la operacion necesita un robot que ya esta en uso, skip modelo
+                op_robots = op.get("robots", []) or []
+                if op_robots and all(r in used_robots for r in op_robots):
+                    has_robot_conflict = True
+                    break
+                internal_ops.append(op)
+            if has_robot_conflict or not internal_ops:
+                print(f"      [ADELANTO] skip {code}: robot conflict o sin ops internas")
                 continue
 
             priority = 0 if code in current_codes else 1  # primero los que ya corren hoy
