@@ -98,7 +98,8 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla):
                 op["max_hc"] = hc
 
 
-def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
+def schedule_day(models_day: list, params: dict, compiled=None,
+                  reserved_robots: dict = None) -> dict:
     """
     Genera el programa horario para un dia.
 
@@ -528,6 +529,22 @@ def schedule_day(models_day: list, params: dict, compiled=None) -> dict:
                     solver_model.Add(
                         y[m_idx, op_idx, robot, b] * op["sec_per_pair"] <= block_sec
                     )
+
+    # 5b. Robots reservados por schedule principal (para adelantos)
+    #     Si un robot ya esta en uso en un bloque, ninguna operacion puede usarlo.
+    if reserved_robots:
+        for robot, blocked_set in reserved_robots.items():
+            if robot not in all_robots_in_day:
+                continue
+            for b in blocked_set:
+                if b >= num_blocks:
+                    continue
+                for m_idx, op_idx in robot_ops_idx:
+                    op = models_day[m_idx]["operations"][op_idx]
+                    if robot in op["robots"]:
+                        key = (m_idx, op_idx, robot, b)
+                        if key in robot_active:
+                            solver_model.Add(robot_active[key] == 0)
 
     # Bloques productivos (excluir bloques con 0 minutos, e.g. COMIDA)
     real_blocks = [b for b in range(num_blocks) if time_blocks[b]["minutes"] > 0]
@@ -982,12 +999,16 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         adelanto_models = []
         step = day_params.get("lot_step", 50)
 
-        # Robots ya usados en el schedule principal de este dia
-        used_robots = set()
+        # Robots reservados por bloque en el schedule principal
+        reserved_robots_map = {}  # {robot_name: set(block_indices)}
         for entry in results[day_name].get("schedule", []):
             for r in entry.get("robots_used", []) or []:
-                if r:
-                    used_robots.add(r)
+                if not r:
+                    continue
+                bp = entry.get("block_pares", [])
+                for b_idx, p in enumerate(bp):
+                    if p > 0:
+                        reserved_robots_map.setdefault(r, set()).add(b_idx)
 
         for nm in next_models:
             code = nm["codigo"]
@@ -1002,23 +1023,15 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             if max_adelanto <= 0:
                 continue
 
-            # Excluir operaciones MAQUILA y modelos con conflicto de robots
+            # Excluir operaciones MAQUILA
             model_data = model_lookup.get(code)
             if not model_data:
                 continue
-            internal_ops = []
-            has_robot_conflict = False
-            for op in model_data["operations"]:
-                if op.get("recurso") == "MAQUILA":
-                    continue
-                # Si la operacion necesita un robot que ya esta en uso, skip modelo
-                op_robots = op.get("robots", []) or []
-                if op_robots and all(r in used_robots for r in op_robots):
-                    has_robot_conflict = True
-                    break
-                internal_ops.append(op)
-            if has_robot_conflict or not internal_ops:
-                print(f"      [ADELANTO] skip {code}: robot conflict o sin ops internas")
+            internal_ops = [
+                op for op in model_data["operations"]
+                if op.get("recurso") != "MAQUILA"
+            ]
+            if not internal_ops:
                 continue
 
             priority = 0 if code in current_codes else 1  # primero los que ya corren hoy
@@ -1062,7 +1075,10 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         # Correr schedule_day solo con los modelos de adelanto
         try:
-            adelanto_result = schedule_day(adelanto_day, day_params, compiled)
+            adelanto_result = schedule_day(
+                adelanto_day, day_params, compiled,
+                reserved_robots=reserved_robots_map if reserved_robots_map else None,
+            )
             a_summary = adelanto_result["summary"]
             pares_adelantados = a_summary["total_pares"]
             print(f"    [ADELANTO] Resultado: {pares_adelantados} pares adelantados para {next_day_name}")
