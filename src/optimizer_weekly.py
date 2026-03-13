@@ -233,68 +233,54 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                         sum(terms) <= cap * day_minutes * 60
                     )
 
-    # 3c. Robot capacity as sequential machines (not person-hour pool)
-    #     Each robot is 1 machine, 1 operator, sequential processing.
-    #     Capacity = num_robots * avg_rate * productive_blocks * efficiency
+    # 3c. Robot time budget per physical robot per day (time-based, not pares-based)
+    #     Each robot is 1 sequential machine. Constraint: total robot-seconds used
+    #     by all models sharing a robot <= available seconds per day.
+    #     The daily solver handles exact robot exclusivity; this is a rough budget.
     num_robots = resource_cap.get("ROBOT", 0)
+    robot_to_models = {}  # needed for affinity later
     if num_robots > 0:
-        # Count productive blocks (exclude COMIDA)
         productive_blocks = sum(
             1 for tb in params.get("time_blocks", [])
             if tb.get("label", "") != "COMIDA"
         )
         if productive_blocks == 0:
             productive_blocks = 10  # fallback
+        robot_seconds_per_day = productive_blocks * 3600  # total seconds available per robot
 
-        # Collect robot operation rates from all models
-        robot_rates = []
-        robot_model_indices = []  # models that use robots
-        # Map robot_name -> [(model_idx, rate)]
-        robot_to_models = {}
+        # Map robot_name -> [(model_idx, sec_per_pair_on_this_robot)]
         for m, model in enumerate(models):
             for op in model.get("operations", []):
                 op_robots = op.get("robots", [])
-                if op_robots:  # operation uses robots (identified by non-empty robots list)
-                    rate = op.get("rate", 100)
-                    robot_rates.append(rate)
-                    if m not in robot_model_indices:
-                        robot_model_indices.append(m)
+                if op_robots:
+                    spp = op.get("sec_per_pair", 0)
+                    if spp <= 0:
+                        rate = op.get("rate", 100)
+                        spp = int(3600 / rate) if rate > 0 else 60
                     for rname in op_robots:
                         if rname not in robot_to_models:
                             robot_to_models[rname] = []
-                        robot_to_models[rname].append((m, rate))
+                        robot_to_models[rname].append((m, spp))
 
-        if robot_rates:
-            avg_robot_rate = sum(robot_rates) / len(robot_rates)
-            max_robot_pares_day = int(num_robots * avg_robot_rate * productive_blocks * 0.85)
-            max_robot_pares_day = (max_robot_pares_day // step) * step
+        # Per-robot time constraint: sum of robot-seconds used <= available
+        for rname, model_secs in robot_to_models.items():
+            # Deduplicate: if model m appears twice for same robot, sum sec_per_pair
+            model_total_spp = {}
+            for m_idx, spp in model_secs:
+                model_total_spp[m_idx] = model_total_spp.get(m_idx, 0) + spp
 
-            print(f"    [ROBOT CAP] {num_robots} robots, avg_rate={avg_robot_rate:.0f}, "
-                  f"productive_blocks={productive_blocks}, max/day={max_robot_pares_day}")
-
+            budget = int(robot_seconds_per_day * 0.90)  # 90% efficiency
             for d in range(num_days):
-                robot_terms = [x[m, d] for m in robot_model_indices]
-                if robot_terms:
-                    solver_model.Add(sum(robot_terms) <= max_robot_pares_day)
+                terms = [x[m_idx, d] * spp for m_idx, spp in model_total_spp.items()]
+                if terms:
+                    solver_model.Add(sum(terms) <= budget)
 
-        # 3d. Per-robot sharing constraint
-        #     If models A and B share physical robot "X", their combined pares/day
-        #     are limited by what that single robot can produce.
-        for rname, model_rates in robot_to_models.items():
-            if len(model_rates) < 2:
-                continue
-            # Use the minimum rate among sharing models (conservative)
-            min_rate = min(r for _, r in model_rates)
-            cap_per_robot = int(min_rate * productive_blocks * 0.90)
-            cap_per_robot = (cap_per_robot // step) * step
-            sharing_models = list(set(m for m, _ in model_rates))
-
-            print(f"    [ROBOT SHARE] {rname}: {len(sharing_models)} models, "
-                  f"min_rate={min_rate}, cap={cap_per_robot}/day")
-
-            for d in range(num_days):
-                sharing_terms = [x[m, d] for m in sharing_models]
-                solver_model.Add(sum(sharing_terms) <= cap_per_robot)
+            if len(model_total_spp) >= 2:
+                models_str = ", ".join(
+                    models[m].get("modelo_num", "?") for m in model_total_spp
+                )
+                print(f"    [ROBOT TIME] {rname}: {len(model_total_spp)} models "
+                      f"({models_str}), budget={budget}s/day")
 
     # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
     #    profundidad de cascada. En el diario, las operaciones corren en cascada
@@ -302,15 +288,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     #    necesita mas bloques que uno con 3. Cada paso de cascada consume ~0.5
     #    bloques de startup (con multi-HC del diario, las ops manuales terminan
     #    mas rapido y la pipeline avanza).
-
-    # Pre-compute sharing count per model (how many other models share a robot)
-    model_sharing_count = {}
-    if num_robots > 0 and robot_to_models:
-        for rname, model_rates in robot_to_models.items():
-            unique_models = set(m for m, _ in model_rates)
-            if len(unique_models) >= 2:
-                for m_idx in unique_models:
-                    model_sharing_count[m_idx] = model_sharing_count.get(m_idx, 0) + len(unique_models) - 1
 
     for m, model in enumerate(models):
         ops = [op for op in model.get("operations", []) if op.get("recurso") != "MAQUILA"]
