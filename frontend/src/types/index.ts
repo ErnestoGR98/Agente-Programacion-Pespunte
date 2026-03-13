@@ -360,6 +360,7 @@ export interface DailyScheduleEntry {
   pendiente?: number
   adelanto?: boolean
   adelanto_de?: string
+  motivo_sin_asignar?: string
 }
 
 export interface OperatorTimelineEntry {

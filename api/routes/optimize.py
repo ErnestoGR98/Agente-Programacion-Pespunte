@@ -872,6 +872,8 @@ def run_optimization(req: OptimizeRequest):
             if s.get("adelanto"):
                 entry["adelanto"] = True
                 entry["adelanto_de"] = s.get("adelanto_de", "")
+            if s.get("motivo_sin_asignar"):
+                entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
             schedule.append(entry)
 
         day_dict = {

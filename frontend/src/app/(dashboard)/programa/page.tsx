@@ -835,9 +835,12 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     </td>
                     <td className="px-2 py-1">
                       {s.operario === 'SIN ASIGNAR' ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-500 dark:text-red-400 ring-1 ring-red-500/40">
+                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-500 dark:text-red-400 ring-1 ring-red-500/40" title={s.motivo_sin_asignar || ''}>
                           <UserX className="h-3 w-3" />
                           SIN ASIGNAR
+                          {s.motivo_sin_asignar && (
+                            <span className="font-normal opacity-80">— {s.motivo_sin_asignar}</span>
+                          )}
                         </span>
                       ) : s.operario ? (
                         <button

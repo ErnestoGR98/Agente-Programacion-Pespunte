@@ -199,13 +199,16 @@ def assign_operators_day(day_schedule: list, operarios: list,
     # ===================================================================
     _validate_no_overlap(tasks, num_blocks)
 
-    # Marcar bloques activos sin operario como SIN ASIGNAR
+    # Marcar bloques activos sin operario como SIN ASIGNAR + diagnosticar motivo
     for task in tasks:
         for bl in range(num_blocks):
             bp = task["block_pares"][bl] if bl < len(task["block_pares"]) else 0
             if bp > 0 and bl not in task["block_assignments"]:
+                motivo = _diagnose_unassigned(
+                    task, bl, op_states, robot_usage, op_block_map)
                 task["block_assignments"][bl] = {
                     "op_name": "SIN ASIGNAR", "pares": bp, "robot": None,
+                    "motivo": motivo,
                 }
 
     # 4. Construir salida
@@ -219,6 +222,48 @@ def assign_operators_day(day_schedule: list, operarios: list,
         "unassigned": unassigned,
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Diagnostico de motivo SIN ASIGNAR
+# ---------------------------------------------------------------------------
+
+def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map):
+    """Determina por que un bloque no pudo ser asignado a ningun operario."""
+    recurso = task["recurso"]
+    robots_needed = task["robots_available"]
+
+    # Paso 1: hay operarios con el recurso correcto?
+    eligible = [
+        op_st for op_st in op_states.values()
+        if _recurso_match(recurso, op_st["recursos"])
+    ]
+    if not eligible:
+        return f"Sin operarios con {recurso}"
+
+    # Paso 2: de los elegibles, quienes estan libres en este bloque?
+    free_in_block = [
+        op_st for op_st in eligible
+        if block not in op_block_map.get(op_st["nombre"], set())
+    ]
+    if not free_in_block:
+        nombres = [op_st["nombre"].split()[0] for op_st in eligible]
+        return f"Todos ocupados ({', '.join(nombres[:3])})"
+
+    # Paso 3: si necesita robot, hay robot disponible?
+    if robots_needed:
+        for op_st in free_in_block:
+            robot = _find_robot(op_st, robots_needed, robot_usage, [block])
+            if robot is not None:
+                # Hay operario libre con robot libre — no deberia llegar aqui
+                return "Conflicto de asignacion"
+        # Ningun operario libre tiene robot disponible
+        robots_list = list(robots_needed)[:3]
+        return f"Robot no disponible ({', '.join(robots_list)})"
+
+    # Operario libre con recurso existe pero no fue asignado
+    # (puede ser por contiguidad o compromiso full-task)
+    return "Ocupados en otra tarea"
 
 
 # ---------------------------------------------------------------------------
@@ -885,7 +930,7 @@ def _build_augmented_schedule(day_schedule, tasks):
             t["total_pares"] for t in task_list)
 
         # Agrupar bloques activos por operario (fusiona todas las tasks del entry)
-        op_groups = {}  # {op_name: {"blocks": {idx: pares}, "robot": str}}
+        op_groups = {}  # {op_name: {"blocks": {idx: pares}, "robot": str, "motivo": str}}
         for task in task_list:
             for b in range(num_bp):
                 bp = task["block_pares"][b] if b < len(task["block_pares"]) else 0
@@ -894,12 +939,15 @@ def _build_augmented_schedule(day_schedule, tasks):
                 ba = task["block_assignments"].get(b)
                 op_name = ba["op_name"] if ba else "SIN ASIGNAR"
                 robot = (ba.get("robot") or "") if ba else ""
+                motivo = (ba.get("motivo") or "") if ba else ""
                 if op_name not in op_groups:
-                    op_groups[op_name] = {"blocks": {}, "robot": robot}
+                    op_groups[op_name] = {"blocks": {}, "robot": robot, "motivo": motivo}
                 op_groups[op_name]["blocks"][b] = (
                     op_groups[op_name]["blocks"].get(b, 0) + bp)
                 if robot:
                     op_groups[op_name]["robot"] = robot
+                if motivo:
+                    op_groups[op_name]["motivo"] = motivo
 
         if len(op_groups) <= 1:
             # Caso simple: un solo operario (o todos SIN ASIGNAR)
@@ -908,6 +956,8 @@ def _build_augmented_schedule(day_schedule, tasks):
             aug["operario"] = op_name
             aug["robot_asignado"] = op_groups[op_name]["robot"] if op_groups else ""
             aug["pendiente"] = pendiente
+            if op_name == "SIN ASIGNAR" and op_groups:
+                aug["motivo_sin_asignar"] = op_groups[op_name].get("motivo", "")
             augmented.append(aug)
         else:
             # Caso cascada: dividir en una fila por operario
@@ -928,6 +978,8 @@ def _build_augmented_schedule(day_schedule, tasks):
                 aug["operario"] = op_name
                 aug["robot_asignado"] = info.get("robot", "")
                 aug["pendiente"] = pendiente
+                if op_name == "SIN ASIGNAR":
+                    aug["motivo_sin_asignar"] = info.get("motivo", "")
                 augmented.append(aug)
 
     return augmented
