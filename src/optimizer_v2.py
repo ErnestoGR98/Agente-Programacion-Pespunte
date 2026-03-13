@@ -464,11 +464,11 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             solver_model.Add(sum(total_load) <= max_hc_sec + overflow)
             hc_overflow_terms.append(overflow)
 
-    # 4b. Capacidad de operarios por recurso por bloque - HARD
+    # 4b. Capacidad de operarios por recurso por bloque - SEMI-HARD
     #     Limita hc_used simultaneo por recurso al numero real de operarios con esa skill.
-    #     HARD constraint: si no caben todos los pares, se genera tardiness que se
-    #     pasa al dia siguiente via rezago (mecanismo existente).
+    #     Permite overflow maximo de 1 operario extra con penalty alto para evitar INFEASIBLE.
     op_capacity = params.get("operator_capacity", {})
+    op_cap_overflow_terms = []
     if op_capacity:
         for b in range(num_blocks):
             # Group hc_used by recurso
@@ -484,11 +484,13 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                         if part not in hc_by_recurso:
                             hc_by_recurso[part] = []
                         hc_by_recurso[part].append(hc_used[m_idx, op_idx, b])
-            # HARD constraint: no exceder operarios reales por recurso
+            # SEMI-HARD: max 1 extra operario con penalty alto
             for recurso, hc_vars in hc_by_recurso.items():
                 cap = op_capacity.get(recurso)
                 if cap is not None and hc_vars:
-                    solver_model.Add(sum(hc_vars) <= cap)
+                    overflow = solver_model.NewIntVar(0, 1, f"opcap_{recurso}_{b}")
+                    solver_model.Add(sum(hc_vars) <= cap + overflow)
+                    op_cap_overflow_terms.append(overflow)
 
     # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 operacion a la vez.
@@ -724,7 +726,11 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     for ov in hc_overflow_terms:
         obj_terms.append(W_HC_OVERFLOW * ov)
 
-    # (op_capacity is now a HARD constraint — no penalty term needed)
+    # Penalty por exceder capacidad de operarios por recurso (semi-hard)
+    # Peso alto: 1 overflow por 1 bloque = 200k (equivale a 2 pares de tardiness)
+    W_OP_CAP = 200_000
+    for ov in op_cap_overflow_terms:
+        obj_terms.append(W_OP_CAP * ov)
 
     # Penalty por operarios ociosos (incentiva usar toda la plantilla)
     for idle in idle_terms:
