@@ -752,8 +752,28 @@ def run_optimization(req: OptimizeRequest):
                 already = sum(compiled.avance[mn].values())
             m["total_producir"] = max(0, m["total_producir"] - already)
 
-    # 5. Ajustar plantilla por restricciones
+    # 4c. Corregir plantilla con conteo real de operarios disponibles por dia
     params = deepcopy(params)
+    if operarios:
+        for day_cfg in params["days"]:
+            dn = day_cfg["name"]
+            dn_prefix = dn.split()[0] if dn else ""
+            real_count = 0
+            for op in operarios:
+                dias = op.get("dias_disponibles", [])
+                if not dias:
+                    real_count += 1
+                    continue
+                for d in dias:
+                    if d == dn or dn.startswith(d) or d.startswith(dn_prefix):
+                        real_count += 1
+                        break
+            if real_count != day_cfg["plantilla"]:
+                print(f"[OPT] plantilla {dn}: {day_cfg['plantilla']} (operario_dias) -> {real_count} (operarios reales)")
+                day_cfg["plantilla"] = real_count
+                day_cfg["plantilla_ot"] = real_count
+
+    # 5. Ajustar plantilla por restricciones
     for day_cfg in params["days"]:
         dn = day_cfg["name"]
         if dn in compiled.plantilla_overrides:
@@ -789,6 +809,26 @@ def run_optimization(req: OptimizeRequest):
         if first_day and first_day in op_results:
             for a in op_results[first_day].get("assignments", [])[:8]:
                 print(f"  [ASSIGN] {a['modelo']} F{a.get('fraccion',0)}: {a.get('recurso','?')} -> {a.get('operario','?')}")
+
+    # 8b. Corregir hc_disponible en weekly_summary con conteo real de operarios
+    if operarios and weekly_summary.get("days"):
+        for day_sum in weekly_summary["days"]:
+            day_name = day_sum.get("dia", "")
+            day_prefix = day_name.split()[0] if day_name else ""
+            count = 0
+            for op in operarios:
+                dias = op.get("dias_disponibles", [])
+                if not dias:
+                    count += 1
+                    continue
+                for d in dias:
+                    if d == day_name or day_name.startswith(d) or d.startswith(day_prefix):
+                        count += 1
+                        break
+            day_sum["hc_disponible"] = count
+            day_sum["diferencia"] = round(count - day_sum.get("hc_necesario", 0), 1)
+        print(f"[OPT] hc_disponible corregido con operarios reales: "
+              f"{[(d['dia'], d['hc_disponible']) for d in weekly_summary['days']]}")
 
     # 9. Aplanar: mover summary fields al top level y renombrar campos de schedule
     # para coincidir con DailyResult/DailyScheduleEntry del frontend.
