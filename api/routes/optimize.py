@@ -172,7 +172,7 @@ def _load_params() -> dict:
 
     return {
         "min_lot_size": int(opt.get("lote_minimo", 50)),
-        "lot_step": 50,
+        "lot_step": 100,
         "time_blocks": time_blocks,
         "resource_types": ["MESA", "ROBOT", "PLANA", "POSTE", "MAQUILA"],
         "resource_capacity": resource_capacity,
@@ -866,6 +866,7 @@ def run_optimization(req: OptimizeRequest):
                 "blocks": s.get("block_pares", []),
                 "total": s.get("total_pares", 0),
                 "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+                "robot_per_block": s.get("robot_per_block", []),
                 "operario": s.get("operario", ""),
             }
             if s.get("adelanto"):

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useReglas } from '@/lib/hooks/useReglas'
 import { supabase } from '@/lib/supabase/client'
 import type { OperacionFull } from '@/lib/hooks/useCatalogo'
@@ -17,10 +17,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Trash2, Plus, Wand2 } from 'lucide-react'
+import { Trash2, Plus, Wand2, Download, Loader2 } from 'lucide-react'
 import { TableExport } from '@/components/shared/TableExport'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType } from '@/types'
+import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType, type Restriccion } from '@/types'
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
 import { CascadeEditor } from '@/components/shared/CascadeEditor'
 
@@ -40,6 +40,12 @@ export function ReglasTab() {
   const [showClearAll, setShowClearAll] = useState(false)
   const [modeloItems, setModeloItems] = useState<{ modelo_num: string; color: string }[]>([])
   const [operaciones, setOperaciones] = useState<OperacionFull[]>([])
+
+  // Bulk PDF export state
+  const [bulkExporting, setBulkExporting] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, modelo: '' })
+  const [bulkRenderData, setBulkRenderData] = useState<{ ops: OperacionFull[]; rules: Restriccion[]; title: string } | null>(null)
+  const bulkContainerRef = useRef<HTMLDivElement>(null)
 
   const loadModelos = useCallback(async () => {
     const { data: modelos } = await supabase
@@ -219,6 +225,173 @@ export function ReglasTab() {
     }
   }
 
+  // Models that have PRECEDENCIA_OPERACION rules
+  const modelsWithPrecedencias = useMemo(() => {
+    const models = new Set<string>()
+    for (const r of reglas.reglas) {
+      if (r.tipo === 'PRECEDENCIA_OPERACION' && r.modelo_num !== '*') {
+        models.add(r.modelo_num)
+      }
+    }
+    return [...models].sort()
+  }, [reglas.reglas])
+
+  async function exportAllCascadesPdf() {
+    if (modelsWithPrecedencias.length === 0) return
+    setBulkExporting(true)
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default
+      const { jsPDF } = await import('jspdf')
+
+      const root = document.documentElement
+      const wasDark = root.classList.contains('dark')
+      if (wasDark) root.classList.remove('dark')
+      root.classList.add('light')
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      let firstPage = true
+
+      for (let i = 0; i < modelsWithPrecedencias.length; i++) {
+        const modeloNum = modelsWithPrecedencias[i]
+        setBulkProgress({ current: i + 1, total: modelsWithPrecedencias.length, modelo: modeloNum })
+
+        // Load operaciones
+        const { data: mod } = await supabase
+          .from('catalogo_modelos').select('id').eq('modelo_num', modeloNum).single()
+        if (!mod) continue
+        const { data: ops } = await supabase
+          .from('catalogo_operaciones')
+          .select('id, fraccion, operacion, input_o_proceso, etapa, recurso, recurso_raw, rate, sec_per_pair')
+          .eq('modelo_id', mod.id).order('fraccion')
+        if (!ops || ops.length === 0) continue
+
+        const opIds = ops.map((o: { id: string }) => o.id)
+        const { data: robotLinks } = await supabase
+          .from('catalogo_operaciones_robots')
+          .select('operacion_id, robot_id').in('operacion_id', opIds)
+        const robotMap = new Map<string, string[]>()
+        for (const link of (robotLinks || [])) {
+          const list = robotMap.get(link.operacion_id) || []
+          list.push(link.robot_id)
+          robotMap.set(link.operacion_id, list)
+        }
+        const fullOps = ops.map((o: Record<string, unknown>) => ({
+          ...o, robots: robotMap.get(o.id as string) || [],
+        })) as OperacionFull[]
+
+        const modelRules = reglas.reglas.filter(
+          (r) => r.tipo === 'PRECEDENCIA_OPERACION' && r.modelo_num === modeloNum
+        )
+
+        // Render CascadeEditor offscreen
+        setBulkRenderData({ ops: fullOps, rules: modelRules, title: `Cascada-${modeloNum}` })
+
+        // Wait for React render + paint
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))
+        })
+
+        // Capture the grid
+        const gridEl = bulkContainerRef.current?.querySelector('.cascade-grid') as HTMLElement | null
+        if (!gridEl) continue
+
+        // Force overflow visible so html2canvas captures the full width
+        const origOverflow = gridEl.style.overflow
+        gridEl.style.overflow = 'visible'
+
+        // Hide interactive elements (same logic as CascadeEditor.exportPdf)
+        const hidden: HTMLElement[] = []
+        gridEl.querySelectorAll('tbody tr').forEach((tr) => {
+          if ((tr as HTMLElement).textContent?.includes('AGREGAR')) {
+            (tr as HTMLElement).style.display = 'none'
+            hidden.push(tr as HTMLElement)
+            return
+          }
+          const hasOp = tr.querySelector('[style*="border-left-color"]') !== null
+          const hasBuf = Array.from(tr.querySelectorAll('button')).some((b) => {
+            const cls = b.className || ''
+            return cls.includes('emerald') || cls.includes('cyan')
+          })
+          if (!hasOp && !hasBuf) {
+            (tr as HTMLElement).style.display = 'none'
+            hidden.push(tr as HTMLElement)
+          }
+        })
+        gridEl.querySelectorAll('button').forEach((btn) => {
+          const cls = (btn as HTMLElement).className || ''
+          if (cls.includes('emerald') || cls.includes('cyan')) return
+          ;(btn as HTMLElement).style.display = 'none'
+          hidden.push(btn as HTMLElement)
+        })
+        gridEl.querySelectorAll('.cursor-ns-resize').forEach((el) => {
+          (el as HTMLElement).style.display = 'none'
+          hidden.push(el as HTMLElement)
+        })
+        const thLast = gridEl.querySelector('thead tr th:last-child') as HTMLElement | null
+        if (thLast?.textContent?.includes('AGREGAR')) {
+          thLast.style.display = 'none'
+          hidden.push(thLast)
+          gridEl.querySelectorAll('tbody tr').forEach((tr) => {
+            const lastTd = tr.querySelector('td:last-child') as HTMLElement | null
+            if (lastTd) { lastTd.style.display = 'none'; hidden.push(lastTd) }
+          })
+        }
+
+        const canvas = await html2canvas(gridEl, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          width: gridEl.scrollWidth,
+        })
+
+        // Restore hidden elements and overflow
+        hidden.forEach((el) => { el.style.display = '' })
+        gridEl.style.overflow = origOverflow
+
+        // Add page to PDF
+        if (!firstPage) pdf.addPage()
+        firstPage = false
+
+        const pageW = pdf.internal.pageSize.getWidth()
+        const margin = 10
+        const maxW = pageW - margin * 2
+        const scale = maxW / canvas.width
+        const finalW = maxW
+        const finalH = canvas.height * scale
+
+        // Title
+        pdf.setFontSize(14)
+        pdf.text(`Cascada - ${modeloNum}`, margin, 12)
+        pdf.setFontSize(8)
+        pdf.setTextColor(120)
+        pdf.text(new Date().toLocaleDateString('es-MX'), margin, 17)
+        pdf.setTextColor(0)
+
+        // If image is too tall, scale to fit page
+        const pageH = pdf.internal.pageSize.getHeight()
+        const maxH = pageH - 25
+        if (finalH > maxH) {
+          const fitScale = maxH / finalH
+          pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 20, finalW * fitScale, maxH)
+        } else {
+          pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, 20, finalW, finalH)
+        }
+      }
+
+      // Restore dark mode
+      root.classList.remove('light')
+      if (wasDark) root.classList.add('dark')
+
+      pdf.save('Todas-Cascadas-Precedencia.pdf')
+    } catch (err) {
+      console.error('[ReglasTab] Bulk PDF export failed:', err)
+    } finally {
+      setBulkExporting(false)
+      setBulkRenderData(null)
+      setBulkProgress({ current: 0, total: 0, modelo: '' })
+    }
+  }
+
   async function handleAdd() {
     const parametros = nota ? { ...params, nota } : params
     await reglas.addRegla({
@@ -254,6 +427,20 @@ export function ReglasTab() {
         <Button size="sm" onClick={() => setShowForm(!showForm)}>
           <Plus className="mr-1 h-3 w-3" /> Agregar Regla
         </Button>
+        {modelsWithPrecedencias.length > 0 && (
+          <Button size="sm" variant="outline" onClick={exportAllCascadesPdf} disabled={bulkExporting}>
+            {bulkExporting ? (
+              <>
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                {bulkProgress.current}/{bulkProgress.total} — {bulkProgress.modelo}
+              </>
+            ) : (
+              <>
+                <Download className="mr-1 h-3 w-3" /> Descargar Todas PDF
+              </>
+            )}
+          </Button>
+        )}
         {reglas.reglas.length > 0 && (
           <Button size="sm" variant="ghost" className="text-destructive"
             onClick={() => setShowClearAll(true)}
@@ -430,6 +617,24 @@ export function ReglasTab() {
           for (const r of reglas.reglas) await reglas.deleteRegla(r.id)
         }}
       />
+
+      {/* Hidden offscreen container for bulk PDF rendering */}
+      {bulkRenderData && (
+        <div
+          ref={bulkContainerRef}
+          className="light"
+          style={{ position: 'fixed', left: '-9999px', top: 0, width: '4000px', background: 'white', zIndex: -1, overflow: 'visible' }}
+        >
+          <CascadeEditor
+            operaciones={bulkRenderData.ops}
+            reglas={bulkRenderData.rules}
+            onConnect={async () => {}}
+            onDeleteEdge={async () => {}}
+            onUpdateBuffer={async () => {}}
+            title={bulkRenderData.title}
+          />
+        </div>
+      )}
     </div>
   )
 }

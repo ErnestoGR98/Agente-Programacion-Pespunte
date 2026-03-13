@@ -141,7 +141,7 @@ def get_default_params() -> dict:
     opt = config.get("optimizer_params", {})
     return {
         "min_lot_size": opt.get("lote_minimo", 100),
-        "lot_step": 50,
+        "lot_step": 100,
         "time_blocks": TIME_BLOCKS,
         "resource_types": RESOURCE_TYPES,
         "resource_capacity": config["resource_capacity"].copy(),

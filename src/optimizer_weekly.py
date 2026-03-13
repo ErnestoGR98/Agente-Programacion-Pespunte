@@ -18,12 +18,12 @@ from ortools.sat.python import cp_model
 
 # Pesos del objetivo multi-criterio
 W_TARDINESS = 100_000   # por par no completado (maxima prioridad)
-W_SPAN = 20_000         # por dia de dispersion de un modelo (consolidar en dias consecutivos)
-W_CHANGEOVER = 5_000    # por cambio de modelo (alto: consolida modelos en menos dias, evita lotes chicos dispersos)
+W_SPAN = 5_000          # por dia de dispersion (permite splitting en dias consecutivos si mejora balance)
+W_CHANGEOVER = 2_000    # por cambio de modelo (moderado: permite mas slots dia-modelo)
 W_ODD_LOT = 50_000      # por lote no multiplo de 100 (fuerte preferencia por centenas, 50 solo si no hay opcion)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
-W_BALANCE = 10          # por unidad de desbalance entre dias (distribuir trabajo parejo)
+W_BALANCE = 10          # por unidad de desbalance entre dias (leve, permite concentraciones)
 W_EARLY = 5             # por par * indice_dia (desempate leve en favor de dias tempranos)
 
 
@@ -51,7 +51,18 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         raise RuntimeError("No hay modelos para optimizar")
 
     min_lot = params.get("min_lot_size", 100)
-    step = params.get("lot_step", 50)
+    step = params.get("lot_step", 100)
+
+    # Redondear total_producir al multiplo de step superior.
+    # El solver solo puede asignar multiplos de step; si total_producir no es
+    # multiplo (ej: 350 con step=100), redondeamos a 400 para evitar tardiness
+    # artificial. Los pares extra se compensan via overproduction credits.
+    for model in models:
+        tp = model["total_producir"]
+        remainder = tp % step
+        if remainder > 0:
+            model["_original_total"] = tp
+            model["total_producir"] = tp + (step - remainder)
     # Detectar modelos con operaciones MAQUILA y calcular sec_per_pair ajustado
     # MAQUILA es trabajo externo: no consume capacidad interna
     maquila_models = set()
@@ -253,9 +264,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor 0.50: conservador para que el semanal no sobreasigne al diario
+            # Factor 0.70: moderado para permitir produccion concentrada sin sobreasignar
             # El diario tiene restricciones fisicas de maquinas que el semanal no modela
-            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.50)
+            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.70)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -334,7 +345,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # pero produce 4x menos. Penalty = W_SMALL_LOT * y[m,d] penaliza cada "slot"
     # de dia usado. Combinado con W_CHANGEOVER, el solver prefiere consolidar
     # modelos en pocos dias con lotes grandes en vez de dispersar en muchos dias.
-    W_SMALL_LOT = 3_000  # penalty por cada dia-modelo (incentiva lotes grandes)
+    W_SMALL_LOT = 1_500  # penalty por cada dia-modelo con lote chico (permite splitting moderado)
     for d in range(num_days):
         for m in range(num_models):
             # Penalty escalonado: lotes < 200 pares (z < 4 batches) reciben penalty extra
@@ -497,6 +508,8 @@ def _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
         produced = sum(solver.Value(x[m, d]) for d in range(num_days))
         tard = solver.Value(tardiness[m])
         sp = solver.Value(span[m]) if m in span else 0
+        # Reportar con total redondeado (lo que realmente se produce en planta)
+        original_total = model.get("_original_total", model["total_producir"])
         # Dias activos para este modelo
         active_days = [
             days[d]["name"] for d in range(num_days)
@@ -505,10 +518,10 @@ def _build_summary(solver, x, y, tardiness, span, day_loads, overtime_used,
         models_summary.append({
             "codigo": model["codigo"],
             "fabrica": model["fabrica"],
-            "volumen": model["total_producir"],
+            "volumen": original_total,
             "producido": produced,
             "tardiness": tard,
-            "pct_completado": round(produced / model["total_producir"] * 100, 1) if model["total_producir"] > 0 else 0,
+            "pct_completado": round(produced / original_total * 100, 1) if original_total > 0 else 0,
             "span_dias": sp,
             "dias_produccion": active_days,
         })

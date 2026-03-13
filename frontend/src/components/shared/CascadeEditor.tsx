@@ -1205,7 +1205,7 @@ export function CascadeEditor({
       </div>
 
       {/* Grid */}
-      <div ref={gridRef} className="border rounded-lg overflow-x-auto">
+      <div ref={gridRef} className="cascade-grid border rounded-lg overflow-x-auto">
       <div ref={svgWrapperRef} className="relative" style={{ width: 'fit-content', minWidth: '100%' }}>
         <table className="w-full border-collapse text-xs">
           <thead>

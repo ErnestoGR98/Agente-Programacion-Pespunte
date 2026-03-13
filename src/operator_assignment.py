@@ -648,27 +648,38 @@ def _block_fill_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
 
 
 def _validate_no_overlap(tasks, num_blocks):
-    """Safety net: elimina asignaciones dobles de operarios en el mismo bloque.
+    """Safety net: elimina asignaciones dobles de operarios Y robots en el mismo bloque.
 
-    Itera tareas en orden (prioridad implicita). Si un operario ya esta
+    Itera tareas en orden (prioridad implicita). Si un operario o robot ya esta
     asignado en un bloque por otra tarea, se elimina la asignacion duplicada
     (quedara como SIN ASIGNAR en el paso siguiente).
     """
     # {op_name: set(bloques ya ocupados)}
-    seen = {}
+    seen_ops = {}
+    # {robot_name: set(bloques ya ocupados)}
+    seen_robots = {}
     for task in tasks:
         for b in range(num_blocks):
             ba = task["block_assignments"].get(b)
             if not ba or ba.get("op_name") == "SIN ASIGNAR":
                 continue
             op_name = ba["op_name"]
-            if op_name not in seen:
-                seen[op_name] = set()
-            if b in seen[op_name]:
-                # CONFLICTO: este operario ya tiene otra tarea en este bloque
+            robot = ba.get("robot")
+            # Check operator overlap
+            if op_name not in seen_ops:
+                seen_ops[op_name] = set()
+            if b in seen_ops[op_name]:
                 del task["block_assignments"][b]
-            else:
-                seen[op_name].add(b)
+                continue
+            # Check robot overlap
+            if robot:
+                if robot not in seen_robots:
+                    seen_robots[robot] = set()
+                if b in seen_robots[robot]:
+                    del task["block_assignments"][b]
+                    continue
+                seen_robots[robot].add(b)
+            seen_ops[op_name].add(b)
 
 
 # ---------------------------------------------------------------------------
@@ -799,8 +810,8 @@ def _build_tasks(day_schedule, num_blocks):
                 "recurso": entry.get("recurso", "GENERAL"),
                 "rate": entry.get("rate", 100),
                 "hc": entry.get("hc", 1),
-                "robots_available": entry.get("robots_eligible",
-                                              entry.get("robots_used", [])),
+                "robots_available": entry.get("robots_used", [])
+                                              or entry.get("robots_eligible", []),
                 "block_pares": bp_copy,
                 "total_pares": total_copy,
                 "pares_dia_modelo": model_totals.get(entry["modelo"], total),

@@ -355,6 +355,7 @@ export interface DailyScheduleEntry {
   blocks: number[]
   total: number
   robot?: string
+  robot_per_block?: (string | null)[]
   operario?: string
   pendiente?: number
   adelanto?: boolean

@@ -125,3 +125,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* SIN ASIGNAR alert pulse */
+@keyframes pulse-alert {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-pulse-alert {
+  animation: pulse-alert 2s ease-in-out infinite;
+}

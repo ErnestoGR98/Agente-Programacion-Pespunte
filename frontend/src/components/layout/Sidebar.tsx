@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, Users, Settings,
-  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen,
+  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen, Sheet,
   Sun, Moon, Menu, X, PanelLeftClose, PanelLeft,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
       { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },
+      { href: '/sabana', label: 'Sabana Semanal', icon: Sheet, minStep: 2 },
       { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
       { href: '/robots', label: 'Robots', icon: Bot, minStep: 2 },
       { href: '/cuellos', label: 'Cuellos de Botella', icon: AlertTriangle, minStep: 2 },

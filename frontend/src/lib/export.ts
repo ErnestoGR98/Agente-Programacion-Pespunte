@@ -594,3 +594,327 @@ export async function copyAsJSON(
     return false
   }
 }
+
+/**
+ * Download tabular data as a .json file
+ */
+export function downloadAsJSON(
+  title: string,
+  headers: string[],
+  rows: (string | number)[][],
+) {
+  const data = rows.map((row) => {
+    const obj: Record<string, string | number> = {}
+    headers.forEach((h, i) => {
+      obj[h] = row[i] ?? ''
+    })
+    return obj
+  })
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${title}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Export sabana semanal as PDF — one page per day with block detail,
+ * plus a summary page with model totals.
+ */
+export interface SabanaDayData {
+  day: string
+  dayColor: [number, number, number]
+  headers: string[]
+  rows: (string | number)[][]
+  etapas: string[]
+  modelHeaders: { rowIdx: number; modelo: string; total: string }[]
+}
+
+export function exportSabanaPDF(
+  title: string,
+  dayPages: SabanaDayData[],
+) {
+  const doc = new jsPDF({ orientation: 'landscape' })
+  let first = true
+
+  for (const page of dayPages) {
+    if (!first) doc.addPage()
+    first = false
+
+    const dc = page.dayColor
+    doc.setFontSize(16)
+    doc.setTextColor(dc[0], dc[1], dc[2])
+    doc.text(`${title.replace(/_/g, ' ')} — ${page.day}`, 14, 15)
+    doc.setFontSize(8)
+    doc.setTextColor(100, 100, 100)
+    doc.text(new Date().toLocaleDateString('es-MX'), 14, 21)
+    doc.setTextColor(0, 0, 0)
+
+    // Legend
+    let lx = 14
+    const ly = 25
+    doc.setFontSize(6)
+    for (const [name, rgb] of Object.entries(STAGE_RGB)) {
+      doc.setFillColor(...rgb)
+      doc.rect(lx, ly - 2.5, 3, 3, 'F')
+      doc.setTextColor(0, 0, 0)
+      doc.text(name, lx + 4, ly)
+      lx += doc.getTextWidth(name) + 8
+    }
+
+    const modelRowIdxs = new Set(page.modelHeaders.map((m) => m.rowIdx))
+
+    autoTable(doc, {
+      head: [page.headers],
+      body: page.rows.map((r) => r.map((c) => String(c))),
+      startY: 30,
+      styles: { fontSize: 5, cellPadding: 1, overflow: 'hidden' },
+      headStyles: { fillColor: [dc[0], dc[1], dc[2]], fontSize: 5, cellPadding: 1 },
+      didParseCell(data) {
+        if (data.section !== 'body') return
+        const idx = data.row.index
+
+        // Model header row
+        if (modelRowIdxs.has(idx)) {
+          data.cell.styles.fillColor = [240, 240, 240]
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.fontSize = 6
+          return
+        }
+
+        // Etapa coloring for block cells with values
+        const etapa = page.etapas[idx] || ''
+        const rgb = getEtapaRGB(etapa)
+        const val = data.cell.raw as string
+        if (val && val !== '' && val !== '0' && val !== '-' && data.column.index >= 3) {
+          data.cell.styles.fillColor = withAlpha(rgb, 0.2)
+          data.cell.styles.textColor = rgb
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+  }
+
+  doc.save(`${title}.pdf`)
+}
+
+// ── Styled Sabana Excel Export ──
+
+export interface SabanaExcelRow {
+  modelo: string
+  fraccion: number
+  operacion: string
+  recurso: string
+  etapa: string
+  days: Record<string, {
+    blocks: number[]
+    total: number
+    operario: string
+    isSinAsignar: boolean
+    adelanto?: boolean
+  } | null>
+  weekTotal: number
+}
+
+export interface SabanaExcelModelGroup {
+  modelo: string
+  dayTotals: Record<string, number>
+  weekTotal: number
+  rows: SabanaExcelRow[]
+}
+
+const ETAPA_EXCEL_COLORS: Record<string, string> = {
+  PRELIMINAR: 'FFF59E0B',
+  ROBOT: 'FF10B981',
+  POST: 'FFEC4899',
+  MAQUILA: 'FFEF4444',
+  'N/A PRELIMINAR': 'FF94A3B8',
+}
+
+const DAY_EXCEL_COLORS: Record<string, string> = {
+  Lun: 'FF3B82F6', Mar: 'FF8B5CF6', Mie: 'FF06B6D4',
+  Jue: 'FFF59E0B', Vie: 'FF10B981', Sab: 'FFEF4444',
+}
+
+function getEtapaExcelColor(etapa: string): string {
+  if (!etapa) return 'FF94A3B8'
+  if (etapa.includes('N/A PRELIMINAR')) return ETAPA_EXCEL_COLORS['N/A PRELIMINAR']
+  if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return ETAPA_EXCEL_COLORS.PRELIMINAR
+  if (etapa.includes('ROBOT')) return ETAPA_EXCEL_COLORS.ROBOT
+  if (etapa.includes('POST')) return ETAPA_EXCEL_COLORS.POST
+  if (etapa.includes('MAQUILA')) return ETAPA_EXCEL_COLORS.MAQUILA
+  return 'FF94A3B8'
+}
+
+function lightenArgb(argb: string, factor = 0.75): string {
+  const r = parseInt(argb.slice(2, 4), 16)
+  const g = parseInt(argb.slice(4, 6), 16)
+  const b = parseInt(argb.slice(6, 8), 16)
+  const lr = Math.round(r + (255 - r) * factor)
+  const lg = Math.round(g + (255 - g) * factor)
+  const lb = Math.round(b + (255 - b) * factor)
+  return `FF${lr.toString(16).padStart(2, '0')}${lg.toString(16).padStart(2, '0')}${lb.toString(16).padStart(2, '0')}`
+}
+
+function _thinBorder() {
+  const side = { style: 'thin', color: { rgb: 'FFD0D0D0' } }
+  return { top: side, bottom: side, left: side, right: side }
+}
+
+type StyledCell = { v: string | number; s?: Record<string, unknown> }
+
+export function exportSabanaExcel(
+  title: string,
+  dayNames: string[],
+  blockLabels: string[],
+  modelGroups: SabanaExcelModelGroup[],
+  showOperario: boolean,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSXStyle = require('xlsx-js-style')
+
+  const numBlocks = blockLabels.length
+  const colsPerDay = numBlocks + 1 + (showOperario ? 1 : 0)
+  const fixedCols = 4
+
+  const aoa: StyledCell[][] = []
+
+  // ── Row 1: Day group header ──
+  const darkBg = { fill: { fgColor: { rgb: 'FF1E3A5F' } }, font: { bold: true, color: { rgb: 'FFFFFFFF' } }, border: _thinBorder() }
+  const headerRow1: StyledCell[] = []
+  for (let i = 0; i < fixedCols; i++) headerRow1.push({ v: '', s: darkBg })
+  for (const d of dayNames) {
+    const dc = DAY_EXCEL_COLORS[d] || 'FF666666'
+    const lightDc = lightenArgb(dc, 0.85)
+    for (let i = 0; i < colsPerDay; i++) {
+      headerRow1.push({
+        v: i === 0 ? d : '',
+        s: { fill: { fgColor: { rgb: lightDc } }, font: { bold: true, color: { rgb: dc }, sz: 12 }, alignment: { horizontal: 'center' }, border: _thinBorder() },
+      })
+    }
+  }
+  headerRow1.push({ v: 'SEM', s: { ...darkBg, font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11 }, alignment: { horizontal: 'center' } } })
+  aoa.push(headerRow1)
+
+  // ── Row 2: Sub-headers ──
+  const subSt = (dc?: string) => ({
+    fill: { fgColor: { rgb: 'FF1E3A5F' } },
+    font: { bold: true, color: { rgb: dc || 'FFFFFFFF' }, sz: 9 },
+    alignment: { horizontal: 'center' },
+    border: _thinBorder(),
+  })
+  const headerRow2: StyledCell[] = [
+    { v: 'MODELO', s: subSt() }, { v: 'F', s: subSt() }, { v: 'OPERACION', s: subSt() }, { v: 'REC', s: subSt() },
+  ]
+  for (const d of dayNames) {
+    const dc = DAY_EXCEL_COLORS[d] || 'FFFFFFFF'
+    const lightDc = lightenArgb(dc, 0.7)
+    for (const bl of blockLabels) headerRow2.push({ v: bl, s: { ...subSt(lightDc), font: { bold: true, color: { rgb: lightDc }, sz: 7 } } })
+    headerRow2.push({ v: 'TOT', s: { ...subSt(dc), font: { bold: true, color: { rgb: dc }, sz: 9 } } })
+    if (showOperario) headerRow2.push({ v: 'OP', s: { ...subSt(lightDc), font: { bold: true, color: { rgb: lightDc }, sz: 8 } } })
+  }
+  headerRow2.push({ v: 'TOT', s: subSt() })
+  aoa.push(headerRow2)
+
+  // ── Data rows ──
+  for (const mg of modelGroups) {
+    const modelSt = { fill: { fgColor: { rgb: 'FFE8E8E8' } }, font: { bold: true, sz: 10 }, border: _thinBorder() }
+    const modelRow: StyledCell[] = [
+      { v: mg.modelo, s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt },
+    ]
+    for (const d of dayNames) {
+      const p = mg.dayTotals[d] || 0
+      const dc = DAY_EXCEL_COLORS[d] || 'FF666666'
+      for (let i = 0; i < numBlocks; i++) modelRow.push({ v: '', s: modelSt })
+      modelRow.push({ v: p > 0 ? p : '', s: { ...modelSt, font: { bold: true, color: { rgb: dc }, sz: 10 }, alignment: { horizontal: 'center' } } })
+      if (showOperario) modelRow.push({ v: '', s: modelSt })
+    }
+    modelRow.push({ v: mg.weekTotal > 0 ? mg.weekTotal : '', s: { ...modelSt, font: { bold: true, sz: 10 }, alignment: { horizontal: 'center' } } })
+    aoa.push(modelRow)
+
+    for (const r of mg.rows) {
+      const ec = getEtapaExcelColor(r.etapa)
+      const ecBg = lightenArgb(ec, 0.85)
+      const row: StyledCell[] = [
+        { v: '', s: { border: _thinBorder() } },
+        { v: r.fraccion, s: { alignment: { horizontal: 'center' }, border: _thinBorder() } },
+        { v: r.operacion, s: { font: { color: { rgb: ec } }, border: _thinBorder() } },
+        { v: r.recurso, s: { font: { sz: 8 }, border: _thinBorder() } },
+      ]
+
+      for (const d of dayNames) {
+        const cell = r.days[d]
+        const dc = DAY_EXCEL_COLORS[d] || 'FF666666'
+
+        if (!cell || cell.total === 0) {
+          for (let i = 0; i < numBlocks; i++) row.push({ v: '', s: { border: _thinBorder() } })
+          row.push({ v: '', s: { border: _thinBorder() } })
+          if (showOperario) row.push({ v: '', s: { border: _thinBorder() } })
+          continue
+        }
+
+        for (let bi = 0; bi < numBlocks; bi++) {
+          const val = cell.blocks[bi] || 0
+          if (val > 0) {
+            const bg = cell.isSinAsignar ? 'FFFECACA' : cell.adelanto ? 'FFDBEAFE' : ecBg
+            const fc = cell.isSinAsignar ? 'FFEF4444' : cell.adelanto ? 'FF3B82F6' : ec
+            row.push({ v: val, s: { fill: { fgColor: { rgb: bg } }, font: { bold: true, color: { rgb: fc }, sz: 9 }, alignment: { horizontal: 'center' }, border: _thinBorder() } })
+          } else {
+            row.push({ v: '', s: { border: _thinBorder() } })
+          }
+        }
+
+        const totBg = cell.isSinAsignar ? 'FFFECACA' : cell.adelanto ? 'FFDBEAFE' : lightenArgb(dc, 0.9)
+        const totFc = cell.isSinAsignar ? 'FFEF4444' : cell.adelanto ? 'FF3B82F6' : dc
+        row.push({ v: cell.total, s: { fill: { fgColor: { rgb: totBg } }, font: { bold: true, color: { rgb: totFc }, sz: 9 }, alignment: { horizontal: 'center' }, border: _thinBorder() } })
+
+        if (showOperario) {
+          row.push({
+            v: cell.isSinAsignar ? 'SIN ASIGNAR' : cell.operario || '',
+            s: { font: { sz: 7, color: { rgb: cell.isSinAsignar ? 'FFEF4444' : 'FF666666' }, bold: cell.isSinAsignar }, alignment: { horizontal: 'center' }, border: _thinBorder() },
+          })
+        }
+      }
+
+      row.push({ v: r.weekTotal, s: { font: { bold: true, sz: 10 }, alignment: { horizontal: 'center' }, border: _thinBorder() } })
+      aoa.push(row)
+    }
+  }
+
+  // Build worksheet
+  const ws = XLSXStyle.utils.aoa_to_sheet(aoa.map((row: StyledCell[]) => row.map((c: StyledCell) => c.v)))
+
+  for (let ri = 0; ri < aoa.length; ri++) {
+    for (let ci = 0; ci < aoa[ri].length; ci++) {
+      const addr = XLSXStyle.utils.encode_cell({ r: ri, c: ci })
+      if (!ws[addr]) ws[addr] = { v: '', t: 's' }
+      if (aoa[ri][ci].s) ws[addr].s = aoa[ri][ci].s
+    }
+  }
+
+  // Column widths
+  const colWidths: { wch: number }[] = [{ wch: 14 }, { wch: 3 }, { wch: 28 }, { wch: 12 }]
+  for (let di = 0; di < dayNames.length; di++) {
+    for (let bi = 0; bi < numBlocks; bi++) colWidths.push({ wch: 5 })
+    colWidths.push({ wch: 6 })
+    if (showOperario) colWidths.push({ wch: 14 })
+  }
+  colWidths.push({ wch: 7 })
+  ws['!cols'] = colWidths
+
+  // Merge day header cells (row 0)
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = []
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: fixedCols - 1 } })
+  let mergeCol = fixedCols
+  for (let di = 0; di < dayNames.length; di++) {
+    merges.push({ s: { r: 0, c: mergeCol }, e: { r: 0, c: mergeCol + colsPerDay - 1 } })
+    mergeCol += colsPerDay
+  }
+  ws['!merges'] = merges
+
+  const wb = XLSXStyle.utils.book_new()
+  XLSXStyle.utils.book_append_sheet(wb, ws, title.slice(0, 31))
+  XLSXStyle.writeFile(wb, `${title}.xlsx`)
+}

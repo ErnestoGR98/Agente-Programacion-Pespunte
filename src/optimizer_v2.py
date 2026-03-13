@@ -121,7 +121,7 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     resource_cap = params["resource_capacity"]
     plantilla = params["plantilla"]
     num_blocks = len(time_blocks)
-    step = params.get("lot_step", 50)
+    step = params.get("lot_step", 100)
     lineas_post = params.get("lineas_post", 0)
 
     # Read weights from params (DB-configurable), fallback to module defaults
@@ -261,7 +261,7 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                 continue
 
             # buffer=-1 means "todo": all origin pairs must finish before
-            # any destination pair starts → use pares_dia as buffer
+            # any destination pair starts -> use pares_dia as buffer
             effective_buffer = buffer
             if effective_buffer < 0:
                 effective_buffer = models_day[target_m]["pares_dia"]
@@ -272,7 +272,7 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             idx_dest = [frac_to_op[(target_m, f)]
                         for f in fracs_dest if (target_m, f) in frac_to_op]
 
-            print(f"    [PREC] {modelo_code}: orig_fracs={fracs_orig}→idx={idx_orig}, dest_fracs={fracs_dest}→idx={idx_dest}, buffer={buffer}, eff_buffer={effective_buffer}")
+            print(f"    [PREC] {modelo_code}: orig_fracs={fracs_orig}->idx={idx_orig}, dest_fracs={fracs_dest}->idx={idx_dest}, buffer={buffer}, eff_buffer={effective_buffer}")
 
             if not idx_orig or not idx_dest:
                 print(f"    [PREC] skip: idx_orig o idx_dest vacio")
@@ -280,9 +280,9 @@ def schedule_day(models_day: list, params: dict, compiled=None,
 
             for op_o in idx_orig:
                 for op_d in idx_dest:
-                    print(f"      [PREC] op{op_o}→op{op_d}, eff_buffer={effective_buffer}")
+                    print(f"      [PREC] op{op_o}->op{op_d}, eff_buffer={effective_buffer}")
                     if effective_buffer == 0:
-                        # Buffer=0 → conveyor: unidirectional flow
+                        # Buffer=0 -> conveyor: unidirectional flow
                         # Destination NEVER produces more than origin
                         # Origin at most ~1 block ahead (tight coupling)
                         rate_o = models_day[target_m]["operations"][op_o]["rate"]
@@ -300,7 +300,7 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                             # Origin at most max_lead ahead (tight coupling)
                             solver_model.Add(cum_orig <= cum_dest + max_lead)
                     else:
-                        # Buffer>0 → startup delay: destination can't produce
+                        # Buffer>0 -> startup delay: destination can't produce
                         # until origin has accumulated buffer pares, then free.
                         for b in range(num_blocks):
                             cum_orig = sum(x[target_m, op_o, bb] for bb in range(b + 1))
@@ -469,8 +469,6 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                     if bool(op.get("robots", [])):
                         continue  # robots have dedicated operators, skip
                     recurso = op["recurso"]
-                    if recurso in ("MESA", "GENERAL"):
-                        continue  # MESA is abundant, already capped by plantilla
                     # For compound resources like "PLANA,POSTE", count toward each part
                     parts = [p.strip() for p in recurso.split(",")] if "," in recurso else [recurso]
                     for part in parts:
@@ -509,15 +507,22 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                 solver_model.Add(y[m_idx, op_idx, r, b] >= ra)  # ra=1 => y>=1
 
     # Exclusividad: cada robot puede estar en max 1 operacion por bloque
+    robot_constraint_count = 0
     for b in range(num_blocks):
         for robot in all_robots_in_day:
             uses = []
+            use_labels = []
             for m_idx, op_idx in robot_ops_idx:
                 op = models_day[m_idx]["operations"][op_idx]
                 if robot in op["robots"]:
                     uses.append(robot_active[m_idx, op_idx, robot, b])
+                    use_labels.append(f"{models_day[m_idx]['codigo']}:F{op['fraccion']}")
             if len(uses) > 1:
                 solver_model.Add(sum(uses) <= 1)
+                robot_constraint_count += 1
+                if b == 0:  # Log once per robot
+                    print(f"    [ROBOT EXCL] {robot}: {len(uses)} ops compiten -> {use_labels}")
+    print(f"    [ROBOT EXCL] Total constraints: {robot_constraint_count}")
 
     # Capacidad de rate por robot por bloque (1 persona por robot)
     for b in range(num_blocks):
@@ -738,15 +743,22 @@ def schedule_day(models_day: list, params: dict, compiled=None,
         solver_model.Add(uses_step >= is_last_var + (1 - is_full_var) - 1)
         obj_terms.append(W_STEP_PENALTY * uses_step)
 
-    # Early completion: penalizar produccion tardia para cerrar lotes
-    # lo antes posible. Sin esto, el solver deja operaciones para el final
-    # del dia aunque podrian correr antes (ej: frac 5 en bloque 9 cuando
-    # frac 4 termino en bloque 4).
+    # Early/Late completion: controlar posicion horaria de modelos.
+    # - Modelos normales y split_head: preferir bloques tempranos (W_EARLY * b)
+    # - Modelos split_tail (primer dia de un split): empujar a bloques tardios
+    #   para crear continuidad con el dia siguiente (fin dia 1 -> inicio dia 2)
     W_EARLY = 10  # leve pero suficiente para preferir bloques tempranos
+    W_LATE = 10   # misma magnitud, invertida para split_tail
     for m_idx, model in enumerate(models_day):
+        split_pos = model.get("split_position")
         for op_idx, op in enumerate(model["operations"]):
             for b in range(num_blocks):
-                obj_terms.append(W_EARLY * x[m_idx, op_idx, b] * b)
+                if split_pos == "tail":
+                    # Invertir: preferir bloques tardios (penalizar bloques tempranos)
+                    obj_terms.append(W_LATE * x[m_idx, op_idx, b] * (num_blocks - 1 - b))
+                else:
+                    # Normal: preferir bloques tempranos
+                    obj_terms.append(W_EARLY * x[m_idx, op_idx, b] * b)
 
     solver_model.Minimize(sum(obj_terms))
 
@@ -808,6 +820,13 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
     for m in matched_models:
         model_lookup[m["codigo"]] = m
 
+    # Lookup de fabrica por modelo (del weekly_schedule)
+    fabrica_lookup = {}
+    for entry in weekly_schedule:
+        code = entry["Modelo"]
+        if code not in fabrica_lookup:
+            fabrica_lookup[code] = entry.get("Fabrica", "")
+
     # Agrupar schedule semanal por dia
     by_day = {}
     for entry in weekly_schedule:
@@ -815,6 +834,20 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         if dia not in by_day:
             by_day[dia] = []
         by_day[dia].append(entry)
+
+    # Detectar modelos que se parten en multiples dias (split)
+    # model_days[codigo] = lista ordenada de dias donde aparece
+    model_days = {}
+    day_order_tmp = [d["name"] for d in days]
+    for entry in weekly_schedule:
+        code = entry["Modelo"]
+        dia = entry["Dia"]
+        if code not in model_days:
+            model_days[code] = set()
+        model_days[code].add(dia)
+    # Convertir a listas ordenadas segun day_order
+    for code in model_days:
+        model_days[code] = sorted(model_days[code], key=lambda d: day_order_tmp.index(d) if d in day_order_tmp else 99)
 
     # Preparar tareas para cada dia
     day_tasks = {}  # day_name -> (models_day, day_params)
@@ -825,7 +858,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         entries = by_day.get(day_name, [])
 
         if not entries:
-            print(f"  [schedule_week] {day_name}: sin entries en weekly → NO_PRODUCTION")
+            print(f"  [schedule_week] {day_name}: sin entries en weekly -> NO_PRODUCTION")
             results[day_name] = {"schedule": [], "summary": _empty_summary(params["time_blocks"])}
             continue
 
@@ -846,17 +879,32 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             ]
             if not internal_ops:
                 continue  # Modelo 100% maquila, nada que programar internamente
+            # Detectar posicion de split: si el modelo aparece en >1 dia,
+            # marcar "tail" en dias intermedios/no-ultimo (empujar a bloques tardios)
+            # y "head" en dias posteriores al primero (bloques tempranos, default).
+            # Esto crea continuidad: fin dia 1 -> inicio dia 2.
+            split_pos = None
+            code_days = model_days.get(modelo_code, [])
+            if len(code_days) > 1:
+                day_idx_in_split = code_days.index(day_name) if day_name in code_days else -1
+                if day_idx_in_split == 0:
+                    split_pos = "tail"  # primer dia del split: empujar a bloques tardios
+                elif day_idx_in_split > 0:
+                    split_pos = "head"  # dias siguientes: bloques tempranos (default)
+                print(f"    [SPLIT] {modelo_code} dia {day_name}: posicion={split_pos} (dias={code_days})")
+
             models_day.append({
                 "codigo": modelo_code,
                 "fabrica": entry["Fabrica"],
                 "suela": entry.get("Suela", ""),
                 "pares_dia": entry["Pares"],
                 "operations": internal_ops,
+                "split_position": split_pos,
             })
 
         print(f"    models_day construido: {len(models_day)} modelos: {[(m['codigo'], m['pares_dia'], len(m['operations'])) for m in models_day]}")
         if not models_day:
-            print(f"    → models_day VACIO despues de filtrar → NO_PRODUCTION")
+            print(f"    -> models_day VACIO despues de filtrar -> NO_PRODUCTION")
 
         # Parametros para este dia (workers reducidos para paralelismo)
         plantilla = day_cfg["plantilla"]
@@ -892,7 +940,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             "time_blocks": params["time_blocks"],
             "resource_capacity": params["resource_capacity"],
             "plantilla": plantilla,
-            "lot_step": params.get("lot_step", 50),
+            "lot_step": params.get("lot_step", 100),
             "num_workers": 4,  # Menos workers por dia ya que corren en paralelo
             "day_name": day_name,  # para block_availability y disabled_robots
             "lineas_post": params.get("lineas_post", 0),
@@ -924,6 +972,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         # Sumar pares de tardiness del dia anterior (rezago)
         pares_rezago = 0
+        models_day_codes = {m["codigo"] for m in models_day}
         for m in models_day:
             code = m["codigo"]
             if code in tardiness_carryover and tardiness_carryover[code] > 0:
@@ -932,6 +981,31 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 m["pares_dia"] += extra
                 pares_rezago += extra
                 tardiness_carryover[code] = 0
+
+        # Inyectar modelos con tardiness pendiente que NO estan programados hoy
+        for code, pending in list(tardiness_carryover.items()):
+            if pending <= 0 or code in models_day_codes:
+                continue
+            if code not in model_lookup:
+                print(f"    [REZAGO] {code}: {pending}p pendientes pero modelo no encontrado en lookup")
+                continue
+            model_data = model_lookup[code]
+            internal_ops = [
+                op for op in model_data["operations"]
+                if op.get("recurso") != "MAQUILA"
+            ]
+            if not internal_ops:
+                continue
+            print(f"    [REZAGO-INJECT] {day_name} {code}: inyectando {pending}p pendientes (modelo no programado hoy)")
+            models_day.append({
+                "codigo": code,
+                "fabrica": fabrica_lookup.get(code, ""),
+                "suela": model_data.get("suela", ""),
+                "pares_dia": pending,
+                "operations": internal_ops,
+            })
+            pares_rezago += pending
+            tardiness_carryover[code] = 0
 
         # Filtrar modelos con 0 pares
         models_day = [m for m in models_day if m["pares_dia"] > 0]
@@ -956,14 +1030,14 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         if day_tardiness and task_idx + 1 < len(ordered_tasks):
             for code, tard in day_tardiness.items():
                 tardiness_carryover[code] = tardiness_carryover.get(code, 0) + tard
-                print(f"    [REZAGO] {code}: {tard}p pendientes → se pasan al siguiente dia")
+                print(f"    [REZAGO] {code}: {tard}p pendientes -> se pasan al siguiente dia")
 
         # --- Carry-over overproduction al dia siguiente (acreditar como adelanto) ---
         day_over = results[day_name]["summary"].get("overproduction_by_model", {})
         if day_over and task_idx + 1 < len(ordered_tasks):
             for code, over in day_over.items():
                 adelanto_credits[code] = adelanto_credits.get(code, 0) + over
-                print(f"    [OVERPROD] {code}: +{over}p sobreproducidos → se descuentan del siguiente dia")
+                print(f"    [OVERPROD] {code}: +{over}p sobreproducidos -> se descuentan del siguiente dia")
 
         # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
         if task_idx + 1 >= len(ordered_tasks):
@@ -997,7 +1071,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         # robots ya configurados) para minimizar cambios.
         current_codes = {m["codigo"] for m in models_day}
         adelanto_models = []
-        step = day_params.get("lot_step", 50)
+        step = day_params.get("lot_step", 100)
 
         # Robots reservados por bloque en el schedule principal
         reserved_robots_map = {}  # {robot_name: set(block_indices)}
@@ -1141,8 +1215,9 @@ def _extract_day_schedule(solver, x, y, active, hc_used, robot_ops_idx,
             ]
             max_hc_val = max(hc_block_values) if hc_block_values else 0
 
-            # Para operaciones con robots, extraer uso por robot
+            # Para operaciones con robots, extraer uso por robot POR BLOQUE
             robots_used = []
+            robot_per_block = [None] * num_blocks
             if (m_idx, op_idx) in robot_ops_set:
                 robots = op.get("robots", [])
                 for r in robots:
@@ -1152,22 +1227,84 @@ def _extract_day_schedule(solver, x, y, active, hc_used, robot_ops_idx,
                     )
                     if r_pares > 0:
                         robots_used.append(r)
+                # Determinar qué robot se usa en cada bloque
+                for b in range(num_blocks):
+                    for r in robots:
+                        if solver.Value(y[m_idx, op_idx, r, b]) > 0:
+                            robot_per_block[b] = r
+                            break
 
-            schedule.append({
-                "modelo": model["codigo"],
-                "fabrica": model["fabrica"],
-                "fraccion": op["fraccion"],
-                "operacion": op["operacion"],
-                "recurso": op["recurso"],
-                "rate": op["rate"],
-                "hc": max_hc_val,
-                "block_pares": block_pares,
-                "total_pares": total_pares,
-                "hc_per_block": hc_block_values,
-                "robots_used": robots_used,
-                "robots_eligible": op.get("robots", []),
-                "hc_multiplier": op.get("max_hc", 1),
-            })
+            # Si usa multiples robots, generar una fila por robot
+            distinct_robots = list(dict.fromkeys(r for r in robot_per_block if r is not None))
+            if len(distinct_robots) > 1:
+                for robot in distinct_robots:
+                    r_block_pares = [
+                        block_pares[b] if robot_per_block[b] == robot else 0
+                        for b in range(num_blocks)
+                    ]
+                    r_total = sum(r_block_pares)
+                    r_hc = [
+                        hc_block_values[b] if robot_per_block[b] == robot else 0
+                        for b in range(num_blocks)
+                    ]
+                    r_max_hc = max(r_hc) if r_hc else 0
+                    schedule.append({
+                        "modelo": model["codigo"],
+                        "fabrica": model["fabrica"],
+                        "fraccion": op["fraccion"],
+                        "operacion": op["operacion"],
+                        "recurso": op["recurso"],
+                        "rate": op["rate"],
+                        "hc": r_max_hc,
+                        "block_pares": r_block_pares,
+                        "total_pares": r_total,
+                        "hc_per_block": r_hc,
+                        "robots_used": [robot],
+                        "robot_per_block": [robot if robot_per_block[b] == robot else None for b in range(num_blocks)],
+                        "robots_eligible": op.get("robots", []),
+                        "hc_multiplier": op.get("max_hc", 1),
+                    })
+            else:
+                schedule.append({
+                    "modelo": model["codigo"],
+                    "fabrica": model["fabrica"],
+                    "fraccion": op["fraccion"],
+                    "operacion": op["operacion"],
+                    "recurso": op["recurso"],
+                    "rate": op["rate"],
+                    "hc": max_hc_val,
+                    "block_pares": block_pares,
+                    "total_pares": total_pares,
+                    "hc_per_block": hc_block_values,
+                    "robots_used": robots_used,
+                    "robot_per_block": robot_per_block,
+                    "robots_eligible": op.get("robots", []),
+                    "hc_multiplier": op.get("max_hc", 1),
+                })
+
+    # Validar exclusividad de robots post-solve
+    robot_block_owner = {}  # (robot, block) -> (modelo, fraccion, operacion)
+    conflicts = []
+    for entry in schedule:
+        rpb = entry.get("robot_per_block", [])
+        for b, r in enumerate(rpb):
+            if r is None:
+                continue
+            key = (r, b)
+            owner = (entry["modelo"], entry["fraccion"], entry["operacion"])
+            if key in robot_block_owner:
+                prev = robot_block_owner[key]
+                conflicts.append(f"  CONFLICTO robot {r} bloque {b}: "
+                                 f"{prev[0]} F{prev[1]} ({prev[2]}) vs "
+                                 f"{owner[0]} F{owner[1]} ({owner[2]})")
+            else:
+                robot_block_owner[key] = owner
+    if conflicts:
+        print(f"  [ROBOT VALIDATION] {len(conflicts)} conflictos detectados:")
+        for c in conflicts:
+            print(c)
+    else:
+        print(f"  [ROBOT VALIDATION] OK - sin conflictos de robots")
 
     # Ordenar por modelo, fraccion
     schedule.sort(key=lambda r: (r["modelo"], r["fraccion"]))

@@ -559,6 +559,28 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
   const maxHc = schedule.reduce((max, s) => Math.max(max, s.hc), 0)
   const unassignedCount = (data.unassigned_ops || []).length
 
+  // Per-model production summary from weekly schedule (real pares per model)
+  const modelSummary = useMemo(() => {
+    if (!weeklySchedule) return []
+    const map: Record<string, number> = {}
+    for (const e of weeklySchedule) {
+      if (e.Dia === dayName) {
+        map[e.Modelo] = (map[e.Modelo] || 0) + e.Pares
+      }
+    }
+    // Adelanto pares per model: min total across operations (bottleneck = actual output)
+    const adelantoMap: Record<string, number> = {}
+    for (const s of rawSchedule) {
+      if (s.adelanto && s.total > 0) {
+        const prev = adelantoMap[s.modelo]
+        adelantoMap[s.modelo] = prev === undefined ? s.total : Math.min(prev, s.total)
+      }
+    }
+    return Object.entries(map)
+      .map(([modelo, pares]) => ({ modelo, pares, adelanto: adelantoMap[modelo] || 0 }))
+      .sort((a, b) => (b.pares + b.adelanto) - (a.pares + a.adelanto))
+  }, [weeklySchedule, dayName, rawSchedule])
+
   // Detect block labels from first schedule entry with blocks
   const blockLabels = useMemo(() => {
     const maxBlocks = schedule.reduce((max, s) => Math.max(max, s.blocks?.length || 0), 0)
@@ -666,6 +688,30 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         />
       </div>
 
+      {/* Per-model production summary */}
+      {modelSummary.length > 0 && (
+        <Card>
+          <CardContent className="pt-3 pb-2">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Produccion por Modelo</p>
+            <div className="flex flex-wrap gap-2">
+              {modelSummary.map(({ modelo, pares, adelanto }) => (
+                <div key={modelo} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+                  <span className="text-xs font-medium truncate max-w-[140px]">{modelo}</span>
+                  <Badge variant="secondary" className="text-xs font-mono">
+                    {pares.toLocaleString()}
+                  </Badge>
+                  {adelanto > 0 && (
+                    <Badge variant="outline" className="text-xs font-mono text-blue-500 border-blue-300">
+                      +{adelanto.toLocaleString()}
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Legend */}
       <div className="flex gap-4">
         {Object.entries(STAGE_COLORS).map(([name, color]) => (
@@ -742,8 +788,9 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                 const recursoKey = s.robot || s.recurso
                 const isHighlighted = (selectedOperario != null && s.operario === selectedOperario) || (selectedRecurso != null && recursoKey === selectedRecurso)
                 const isDimmed = (selectedOperario != null && s.operario !== selectedOperario) || (selectedRecurso != null && recursoKey !== selectedRecurso)
+                const isSinAsignar = s.operario === 'SIN ASIGNAR'
                 return (
-                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''}`}>
+                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''} ${isSinAsignar ? 'animate-pulse-alert bg-red-500/10 dark:bg-red-500/15' : ''}`}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
                         {(() => { const [num, ...c] = s.modelo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
@@ -788,7 +835,10 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     </td>
                     <td className="px-2 py-1">
                       {s.operario === 'SIN ASIGNAR' ? (
-                        <span className="text-[10px] font-medium text-destructive">SIN ASIGNAR</span>
+                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-500 dark:text-red-400 ring-1 ring-red-500/40">
+                          <UserX className="h-3 w-3" />
+                          SIN ASIGNAR
+                        </span>
                       ) : s.operario ? (
                         <button
                           className={`text-[10px] font-medium cursor-pointer hover:underline ${selectedOperario === s.operario ? 'underline text-primary font-bold' : ''}`}
@@ -805,10 +855,14 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     {(s.blocks || []).map((val, bi) => (
                       <td
                         key={bi}
-                        className="px-1 py-1 text-center"
+                        className={`px-1 py-1 text-center ${isSinAsignar && val > 0 ? 'ring-1 ring-inset ring-red-500/50 font-bold' : ''}`}
                         style={{
-                          backgroundColor: val > 0 ? `${bgColor}30` : undefined,
-                          color: val > 0 ? bgColor : undefined,
+                          backgroundColor: val > 0
+                            ? isSinAsignar ? 'rgba(239,68,68,0.25)' : `${bgColor}30`
+                            : undefined,
+                          color: val > 0
+                            ? isSinAsignar ? '#ef4444' : bgColor
+                            : undefined,
                           fontWeight: val > 0 ? 600 : 400,
                         }}
                       >
