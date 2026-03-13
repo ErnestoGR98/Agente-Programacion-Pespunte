@@ -941,6 +941,13 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 tardiness_carryover[code] = tardiness_carryover.get(code, 0) + tard
                 print(f"    [REZAGO] {code}: {tard}p pendientes → se pasan al siguiente dia")
 
+        # --- Carry-over overproduction al dia siguiente (acreditar como adelanto) ---
+        day_over = results[day_name]["summary"].get("overproduction_by_model", {})
+        if day_over and task_idx + 1 < len(ordered_tasks):
+            for code, over in day_over.items():
+                adelanto_credits[code] = adelanto_credits.get(code, 0) + over
+                print(f"    [OVERPROD] {code}: +{over}p sobreproducidos → se descuentan del siguiente dia")
+
         # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
         if task_idx + 1 >= len(ordered_tasks):
             continue  # ultimo dia, no hay dia siguiente
@@ -1165,11 +1172,14 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
         if t > 0:
             tardiness_by_model[model["codigo"]] = t
 
-    # Overproduction total (pares extra para completar bloques al rate)
-    total_over = sum(
-        solver.Value(overproduction[m_idx])
-        for m_idx in range(len(models_day))
-    )
+    # Overproduction por modelo y total (pares extra para completar bloques al rate)
+    overproduction_by_model = {}
+    total_over = 0
+    for m_idx, model in enumerate(models_day):
+        o = solver.Value(overproduction[m_idx])
+        total_over += o
+        if o > 0:
+            overproduction_by_model[model["codigo"]] = o
 
     # Pares totales (reales producidos = pares_dia - tardiness + overproduction)
     total_pares = sum(m["pares_dia"] for m in models_day) - total_tard + total_over
@@ -1179,6 +1189,8 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
         "total_pares": total_pares,
         "total_tardiness": total_tard,
         "tardiness_by_model": tardiness_by_model,
+        "total_overproduction": total_over,
+        "overproduction_by_model": overproduction_by_model,
         "plantilla": plantilla,
         "block_hc": block_hc,
         "block_pares": block_pares,
