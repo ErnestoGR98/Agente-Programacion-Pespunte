@@ -31,7 +31,9 @@ from ortools.sat.python import cp_model
 # Pesos del objetivo (defaults, overridden by params if available)
 _W_TARDINESS = 100_000     # por par no completado en el dia
 _W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
-_W_HC_OVERFLOW = 5_000     # por segundo de exceso sobre plantilla/recurso por bloque
+_W_HC_OVERFLOW = 50         # por segundo de exceso sobre plantilla/recurso por bloque
+                            # (50 * 3600s = 180k por persona-bloque: fuerte pero < tardiness)
+_W_OP_CAP_OVERFLOW = 5_000  # por persona de exceso sobre capacidad de operarios (por bloque)
 _W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
 _W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
@@ -718,7 +720,8 @@ def schedule_day(models_day: list, params: dict, compiled=None,
         obj_terms.append(W_HC_OVERFLOW * ov)
 
     # Penalty por exceder capacidad de operarios por recurso (PLANA/POSTE)
-    W_OP_CAP = W_HC_OVERFLOW * 2  # alto para preferir respetar, pero no infeasible
+    # Usa peso independiente: overflow de operarios es por persona, no por segundo
+    W_OP_CAP = int(params.get("w_diario_op_cap", _W_OP_CAP_OVERFLOW))
     for ov in op_cap_overflow_terms:
         obj_terms.append(W_OP_CAP * ov)
 
