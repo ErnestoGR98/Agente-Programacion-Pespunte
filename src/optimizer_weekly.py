@@ -202,22 +202,23 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         overtime_used[d] = solver_model.NewIntVar(0, overtime_cap, f"ot_{d}")
         solver_model.Add(overtime_used[d] >= day_load - regular_cap)
 
+    # Pre-computar carga por recurso para cada modelo (excluir MAQUILA)
+    # Usado por constraints 3b (resource_cap) y 3c (operator_capacity)
+    model_resource_load = []
+    for model in models:
+        rload = {}
+        for op in model.get("operations", []):
+            r = op.get("recurso", "GENERAL") or "GENERAL"
+            if r == "MAQUILA":
+                continue  # MAQUILA es trabajo externo
+            rload[r] = rload.get(r, 0) + op["sec_per_pair"]
+        model_resource_load.append(rload)
+
     # 3b. Capacidad por tipo de recurso por dia
     #     El diario enforza limites por recurso (MESA, PLANA, ROBOT, etc).
     #     Sin esta restriccion el semanal sobrecarga recursos especificos.
     resource_cap = params.get("resource_capacity", {})
     if resource_cap:
-        # Pre-computar carga por recurso para cada modelo (excluir MAQUILA)
-        model_resource_load = []
-        for model in models:
-            rload = {}
-            for op in model.get("operations", []):
-                r = op.get("recurso", "GENERAL") or "GENERAL"
-                if r == "MAQUILA":
-                    continue  # MAQUILA es trabajo externo
-                rload[r] = rload.get(r, 0) + op["sec_per_pair"]
-            model_resource_load.append(rload)
-
         for d in range(num_days):
             day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
             for res_type, cap in resource_cap.items():
@@ -236,6 +237,27 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     # NOTE: Robot-level constraints removed from weekly solver.
     # The daily solver handles robot exclusivity via y[m,op,r,b] variables.
     # Weekly solver focuses on headcount capacity and balance only.
+
+    # 3c. Capacidad de operarios por recurso por dia
+    #     El diario limita HC concurrente por recurso al numero real de operarios.
+    #     Sin esta constraint, el semanal puede asignar mas trabajo por recurso
+    #     del que los operarios pueden manejar, causando tardiness en el diario.
+    op_capacity = params.get("operator_capacity", {})
+    if op_capacity and model_resource_load:
+        for d in range(num_days):
+            day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
+            for res_type, op_count in op_capacity.items():
+                terms = []
+                for m in range(num_models):
+                    load_sec = model_resource_load[m].get(res_type, 0)
+                    if load_sec > 0:
+                        terms.append(x[m, d] * load_sec)
+                if terms:
+                    max_sec = op_count * day_minutes * 60
+                    solver_model.Add(sum(terms) <= max_sec)
+                    if d == 0:
+                        print(f"    [OP_CAP] {res_type}: {op_count} operarios, "
+                              f"max={max_sec}s/dia ({day_minutes}min)")
 
     # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
     #    profundidad de cascada. En el diario, las operaciones corren en cascada

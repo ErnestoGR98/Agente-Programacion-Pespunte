@@ -33,7 +33,7 @@ _W_TARDINESS = 100_000     # por par no completado en el dia
 _W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 _W_HC_OVERFLOW = 50         # por segundo de exceso sobre plantilla/recurso por bloque
                             # (50 * 3600s = 180k por persona-bloque: fuerte pero < tardiness)
-_W_OP_CAP_OVERFLOW = 5_000  # por persona de exceso sobre capacidad de operarios (por bloque)
+_W_OP_CAP_OVERFLOW = 5_000  # LEGACY: kept for params override; used only if op_capacity is soft
 _W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
 _W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
 
@@ -63,13 +63,14 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
                 self.StopSearch()
 
 
-def _calc_dynamic_hc(models_day, resource_cap, plantilla):
-    """Calcula HC maximo por operacion segun recursos y estabilidad.
+def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None):
+    """Calcula HC maximo por operacion segun recursos, operarios y estabilidad.
 
-    Limita max_hc para que cada operacion dure al menos 2 bloques.
+    Limita max_hc para que cada operacion dure al menos 1 bloque.
     Sin esto, HC alto hace que las operaciones se completen en 1 bloque
     y los operarios saltan entre operaciones cada hora.
     Robots siempre max_hc=1 (1 persona por robot).
+    op_capacity: {recurso: num_operarios} — limita max_hc individual por operarios.
     """
     num_models = len(models_day)
     # Mas generoso: distribuir plantilla por modelo (no por operacion)
@@ -91,6 +92,11 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla):
                 else:
                     cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
                 hc = max(1, min(cap, base_hc))
+                # Limitar por operarios disponibles para este recurso
+                if op_capacity:
+                    parts = [p.strip() for p in recurso.split(",")] if "," in recurso else [recurso]
+                    op_count = min(op_capacity.get(p, plantilla) for p in parts)
+                    hc = min(hc, op_count)
                 # Limitar HC para que la operacion dure al menos min_blocks
                 # Si rate * hc * min_blocks > pares_dia, reducir hc
                 rate_per_block = op["rate"] * block_min / 60
@@ -134,8 +140,9 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     if not models_day:
         return {"schedule": [], "summary": _empty_summary(time_blocks)}
 
-    # Calcular HC dinamico por operacion segun recursos y plantilla
-    _calc_dynamic_hc(models_day, resource_cap, plantilla)
+    # Calcular HC dinamico por operacion segun recursos, operarios y plantilla
+    _calc_dynamic_hc(models_day, resource_cap, plantilla,
+                     params.get("operator_capacity"))
 
     # Construir indices
     all_ops = []  # (m_idx, op_idx, model, op)
@@ -457,11 +464,11 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             solver_model.Add(sum(total_load) <= max_hc_sec + overflow)
             hc_overflow_terms.append(overflow)
 
-    # 4b. Capacidad de operarios por recurso por bloque - SOFT
+    # 4b. Capacidad de operarios por recurso por bloque - HARD
     #     Limita hc_used simultaneo por recurso al numero real de operarios con esa skill.
-    #     Permite exceder con penalty alto para evitar INFEASIBLE en pedidos grandes.
+    #     HARD constraint: si no caben todos los pares, se genera tardiness que se
+    #     pasa al dia siguiente via rezago (mecanismo existente).
     op_capacity = params.get("operator_capacity", {})
-    op_cap_overflow_terms = []
     if op_capacity:
         for b in range(num_blocks):
             # Group hc_used by recurso
@@ -477,13 +484,11 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                         if part not in hc_by_recurso:
                             hc_by_recurso[part] = []
                         hc_by_recurso[part].append(hc_used[m_idx, op_idx, b])
-            # Add SOFT constraint for each recurso that has operator data
+            # HARD constraint: no exceder operarios reales por recurso
             for recurso, hc_vars in hc_by_recurso.items():
                 cap = op_capacity.get(recurso)
                 if cap is not None and hc_vars:
-                    overflow = solver_model.NewIntVar(0, cap, f"opcap_{recurso}_{b}")
-                    solver_model.Add(sum(hc_vars) <= cap + overflow)
-                    op_cap_overflow_terms.append(overflow)
+                    solver_model.Add(sum(hc_vars) <= cap)
 
     # 5. Capacidad de robot individual por bloque
     #    Cada robot fisico solo puede trabajar 1 operacion a la vez.
@@ -719,11 +724,7 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     for ov in hc_overflow_terms:
         obj_terms.append(W_HC_OVERFLOW * ov)
 
-    # Penalty por exceder capacidad de operarios por recurso (PLANA/POSTE)
-    # Usa peso independiente: overflow de operarios es por persona, no por segundo
-    W_OP_CAP = int(params.get("w_diario_op_cap", _W_OP_CAP_OVERFLOW))
-    for ov in op_cap_overflow_terms:
-        obj_terms.append(W_OP_CAP * ov)
+    # (op_capacity is now a HARD constraint — no penalty term needed)
 
     # Penalty por operarios ociosos (incentiva usar toda la plantilla)
     for idle in idle_terms:

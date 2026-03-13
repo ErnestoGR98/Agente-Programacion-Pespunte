@@ -784,6 +784,19 @@ def run_optimization(req: OptimizeRequest):
     # 5b. Filtrar modelos con volumen 0 (puede pasar por maquila total o avance completo)
     models_for_opt = [m for m in models_for_opt if m["total_producir"] > 0]
 
+    # 5c. Computar operator capacity per resource (para weekly + daily solvers)
+    #     Cuenta operarios activos por tipo de recurso habilitado.
+    if operarios:
+        op_cap_global = {}
+        for op in operarios:
+            if not op.get("activo", True):
+                continue
+            for r in op.get("recursos_habilitados", []):
+                op_cap_global[r] = op_cap_global.get(r, 0) + 1
+        if op_cap_global:
+            params["operator_capacity"] = op_cap_global
+            print(f"[OPT] operator_capacity: {op_cap_global}")
+
     # 6. Optimizacion semanal
     weekly_schedule, weekly_summary = optimize(models_for_opt, params, compiled)
 
