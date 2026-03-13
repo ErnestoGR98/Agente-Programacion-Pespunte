@@ -23,8 +23,8 @@ W_CHANGEOVER = 2_000    # por cambio de modelo (moderado: permite mas slots dia-
 W_ODD_LOT = 50_000      # por lote no multiplo de 100 (fuerte preferencia por centenas, 50 solo si no hay opcion)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
-W_BALANCE = 5_000       # por unidad de desbalance entre dias (significativo vs tardiness)
-W_PARES_BALANCE = 500   # por par de diferencia max-min entre dias (balance directo)
+W_BALANCE = 50          # por segundo de desbalance entre dias (load en segundos → magnitudes ~500k)
+W_PARES_BALANCE = 500   # por par de diferencia max-min entre dias (balance directo en pares)
 W_EARLY = 1             # por par * indice_dia (solo tiebreaker, no pelear contra balance)
 
 
@@ -222,7 +222,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
             for res_type, cap in resource_cap.items():
                 if res_type == "ROBOT":
-                    continue  # handled by dedicated robot constraint below
+                    continue  # robot ops use specific machine names, not "ROBOT" type
                 terms = []
                 for m in range(num_models):
                     load_sec = model_resource_load[m].get(res_type, 0)
@@ -253,12 +253,13 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         robot_to_models = {}
         for m, model in enumerate(models):
             for op in model.get("operations", []):
-                if op.get("recurso") == "ROBOT":
+                op_robots = op.get("robots", [])
+                if op_robots:  # operation uses robots (identified by non-empty robots list)
                     rate = op.get("rate", 100)
                     robot_rates.append(rate)
                     if m not in robot_model_indices:
                         robot_model_indices.append(m)
-                    for rname in op.get("robots", []):
+                    for rname in op_robots:
                         if rname not in robot_to_models:
                             robot_to_models[rname] = []
                         robot_to_models[rname].append((m, rate))
@@ -304,7 +305,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
     # Pre-compute sharing count per model (how many other models share a robot)
     model_sharing_count = {}
-    if resource_cap and resource_cap.get("ROBOT", 0) > 0:
+    if num_robots > 0 and robot_to_models:
         for rname, model_rates in robot_to_models.items():
             unique_models = set(m for m, _ in model_rates)
             if len(unique_models) >= 2:
