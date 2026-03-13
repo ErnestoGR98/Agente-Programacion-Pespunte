@@ -14,7 +14,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { DAY_ORDER } from '@/types'
-import type { WeeklyScheduleEntry } from '@/types'
+import type { WeeklyScheduleEntry, DailyResult } from '@/types'
 import { Truck } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
@@ -66,7 +66,7 @@ export default function ResumenPage() {
       <PivotTable schedule={schedule} maquilaFabricas={maquilaFabricas} />
 
       {/* Balance chart */}
-      <BalanceChart summary={summary} />
+      <BalanceChart summary={summary} dailyResults={result.daily_results} />
 
       {/* Models detail */}
       <ModelsDetail summary={summary} />
@@ -182,15 +182,34 @@ function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEnt
 // Balance Chart: HC Necesario vs Disponible
 // ============================================================
 
-function BalanceChart({ summary }: { summary: { days?: Array<{ dia: string; hc_necesario: number; hc_disponible: number; utilizacion_pct: number }> } }) {
+function BalanceChart({ summary, dailyResults }: { summary: { days?: Array<{ dia: string; hc_necesario: number; hc_disponible: number; utilizacion_pct: number }> }; dailyResults?: Record<string, DailyResult> }) {
   const days = summary.days || []
   if (days.length === 0) return null
 
+  // Calcular HC pico real por dia: max personas simultaneas en un bloque
+  const peakByDay: Record<string, number> = {}
+  if (dailyResults) {
+    for (const [dayName, dr] of Object.entries(dailyResults)) {
+      const schedule = dr.schedule || []
+      if (schedule.length === 0) continue
+      const numBlocks = Math.max(...schedule.map((s) => (s.blocks || []).length), 0)
+      let peak = 0
+      for (let b = 0; b < numBlocks; b++) {
+        let hcBlock = 0
+        for (const s of schedule) {
+          const bp = (s.blocks || [])[b] || 0
+          if (bp > 0) hcBlock++
+        }
+        peak = Math.max(peak, hcBlock)
+      }
+      peakByDay[dayName] = peak
+    }
+  }
+
   const chartData = days.map((d) => ({
     dia: d.dia,
-    'HC Necesario': d.hc_necesario,
+    'HC Pico': peakByDay[d.dia] || Math.ceil(d.hc_necesario),
     'HC Disponible': d.hc_disponible,
-    utilizacion: d.utilizacion_pct,
   }))
 
   return (
@@ -204,7 +223,7 @@ function BalanceChart({ summary }: { summary: { days?: Array<{ dia: string; hc_n
             <YAxis />
             <Tooltip />
             <Legend />
-            <Bar dataKey="HC Necesario" fill="#3B82F6" />
+            <Bar dataKey="HC Pico" fill="#3B82F6" />
             <Bar dataKey="HC Disponible" fill="#D1D5DB" />
           </BarChart>
         </ResponsiveContainer>
