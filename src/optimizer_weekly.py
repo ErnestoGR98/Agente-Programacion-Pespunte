@@ -23,8 +23,9 @@ W_CHANGEOVER = 2_000    # por cambio de modelo (moderado: permite mas slots dia-
 W_ODD_LOT = 50_000      # por lote no multiplo de 100 (fuerte preferencia por centenas, 50 solo si no hay opcion)
 W_SATURDAY = 500        # por par producido en sabado (ultimo recurso, solo si no cabe L-V)
 W_OVERTIME = 10          # por segundo de overtime (usa horas extra solo si es necesario)
-W_BALANCE = 10          # por unidad de desbalance entre dias (leve, permite concentraciones)
-W_EARLY = 5             # por par * indice_dia (desempate leve en favor de dias tempranos)
+W_BALANCE = 5_000       # por unidad de desbalance entre dias (significativo vs tardiness)
+W_PARES_BALANCE = 500   # por par de diferencia max-min entre dias (balance directo)
+W_EARLY = 1             # por par * indice_dia (solo tiebreaker, no pelear contra balance)
 
 
 def optimize(models: list, params: dict, compiled=None) -> tuple:
@@ -220,6 +221,8 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         for d in range(num_days):
             day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
             for res_type, cap in resource_cap.items():
+                if res_type == "ROBOT":
+                    continue  # handled by dedicated robot constraint below
                 terms = []
                 for m in range(num_models):
                     load_sec = model_resource_load[m].get(res_type, 0)
@@ -230,12 +233,84 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                         sum(terms) <= cap * day_minutes * 60
                     )
 
+    # 3c. Robot capacity as sequential machines (not person-hour pool)
+    #     Each robot is 1 machine, 1 operator, sequential processing.
+    #     Capacity = num_robots * avg_rate * productive_blocks * efficiency
+    num_robots = resource_cap.get("ROBOT", 0)
+    if num_robots > 0:
+        # Count productive blocks (exclude COMIDA)
+        productive_blocks = sum(
+            1 for tb in params.get("time_blocks", [])
+            if tb.get("label", "") != "COMIDA"
+        )
+        if productive_blocks == 0:
+            productive_blocks = 10  # fallback
+
+        # Collect robot operation rates from all models
+        robot_rates = []
+        robot_model_indices = []  # models that use robots
+        # Map robot_name -> [(model_idx, rate)]
+        robot_to_models = {}
+        for m, model in enumerate(models):
+            for op in model.get("operations", []):
+                if op.get("recurso") == "ROBOT":
+                    rate = op.get("rate", 100)
+                    robot_rates.append(rate)
+                    if m not in robot_model_indices:
+                        robot_model_indices.append(m)
+                    for rname in op.get("robots", []):
+                        if rname not in robot_to_models:
+                            robot_to_models[rname] = []
+                        robot_to_models[rname].append((m, rate))
+
+        if robot_rates:
+            avg_robot_rate = sum(robot_rates) / len(robot_rates)
+            max_robot_pares_day = int(num_robots * avg_robot_rate * productive_blocks * 0.85)
+            max_robot_pares_day = (max_robot_pares_day // step) * step
+
+            print(f"    [ROBOT CAP] {num_robots} robots, avg_rate={avg_robot_rate:.0f}, "
+                  f"productive_blocks={productive_blocks}, max/day={max_robot_pares_day}")
+
+            for d in range(num_days):
+                robot_terms = [x[m, d] for m in robot_model_indices]
+                if robot_terms:
+                    solver_model.Add(sum(robot_terms) <= max_robot_pares_day)
+
+        # 3d. Per-robot sharing constraint
+        #     If models A and B share physical robot "X", their combined pares/day
+        #     are limited by what that single robot can produce.
+        for rname, model_rates in robot_to_models.items():
+            if len(model_rates) < 2:
+                continue
+            # Use the minimum rate among sharing models (conservative)
+            min_rate = min(r for _, r in model_rates)
+            cap_per_robot = int(min_rate * productive_blocks * 0.90)
+            cap_per_robot = (cap_per_robot // step) * step
+            sharing_models = list(set(m for m, _ in model_rates))
+
+            print(f"    [ROBOT SHARE] {rname}: {len(sharing_models)} models, "
+                  f"min_rate={min_rate}, cap={cap_per_robot}/day")
+
+            for d in range(num_days):
+                sharing_terms = [x[m, d] for m in sharing_models]
+                solver_model.Add(sum(sharing_terms) <= cap_per_robot)
+
     # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
     #    profundidad de cascada. En el diario, las operaciones corren en cascada
     #    (frac 1 antes que frac 2, etc.), asi que un modelo con 13 fracciones
     #    necesita mas bloques que uno con 3. Cada paso de cascada consume ~0.5
     #    bloques de startup (con multi-HC del diario, las ops manuales terminan
     #    mas rapido y la pipeline avanza).
+
+    # Pre-compute sharing count per model (how many other models share a robot)
+    model_sharing_count = {}
+    if resource_cap and resource_cap.get("ROBOT", 0) > 0:
+        for rname, model_rates in robot_to_models.items():
+            unique_models = set(m for m, _ in model_rates)
+            if len(unique_models) >= 2:
+                for m_idx in unique_models:
+                    model_sharing_count[m_idx] = model_sharing_count.get(m_idx, 0) + len(unique_models) - 1
+
     for m, model in enumerate(models):
         ops = [op for op in model.get("operations", []) if op.get("recurso") != "MAQUILA"]
         if ops:
@@ -264,9 +339,15 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor 0.70: moderado para permitir produccion concentrada sin sobreasignar
-            # El diario tiene restricciones fisicas de maquinas que el semanal no modela
-            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * 0.70)
+            # Robot-bottleneck models get tighter factor (0.55 * sharing_factor)
+            # Manual models keep 0.70 — the daily solver handles physical constraints
+            if is_robot_bn:
+                sharing_count = model_sharing_count.get(m, 0)
+                sharing_factor = 1.0 / (1.0 + sharing_count * 0.4)
+                throughput_factor = 0.55 * sharing_factor
+            else:
+                throughput_factor = 0.70
+            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
             max_throughput = (max_throughput // step) * step
             max_throughput = min(max_throughput, model["total_producir"])
             if max_throughput > 0:
@@ -274,7 +355,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                 if d == 0:  # solo imprimir para el primer dia
                     print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
                           f"bottleneck={bottleneck_rate}, ops={num_ops}, "
-                          f"hc_boost={hc_boost}, robot_bn={is_robot_bn}, "
+                          f"robot_bn={is_robot_bn}, factor={throughput_factor:.2f}, "
                           f"minutes={day_minutes}, cascade_eff={cascade_eff:.2f}, "
                           f"max_throughput={max_throughput}")
 
@@ -283,6 +364,15 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
     for d in normal_day_indices:
         solver_model.Add(max_load >= day_loads[d])
         solver_model.Add(min_load <= day_loads[d])
+
+    # 5b. Balance directo sobre pares por dia (no solo segundos)
+    total_volume = sum(model["total_producir"] for model in models)
+    max_pares = solver_model.NewIntVar(0, total_volume, "max_pares")
+    min_pares = solver_model.NewIntVar(0, total_volume, "min_pares")
+    for d in normal_day_indices:
+        day_pares = sum(x[m, d] for m in range(num_models))
+        solver_model.Add(max_pares >= day_pares)
+        solver_model.Add(min_pares <= day_pares)
 
     # --- Funcion Objetivo ---
 
@@ -362,6 +452,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
 
     # Minimizar desbalance (diferencia max-min de carga en dias normales)
     obj_terms.append(W_BALANCE * (max_load - min_load))
+
+    # Balance directo sobre pares por dia
+    obj_terms.append(W_PARES_BALANCE * (max_pares - min_pares))
 
     # Preferir produccion en dias tempranos (desempate)
     # Lun=5, Mar=10, Mie=15, Jue=20, Vie=25: insignificante vs W_TARDINESS(100k)
