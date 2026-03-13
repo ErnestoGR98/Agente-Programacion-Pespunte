@@ -968,8 +968,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         print(f"    [ADELANTO] {day_name}: HC ocioso = {idle_hh:.1f} horas-hombre")
 
-        # Si hay al menos 3 horas-hombre ociosas, vale la pena adelantar
-        if idle_hh < 3:
+        # Si hay al menos 1 hora-hombre ociosa, vale la pena adelantar
+        if idle_hh < 1:
             continue
 
         next_day_name, (next_models, next_params) = ordered_tasks[task_idx + 1]
@@ -980,6 +980,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         # robots ya configurados) para minimizar cambios.
         current_codes = {m["codigo"] for m in models_day}
         adelanto_models = []
+        step = day_params.get("lot_step", 50)
 
         for nm in next_models:
             code = nm["codigo"]
@@ -987,11 +988,10 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             pares_available = nm["pares_dia"] - credit
             if pares_available <= 0:
                 continue
-            # Limitar pares de adelanto: maximo 30% del dia siguiente
-            # (no queremos vaciar el dia siguiente)
-            max_adelanto = max(50, int(pares_available * 0.30))
+            # Limitar pares de adelanto: maximo 60% del dia siguiente
+            # (adelantos/rezagos tienen menos restriccion para aprovechar HC)
+            max_adelanto = max(step, int(pares_available * 0.60))
             # Redondear al step
-            step = day_params.get("lot_step", 50)
             max_adelanto = (max_adelanto // step) * step
             if max_adelanto <= 0:
                 continue
@@ -1023,10 +1023,12 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         for _, code, nm, max_pares, internal_ops in adelanto_models:
             if hh_budget <= 0:
                 break
-            # Estimar consumo de HH de este modelo
-            avg_sec = sum(op["sec_per_pair"] for op in internal_ops) / max(1, len(internal_ops))
-            pares_fit = min(max_pares, int(hh_budget / max(1, avg_sec)))
-            step = day_params.get("lot_step", 50)
+            # Estimar consumo: usar cuello de botella (op mas lenta) ya que
+            # operaciones corren en paralelo. El solver decidira cuanto cabe.
+            bottleneck_sec = max(
+                (op["sec_per_pair"] for op in internal_ops), default=60
+            )
+            pares_fit = min(max_pares, int(hh_budget / max(1, bottleneck_sec)))
             pares_fit = (pares_fit // step) * step
             if pares_fit <= 0:
                 continue
