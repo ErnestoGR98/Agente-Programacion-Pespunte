@@ -89,9 +89,10 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None):
                 # MESA y GENERAL son trabajo manual, no limitados por maquinas
                 if recurso in ("MESA", "GENERAL"):
                     cap = plantilla
+                    hc = cap  # sin limite de base_hc; estabilidad y op_capacity limitan abajo
                 else:
                     cap = resource_cap.get(recurso, resource_cap.get("GENERAL", plantilla))
-                hc = max(1, min(cap, base_hc))
+                    hc = max(1, min(cap, base_hc))
                 # Limitar por operarios disponibles para este recurso
                 if op_capacity:
                     parts = [p.strip() for p in recurso.split(",")] if "," in recurso else [recurso]
