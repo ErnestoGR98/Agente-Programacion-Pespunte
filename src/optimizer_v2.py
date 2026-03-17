@@ -258,6 +258,14 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             for op_idx, op in enumerate(model["operations"]):
                 frac_to_op[(m_idx, op["fraccion"])] = op_idx
 
+        # Pre-count precedence rules per model to scale buffers.
+        # With N rules each having buffer B, total startup = N*B.
+        # If N*B > pares_dia, the pipeline is infeasible.
+        # Scale each buffer so total startup <= pares_dia * 0.4.
+        prec_count_per_model = {}
+        for (mc, _, _, _) in compiled.precedences:
+            prec_count_per_model[str(mc)] = prec_count_per_model.get(str(mc), 0) + 1
+
         for (modelo_code, fracs_orig, fracs_dest, buffer) in compiled.precedences:
             target_m = None
             for m_idx, model in enumerate(models_day):
@@ -275,16 +283,18 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             effective_buffer = buffer
             if effective_buffer < 0:
                 effective_buffer = pares_dia_m
-            # Cap buffer at half of pares_dia: when buffer >= pares_dia,
-            # the pipeline is 100% sequential (infeasible in 1 day).
-            # Scaling to 50% ensures overlap while preserving startup intent.
-            # For larger lots (pares_dia >> buffer), buffer stays unchanged.
+            # Scale buffer so total startup across all rules stays feasible.
+            # With N rules, each buffer is capped at pares_dia * 0.4 / N.
+            # This ensures the pipeline has enough overlap to complete.
             if effective_buffer > 0 and pares_dia_m > 0:
-                max_buffer = max(1, pares_dia_m // 2)
-                if effective_buffer > max_buffer:
+                n_rules = prec_count_per_model.get(str(modelo_code), 1)
+                max_total_startup = max(1, int(pares_dia_m * 0.4))
+                max_per_rule = max(1, max_total_startup // max(1, n_rules))
+                if effective_buffer > max_per_rule:
                     print(f"    [PREC] {modelo_code}: buffer {effective_buffer} "
-                          f"capped to {max_buffer} (pares_dia={pares_dia_m})")
-                    effective_buffer = max_buffer
+                          f"scaled to {max_per_rule} ({n_rules} rules, "
+                          f"pares_dia={pares_dia_m})")
+                    effective_buffer = max_per_rule
 
             # Map fraccion numbers to op_idx
             idx_orig = [frac_to_op[(target_m, f)]
