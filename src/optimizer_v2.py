@@ -330,21 +330,31 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     # Cada operacion debe llevar ventaja acumulativa sobre la siguiente.
     # Esto fuerza un flujo pipeline: frac1 empieza primero, frac2 despues, etc.
     # Sin esto, el solver puede activar fracciones en cualquier orden (saltos).
-    # SKIP para modelos con PRECEDENCIA_OPERACION custom (su flujo no es lineal).
-    models_with_custom_prec = set()
+    # SKIP solo los pares de fracciones que tienen PRECEDENCIA custom que conflicta
+    # (ej: si custom dice F4->F2, saltar cascade entre F2->F3 y F3->F4).
+    custom_prec_edges = set()  # (m_idx, op_idx_from, op_idx_to) — custom precedence pairs
     if compiled and compiled.precedences:
-        for (modelo_code, _fo, _fd, _buf) in compiled.precedences:
-            models_with_custom_prec.add(str(modelo_code))
+        for (modelo_code, fracs_orig, fracs_dest, _buf) in compiled.precedences:
+            for m_idx, model in enumerate(models_day):
+                code = model.get("codigo", "")
+                if code == str(modelo_code) or code.startswith(str(modelo_code)):
+                    # If custom says later_frac -> earlier_frac, cascade conflicts
+                    for fo in fracs_orig:
+                        for fd in fracs_dest:
+                            oi = frac_to_op.get((m_idx, fo))
+                            od = frac_to_op.get((m_idx, fd))
+                            if oi is not None and od is not None and oi > od:
+                                # Custom goes backwards (later -> earlier): skip all cascade
+                                # between od and oi (inclusive range)
+                                for skip_idx in range(od, oi):
+                                    custom_prec_edges.add((m_idx, skip_idx))
+                                    print(f"    [CASCADE] skip cascade {code} op{skip_idx}->op{skip_idx+1} (conflicts with F{fo}->F{fd})")
 
     for m_idx, model in enumerate(models_day):
-        code = model.get("codigo", "")
-        if code in models_with_custom_prec or any(
-            code.startswith(str(mc)) for mc in models_with_custom_prec
-        ):
-            print(f"    [CASCADE] skip implicit cascade for {code} (has custom PRECEDENCIA)")
-            continue
         ops = model["operations"]
         for op_idx in range(len(ops) - 1):
+            if (m_idx, op_idx) in custom_prec_edges:
+                continue  # skip: custom precedence conflicts with linear cascade here
             for b in range(num_blocks):
                 cum_current = sum(x[m_idx, op_idx, bb] for bb in range(b + 1))
                 cum_next = sum(x[m_idx, op_idx + 1, bb] for bb in range(b + 1))
@@ -790,9 +800,9 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     # Timeout dinamico segun complejidad del dia
     total_pares = sum(m["pares_dia"] for m in models_day)
     total_ops = sum(len(m["operations"]) for m in models_day)
-    # Base 15s + escala con pares y operaciones, tope 60s
+    # Base 10s + escala con pares y operaciones, tope 30s
     # (Render free tier tiene CPU limitada; early stop compensa)
-    timeout = min(60, max(15, 10 + total_pares // 100 + total_ops))
+    timeout = min(30, max(10, 8 + total_pares // 200 + total_ops // 2))
     solver.parameters.max_time_in_seconds = timeout
 
     # Workers: reducir si se ejecuta en paralelo (evitar contention)
