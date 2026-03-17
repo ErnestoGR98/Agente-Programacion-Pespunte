@@ -271,9 +271,20 @@ def schedule_day(models_day: list, params: dict, compiled=None,
 
             # buffer=-1 means "todo": all origin pairs must finish before
             # any destination pair starts -> use pares_dia as buffer
+            pares_dia_m = models_day[target_m]["pares_dia"]
             effective_buffer = buffer
             if effective_buffer < 0:
-                effective_buffer = models_day[target_m]["pares_dia"]
+                effective_buffer = pares_dia_m
+            # Cap buffer at half of pares_dia: when buffer >= pares_dia,
+            # the pipeline is 100% sequential (infeasible in 1 day).
+            # Scaling to 50% ensures overlap while preserving startup intent.
+            # For larger lots (pares_dia >> buffer), buffer stays unchanged.
+            if effective_buffer > 0 and pares_dia_m > 0:
+                max_buffer = max(1, pares_dia_m // 2)
+                if effective_buffer > max_buffer:
+                    print(f"    [PREC] {modelo_code}: buffer {effective_buffer} "
+                          f"capped to {max_buffer} (pares_dia={pares_dia_m})")
+                    effective_buffer = max_buffer
 
             # Map fraccion numbers to op_idx
             idx_orig = [frac_to_op[(target_m, f)]

@@ -146,19 +146,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         total_produced = sum(x[m, d] for d in range(num_days))
         solver_model.Add(total_produced + tardiness[m] == model["total_producir"])
 
-    # Pre-compute max buffer_pares per model from precedence rules.
-    # Models with large buffers need larger lots to amortize startup overhead.
-    # With buffer=100 and pares_dia=100, the pipeline is 100% sequential (infeasible).
-    # With buffer=100 and pares_dia=200, only 50% is startup → pipeline works.
-    model_max_buffer = {}  # modelo_num -> max buffer_pares across all precedence rules
-    if compiled and compiled.precedences:
-        for (modelo_code, _fracs_o, _fracs_d, buf_val) in compiled.precedences:
-            key = str(modelo_code)
-            if buf_val > 0:
-                model_max_buffer[key] = max(model_max_buffer.get(key, 0), buf_val)
-        if model_max_buffer:
-            print(f"    [BUFFER] Models with precedence buffers: {model_max_buffer}")
-
     # 2. Lote minimo: si se produce, al menos min_lot pares (redondeado a multiplo de step)
     for m, model in enumerate(models):
         # Override de lote minimo por modelo (LOTE_MINIMO_CUSTOM)
@@ -166,14 +153,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
         model_min = min_lot
         if compiled and modelo_num in compiled.lot_min_overrides:
             model_min = compiled.lot_min_overrides[modelo_num]
-        # Models with precedence buffers need larger lots to amortize startup
-        max_buf = model_max_buffer.get(modelo_num, 0)
-        if max_buf > 0:
-            buffer_min = max_buf + step  # at least buffer + 1 step for overlap
-            model_min = max(model_min, buffer_min)
-            if m < 20:  # limit logging
-                print(f"    [MIN_LOT] {modelo_num}: buffer={max_buf}, "
-                      f"min_lot raised to {model_min}")
         effective_min = min(model_min, model["total_producir"])
         effective_min = (effective_min // step) * step  # redondear al multiplo de step
         for d in range(num_days):
