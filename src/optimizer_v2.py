@@ -330,7 +330,19 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     # Cada operacion debe llevar ventaja acumulativa sobre la siguiente.
     # Esto fuerza un flujo pipeline: frac1 empieza primero, frac2 despues, etc.
     # Sin esto, el solver puede activar fracciones en cualquier orden (saltos).
+    # SKIP para modelos con PRECEDENCIA_OPERACION custom (su flujo no es lineal).
+    models_with_custom_prec = set()
+    if compiled and compiled.precedences:
+        for (modelo_code, _fo, _fd, _buf) in compiled.precedences:
+            models_with_custom_prec.add(str(modelo_code))
+
     for m_idx, model in enumerate(models_day):
+        code = model.get("codigo", "")
+        if code in models_with_custom_prec or any(
+            code.startswith(str(mc)) for mc in models_with_custom_prec
+        ):
+            print(f"    [CASCADE] skip implicit cascade for {code} (has custom PRECEDENCIA)")
+            continue
         ops = model["operations"]
         for op_idx in range(len(ops) - 1):
             for b in range(num_blocks):

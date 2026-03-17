@@ -297,9 +297,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             throughput_factor = 0.70
             max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
             max_throughput = (max_throughput // step) * step
+            max_throughput = max(max_throughput, step)  # never round to 0
             max_throughput = min(max_throughput, model["total_producir"])
-            if max_throughput > 0:
-                solver_model.Add(x[m, d] <= max_throughput)
+            solver_model.Add(x[m, d] <= max_throughput)
                 if d == 0:  # solo imprimir para el primer dia
                     print(f"    [THROUGHPUT] {model.get('modelo_num','?')}: "
                           f"bottleneck={bottleneck_rate}, ops={num_ops}, "
