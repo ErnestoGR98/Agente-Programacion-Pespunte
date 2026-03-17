@@ -201,12 +201,26 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                         0, pares_dia, f"y_{m_idx}_{op_idx}_{r}_{b}"
                     )
 
-    # tardiness[m] = pares no completados del modelo
-    tardiness = {}
+    # Per-operation tardiness: each operation can have different completion.
+    # Cascade ensures earlier ops have less tardiness (more production).
+    # Model tardiness = last operation's tardiness (defines actual output).
+    # This enables multi-day pipelines: F1-F4 complete today, F5-F13 tomorrow.
+    op_tardiness = {}
+    tardiness = {}  # model-level (= last op's tardiness, for rezago)
     for m_idx, model in enumerate(models_day):
+        n_ops = len(model["operations"])
+        for op_idx in range(n_ops):
+            op_tardiness[m_idx, op_idx] = solver_model.NewIntVar(
+                0, model["pares_dia"], f"otard_{m_idx}_{op_idx}"
+            )
+        # Model tardiness = last operation's tardiness
         tardiness[m_idx] = solver_model.NewIntVar(
             0, model["pares_dia"], f"tard_{m_idx}"
         )
+        if n_ops > 0:
+            solver_model.Add(
+                tardiness[m_idx] == op_tardiness[m_idx, n_ops - 1]
+            )
 
     # --- Restricciones compiladas (block_availability + disabled_robots) ---
     day_name = params.get("day_name", "")
@@ -400,9 +414,10 @@ def schedule_day(models_day: list, params: dict, compiled=None,
         )
         for op_idx in range(len(model["operations"])):
             total_op = sum(x[m_idx, op_idx, b] for b in range(num_blocks))
-            # Produccion = pares_dia - tardiness + sobreproduccion
+            # Per-op completion: each op can complete independently
+            # Cascade ensures earlier ops produce >= later ops
             solver_model.Add(
-                total_op + tardiness[m_idx] == pares_dia + overproduction[m_idx]
+                total_op + op_tardiness[m_idx, op_idx] == pares_dia + overproduction[m_idx]
             )
 
     # 2. Linking x, active, hc_used + limite por rate
@@ -846,7 +861,8 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                                       robot_ops_idx, models_day, time_blocks)
     summary = _build_day_summary(solver, x, tardiness, overproduction,
                                   models_day, time_blocks,
-                                  plantilla, resource_cap, status)
+                                  plantilla, resource_cap, status,
+                                  op_tardiness=op_tardiness)
 
     return {"schedule": schedule, "summary": summary}
 
@@ -1013,6 +1029,9 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
     adelanto_credits = {}  # se descuenta del dia siguiente
     # Track de tardiness carry-over: {modelo_code: pares_pendientes_dia_anterior}
     tardiness_carryover = {}
+    # Track de ops completadas acumulativamente: {modelo_code: set of fraccion numbers}
+    # For multi-day pipelines: ops completed on previous days are skipped
+    cumulative_completed_fracs = {}  # {code: set of completed fraccion numbers}
 
     for task_idx, (day_name, (models_day, day_params)) in enumerate(ordered_tasks):
         # Descontar pares ya adelantados del dia anterior
@@ -1061,8 +1080,25 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             pares_rezago += pending
             tardiness_carryover[code] = 0
 
-        # Filtrar modelos con 0 pares
-        models_day = [m for m in models_day if m["pares_dia"] > 0]
+        # Multi-day pipeline: filter out ops completed on previous days
+        for m in models_day:
+            code = m["codigo"]
+            if code in cumulative_completed_fracs:
+                done_fracs = cumulative_completed_fracs[code]
+                original_count = len(m["operations"])
+                # Keep only operations whose fraccion is NOT yet completed
+                remaining = [
+                    op for op in m["operations"]
+                    if op.get("fraccion") not in done_fracs
+                ]
+                if len(remaining) < original_count:
+                    skipped = original_count - len(remaining)
+                    print(f"    [PIPELINE] {day_name} {code}: skipping {skipped} "
+                          f"completed fracs {done_fracs}, {len(remaining)} remaining")
+                    m["operations"] = remaining
+
+        # Filtrar modelos con 0 pares o 0 operaciones
+        models_day = [m for m in models_day if m["pares_dia"] > 0 and m.get("operations")]
 
         total_p = sum(m["pares_dia"] for m in models_day)
         print(f"    -> {day_name}: {len(models_day)} modelos, {total_p} pares")
@@ -1085,6 +1121,25 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             for code, tard in day_tardiness.items():
                 tardiness_carryover[code] = tardiness_carryover.get(code, 0) + tard
                 print(f"    [REZAGO] {code}: {tard}p pendientes -> se pasan al siguiente dia")
+
+        # --- Track completed ops for multi-day pipeline ---
+        day_completed = results[day_name]["summary"].get("completed_ops_by_model", {})
+        if day_completed and task_idx + 1 < len(ordered_tasks):
+            for code, completed_indices in day_completed.items():
+                prev_done = cumulative_completed_fracs.get(code, set())
+                # Map completed op indices back to fraccion numbers
+                model_entry = None
+                for m in models_day:
+                    if m["codigo"] == code:
+                        model_entry = m
+                        break
+                if model_entry:
+                    for ci in completed_indices:
+                        if ci < len(model_entry["operations"]):
+                            frac = model_entry["operations"][ci].get("fraccion", ci)
+                            prev_done.add(frac)
+                    cumulative_completed_fracs[code] = prev_done
+                    print(f"    [PIPELINE] {code}: cumulative completed fracs: {prev_done}")
 
         # --- Carry-over overproduction al dia siguiente (acreditar como adelanto) ---
         day_over = results[day_name]["summary"].get("overproduction_by_model", {})
@@ -1366,7 +1421,8 @@ def _extract_day_schedule(solver, x, y, active, hc_used, robot_ops_idx,
 
 
 def _build_day_summary(solver, x, tardiness, overproduction, models_day,
-                        time_blocks, plantilla, resource_cap, status):
+                        time_blocks, plantilla, resource_cap, status,
+                        op_tardiness=None):
     """Construye resumen del dia."""
     num_blocks = len(time_blocks)
 
@@ -1404,6 +1460,29 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
         if o > 0:
             overproduction_by_model[model["codigo"]] = o
 
+    # Per-op completion tracking: which ops completed for multi-day pipeline rezago
+    # completed_ops_by_model: {codigo: [op_indices that completed]}
+    # remaining_ops_by_model: {codigo: [op_indices still pending]}
+    completed_ops_by_model = {}
+    remaining_ops_by_model = {}
+    if op_tardiness:
+        for m_idx, model in enumerate(models_day):
+            code = model["codigo"]
+            completed = []
+            remaining = []
+            for op_idx in range(len(model["operations"])):
+                ot = solver.Value(op_tardiness[m_idx, op_idx])
+                if ot == 0:
+                    completed.append(op_idx)
+                else:
+                    remaining.append(op_idx)
+            if completed and remaining:
+                # Partial completion: some ops done, some pending
+                completed_ops_by_model[code] = completed
+                remaining_ops_by_model[code] = remaining
+                print(f"    [PIPELINE] {code}: completed ops {completed}, "
+                      f"remaining ops {remaining}")
+
     # Pares totales (reales producidos = pares_dia - tardiness + overproduction)
     total_pares = sum(m["pares_dia"] for m in models_day) - total_tard + total_over
 
@@ -1418,6 +1497,8 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
         "block_hc": block_hc,
         "block_pares": block_pares,
         "block_labels": [tb["label"] for tb in time_blocks],
+        "completed_ops_by_model": completed_ops_by_model,
+        "remaining_ops_by_model": remaining_ops_by_model,
     }
 
 
