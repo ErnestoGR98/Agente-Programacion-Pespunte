@@ -48,7 +48,8 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
     """Construye un dict compatible con build_context() desde Supabase."""
     state = {}
 
-    # Pedido
+    # Pedido (con color y clave_material)
+    items = []
     ped = _sb_get("pedidos", f"select=id&nombre=eq.{pedido_nombre}")
     if ped:
         items = _sb_get("pedido_items", f"select=*&pedido_id=eq.{ped[0]['id']}")
@@ -56,6 +57,7 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
             {
                 "modelo": it["modelo_num"],
                 "color": it.get("color", ""),
+                "clave_material": it.get("clave_material", ""),
                 "volumen": it["volumen"],
                 "fabrica": it.get("fabrica", ""),
             }
@@ -75,26 +77,40 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
         state["daily_results"] = res.get("daily_results")
         state["params"] = res.get("params_snapshot")
 
-    # Restricciones
-    rq = "select=*&activa=eq.true&order=created_at"
+    # Restricciones temporales (de la semana)
+    restricciones = []
     if semana:
-        rq += f"&semana=eq.{semana}"
-    restricciones = _sb_get("restricciones", rq)
-    state["restricciones"] = [
-        {
+        rq = f"select=*&activa=eq.true&semana=eq.{semana}&order=created_at"
+        restricciones = _sb_get("restricciones", rq)
+
+    # Reglas permanentes (semana IS NULL)
+    reglas = _sb_get("restricciones", "select=*&activa=eq.true&semana=is.null&order=created_at")
+
+    all_constraints = []
+    for r in restricciones:
+        all_constraints.append({
             "tipo": r["tipo"],
             "modelo": r.get("modelo_num", ""),
             "activa": r["activa"],
             "parametros": r.get("parametros", {}),
             "nota": r.get("nota", ""),
-        }
-        for r in restricciones
-    ]
+            "categoria": "temporal",
+        })
+    for r in reglas:
+        all_constraints.append({
+            "tipo": r["tipo"],
+            "modelo": r.get("modelo_num", ""),
+            "activa": r["activa"],
+            "parametros": r.get("parametros", {}),
+            "nota": r.get("nota", ""),
+            "categoria": "permanente",
+        })
+    state["restricciones"] = all_constraints
 
     # Catalogo (modelos + operaciones + robots)
     cat_modelos = _sb_get("catalogo_modelos", "select=id,modelo_num,alternativas,total_sec_per_pair,num_ops&order=modelo_num")
     if cat_modelos:
-        cat_ops = _sb_get("catalogo_operaciones", "select=modelo_id,fraccion,operacion,recurso,etapa,rate,sec_per_pair&order=fraccion")
+        cat_ops = _sb_get("catalogo_operaciones", "select=modelo_id,fraccion,operacion,input_o_proceso,recurso,etapa,rate,sec_per_pair&order=fraccion")
         robots_activos = _sb_get("robots", "select=id,nombre&estado=eq.ACTIVO&order=orden")
         robot_rels = _sb_get("catalogo_operacion_robots", "select=operacion_id,robot_id")
 
@@ -126,6 +142,7 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
                     {
                         "fraccion": op["fraccion"],
                         "operacion": op["operacion"],
+                        "input_o_proceso": op.get("input_o_proceso", ""),
                         "recurso": op["recurso"],
                         "etapa": op.get("etapa", ""),
                         "rate": op.get("rate", 0),
@@ -145,9 +162,68 @@ def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
     if dias_lab:
         state["dias_laborales"] = dias_lab
 
-    fabricas = _sb_get("fabricas", "select=nombre,orden&order=orden")
+    fabricas = _sb_get("fabricas", "select=nombre,es_maquila,orden&order=orden")
     if fabricas:
-        state["fabricas"] = [f["nombre"] for f in fabricas]
+        state["fabricas"] = [
+            {"nombre": f["nombre"], "es_maquila": f.get("es_maquila", False)}
+            for f in fabricas
+        ]
+
+    # Pesos de priorizacion y parametros de optimizacion
+    pesos = _sb_get("pesos_priorizacion", "select=nombre,valor&order=nombre")
+    if pesos:
+        state["pesos"] = {p["nombre"]: p["valor"] for p in pesos}
+    params_opt = _sb_get("parametros_optimizacion", "select=nombre,valor&order=nombre")
+    if params_opt:
+        state["parametros_opt"] = {p["nombre"]: p["valor"] for p in params_opt}
+
+    # Operarios con habilidades y disponibilidad
+    operarios_raw = _sb_get("operarios", "select=id,nombre,eficiencia,activo&activo=eq.true&order=nombre")
+    if operarios_raw:
+        # Habilidades
+        habs = _sb_get("operario_habilidades", "select=operario_id,habilidad,nivel")
+        habs_by_op = {}
+        for h in habs:
+            habs_by_op.setdefault(h["operario_id"], []).append(
+                {"habilidad": h["habilidad"], "nivel": h.get("nivel", 2)}
+            )
+        # Dias disponibles
+        dias_raw = _sb_get("operario_dias", "select=operario_id,dia")
+        dias_by_op = {}
+        for d in dias_raw:
+            dias_by_op.setdefault(d["operario_id"], []).append(d["dia"])
+
+        state["operarios"] = [
+            {
+                "nombre": op["nombre"],
+                "eficiencia": op.get("eficiencia", 1.0),
+                "habilidades": habs_by_op.get(op["id"], []),
+                "dias_disponibles": dias_by_op.get(op["id"], []),
+            }
+            for op in operarios_raw
+        ]
+
+    # Asignaciones maquila (si hay pedido)
+    if ped:
+        items_ids = [it["id"] for it in items] if items else []
+        if items_ids:
+            # Fetch maquila assignments for pedido items
+            maquila_raw = _sb_get("asignaciones_maquila", f"select=*&order=id")
+            # Filter to our pedido items
+            item_id_set = set(items_ids)
+            maquila_filtered = [a for a in maquila_raw if a.get("pedido_item_id") in item_id_set]
+            if maquila_filtered:
+                # Map item_id -> modelo
+                item_modelo = {it["id"]: it["modelo_num"] for it in items}
+                state["asignaciones_maquila"] = [
+                    {
+                        "modelo": item_modelo.get(a["pedido_item_id"], "?"),
+                        "maquila": a.get("maquila", ""),
+                        "pares": a.get("pares", 0),
+                        "fecha_entrega": str(a.get("fecha_entrega", "")) if a.get("fecha_entrega") else None,
+                    }
+                    for a in maquila_filtered
+                ]
 
     # Avance
     if semana:
