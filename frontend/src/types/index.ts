@@ -352,6 +352,7 @@ export interface DailyScheduleEntry {
   rate: number
   hc: number
   etapa: string
+  input_o_proceso?: string
   blocks: number[]
   total: number
   robot?: string

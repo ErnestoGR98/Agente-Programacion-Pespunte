@@ -1,20 +1,30 @@
 'use client'
 
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
+import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER } from '@/types'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { Eye, EyeOff, FileSpreadsheet, FileText, Braces, Download, Check } from 'lucide-react'
+import { Eye, EyeOff, FileSpreadsheet, FileText, Braces, Download, Check, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { exportSabanaPDF, exportSabanaExcel } from '@/lib/export'
 import type { SabanaDayData, SabanaExcelModelGroup } from '@/lib/export'
 
-function getEtapaColor(etapa: string): string {
+function getEtapaColor(etapa: string, inputProceso?: string): string {
+  // Usar input_o_proceso como fuente primaria (mapea directo a STAGE_COLORS)
+  if (inputProceso) {
+    if (inputProceso.includes('N/A')) return STAGE_COLORS['N/A PRELIMINAR']
+    if (inputProceso.includes('PRELIMINAR')) return STAGE_COLORS.PRELIMINAR
+    if (inputProceso.includes('ROBOT')) return STAGE_COLORS.ROBOT
+    if (inputProceso.includes('POST')) return STAGE_COLORS.POST
+    if (inputProceso.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
+  }
+  // Fallback a etapa con matching ampliado
   if (!etapa) return '#94A3B8'
   if (etapa.includes('N/A PRELIMINAR')) return STAGE_COLORS['N/A PRELIMINAR']
-  if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return STAGE_COLORS.PRELIMINAR
+  if (etapa.includes('PRELIMINAR') || etapa.includes('PRE') || etapa === 'MESA') return STAGE_COLORS.PRELIMINAR
   if (etapa.includes('ROBOT')) return STAGE_COLORS.ROBOT
-  if (etapa.includes('POST')) return STAGE_COLORS.POST
+  if (etapa.includes('POST') || etapa.includes('ZIGZAG')) return STAGE_COLORS.POST
   if (etapa.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
   return '#94A3B8'
 }
@@ -41,6 +51,7 @@ interface OpRow {
   operacion: string
   recurso: string
   etapa: string
+  input_o_proceso: string
   imgUrl: string | null
   days: Record<string, DayCell>
   weekTotal: number
@@ -51,6 +62,30 @@ export default function SabanaPage() {
   const [jsonCopied, setJsonCopied] = useState(false)
   const catImages = useCatalogoImages()
   const [showOperario, setShowOperario] = useState(false)
+  const [showDeficit, setShowDeficit] = useState(false)
+  const [inputProcesoMap, setInputProcesoMap] = useState<Map<string, string>>(new Map())
+
+  // Load input_o_proceso from catalog for block coloring
+  useEffect(() => {
+    if (!result?.daily_results) { setInputProcesoMap(new Map()); return }
+    const modelNums = new Set<string>()
+    for (const dayData of Object.values(result.daily_results)) {
+      for (const s of dayData.schedule || []) modelNums.add(s.modelo.split(' ')[0])
+    }
+    if (modelNums.size === 0) { setInputProcesoMap(new Map()); return }
+    supabase
+      .from('catalogo_operaciones')
+      .select('fraccion, input_o_proceso, catalogo_modelos!inner(modelo_num)')
+      .in('catalogo_modelos.modelo_num', [...modelNums])
+      .then(({ data }) => {
+        const map = new Map<string, string>()
+        for (const op of data || []) {
+          const cm = op.catalogo_modelos as unknown as { modelo_num: string }
+          map.set(`${cm.modelo_num}|${op.fraccion}`, op.input_o_proceso || '')
+        }
+        setInputProcesoMap(map)
+      })
+  }, [result])
 
   const dayNames = useMemo(() => {
     if (!result?.daily_results) return []
@@ -97,7 +132,9 @@ export default function SabanaPage() {
           const imgUrl = getModeloImageUrl(catImages, num, cp.join(' '))
           opMap.set(key, {
             modelo, fraccion: s.fraccion, operacion: s.operacion, recurso,
-            etapa: s.etapa || '', imgUrl, days: {}, weekTotal: 0,
+            etapa: s.etapa || '',
+            input_o_proceso: inputProcesoMap.get(`${modelo.split(' ')[0]}|${s.fraccion}`) || s.input_o_proceso || '',
+            imgUrl, days: {}, weekTotal: 0,
           })
         }
 
@@ -143,7 +180,59 @@ export default function SabanaPage() {
     }
 
     return { modelGroups: groups, modelWeeklyTotals: totals }
-  }, [result, dayNames, catImages, numBlocks])
+  }, [result, dayNames, catImages, numBlocks, inputProcesoMap])
+
+  // ── Deficit: weekly planned vs daily actual ──
+  const deficitData = useMemo(() => {
+    if (!result?.weekly_schedule || !result?.daily_results) return { models: [] as { modelo: string; imgUrl: string | null; planned: number; actual: number; deficit: number; byDay: Record<string, { planned: number; actual: number }> }[], totalPlanned: 0, totalActual: 0 }
+
+    // Weekly planned per model per day
+    const weeklyByModel = new Map<string, Map<string, number>>()
+    for (const e of result.weekly_schedule) {
+      if (!weeklyByModel.has(e.Modelo)) weeklyByModel.set(e.Modelo, new Map())
+      weeklyByModel.get(e.Modelo)!.set(e.Dia, (weeklyByModel.get(e.Modelo)!.get(e.Dia) || 0) + e.Pares)
+    }
+
+    // Daily actual per model per day: use first operation (lowest fraccion) total
+    const dailyByModel = new Map<string, Map<string, number>>()
+    for (const { modelo, rows } of modelGroups) {
+      const dayMap = new Map<string, number>()
+      if (rows.length > 0) {
+        const firstOp = rows[0] // lowest fraccion (already sorted)
+        for (const [d, cell] of Object.entries(firstOp.days)) {
+          if (cell.total > 0) dayMap.set(d, cell.total)
+        }
+      }
+      dailyByModel.set(modelo, dayMap)
+    }
+
+    let totalPlanned = 0
+    let totalActual = 0
+    const models: { modelo: string; imgUrl: string | null; planned: number; actual: number; deficit: number; byDay: Record<string, { planned: number; actual: number }> }[] = []
+
+    for (const [modelo, dayMap] of weeklyByModel) {
+      const planned = Array.from(dayMap.values()).reduce((a, b) => a + b, 0)
+      const actualDayMap = dailyByModel.get(modelo)
+      const actual = actualDayMap ? Array.from(actualDayMap.values()).reduce((a, b) => a + b, 0) : 0
+      const deficit = planned - actual
+      totalPlanned += planned
+      totalActual += actual
+
+      const byDay: Record<string, { planned: number; actual: number }> = {}
+      for (const d of dayNames) {
+        const p = dayMap.get(d) || 0
+        const a = actualDayMap?.get(d) || 0
+        if (p > 0 || a > 0) byDay[d] = { planned: p, actual: a }
+      }
+
+      const [num, ...cp] = modelo.split(' ')
+      const imgUrl = getModeloImageUrl(catImages, num, cp.join(' '))
+      models.push({ modelo, imgUrl, planned, actual, deficit, byDay })
+    }
+
+    models.sort((a, b) => b.deficit - a.deficit)
+    return { models, totalPlanned, totalActual }
+  }, [result, modelGroups, dayNames, catImages])
 
   // ── Export: Excel (styled with colors) ──
   const handleExcel = useCallback(() => {
@@ -161,7 +250,7 @@ export default function SabanaPage() {
           fraccion: r.fraccion,
           operacion: r.operacion,
           recurso: r.recurso,
-          etapa: r.etapa,
+          etapa: r.input_o_proceso || r.etapa,
           days: Object.fromEntries(dayNames.map((d) => {
             const cell = r.days[d]
             if (!cell || cell.total === 0) return [d, null]
@@ -240,7 +329,7 @@ export default function SabanaPage() {
           row.push(cell.total)
           if (showOperario) row.push(cell.isSinAsignar ? 'SIN ASIGNAR' : cell.operario || '-')
           rows.push(row)
-          etapas.push(r.etapa)
+          etapas.push(r.input_o_proceso || r.etapa)
         }
       }
 
@@ -367,6 +456,93 @@ export default function SabanaPage() {
         ))}
       </div>
 
+      {/* Deficit section */}
+      {deficitData.totalPlanned > deficitData.totalActual && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <button
+            onClick={() => setShowDeficit((v) => !v)}
+            className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-amber-500/10 transition-colors rounded-lg"
+          >
+            {showDeficit ? <ChevronDown className="h-4 w-4 text-amber-500" /> : <ChevronRight className="h-4 w-4 text-amber-500" />}
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <span className="text-sm font-semibold text-amber-500">
+              Deficit Semanal: {(deficitData.totalPlanned - deficitData.totalActual).toLocaleString()}p sin completar
+            </span>
+            <span className="text-xs text-muted-foreground ml-2">
+              ({deficitData.totalActual.toLocaleString()} de {deficitData.totalPlanned.toLocaleString()} planificados)
+            </span>
+          </button>
+          {showDeficit && (
+            <div className="px-3 pb-3">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-border/40">
+                    <th className="text-left py-1 px-2 font-medium">Modelo</th>
+                    <th className="text-right py-1 px-1 font-medium">Semanal</th>
+                    <th className="text-right py-1 px-1 font-medium">Diario</th>
+                    <th className="text-right py-1 px-1 font-medium text-amber-500">Deficit</th>
+                    {dayNames.map((d) => (
+                      <th key={d} className="text-center py-1 px-1 font-medium text-[10px]" style={{ color: DAY_COLOR[d] }}>{d}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {deficitData.models.map(({ modelo, imgUrl, planned, actual, deficit, byDay }) => (
+                    <tr key={modelo} className={`border-b border-border/20 ${deficit > 0 ? '' : 'opacity-50'}`}>
+                      <td className="py-1 px-2">
+                        <div className="flex items-center gap-1.5">
+                          {imgUrl && <img src={imgUrl} alt="" className="h-4 w-auto rounded border object-contain bg-white shrink-0" />}
+                          <span className="font-medium">{modelo}</span>
+                        </div>
+                      </td>
+                      <td className="text-right py-1 px-1 font-mono">{planned.toLocaleString()}</td>
+                      <td className="text-right py-1 px-1 font-mono">{actual.toLocaleString()}</td>
+                      <td className={`text-right py-1 px-1 font-mono font-bold ${deficit > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                        {deficit > 0 ? `-${deficit.toLocaleString()}` : deficit === 0 ? '0' : `+${Math.abs(deficit).toLocaleString()}`}
+                      </td>
+                      {dayNames.map((d) => {
+                        const dd = byDay[d]
+                        if (!dd) return <td key={d} className="text-center py-1 px-1 text-[10px] text-muted-foreground">-</td>
+                        const dayDef = dd.planned - dd.actual
+                        return (
+                          <td key={d} className="text-center py-1 px-1 text-[10px] font-mono">
+                            {dayDef > 0 ? (
+                              <span className="text-amber-500">-{dayDef}</span>
+                            ) : dayDef < 0 ? (
+                              <span className="text-emerald-500">+{Math.abs(dayDef)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">{dd.planned > 0 ? '0' : '-'}</span>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-border/40 font-bold">
+                    <td className="py-1 px-2">TOTAL</td>
+                    <td className="text-right py-1 px-1 font-mono">{deficitData.totalPlanned.toLocaleString()}</td>
+                    <td className="text-right py-1 px-1 font-mono">{deficitData.totalActual.toLocaleString()}</td>
+                    <td className="text-right py-1 px-1 font-mono text-amber-500">
+                      -{(deficitData.totalPlanned - deficitData.totalActual).toLocaleString()}
+                    </td>
+                    {dayNames.map((d) => {
+                      const dayPlanned = deficitData.models.reduce((s, m) => s + (m.byDay[d]?.planned || 0), 0)
+                      const dayActual = deficitData.models.reduce((s, m) => s + (m.byDay[d]?.actual || 0), 0)
+                      const dayDef = dayPlanned - dayActual
+                      return (
+                        <td key={d} className="text-center py-1 px-1 text-[10px] font-mono">
+                          {dayDef > 0 ? <span className="text-amber-500">-{dayDef}</span> : dayDef < 0 ? <span className="text-emerald-500">+{Math.abs(dayDef)}</span> : <span>0</span>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Horizontal pivot table with block detail */}
       <div
         ref={scrollRef}
@@ -445,7 +621,7 @@ export default function SabanaPage() {
                     </td>
                   </tr>
                   {rows.map((r, i) => {
-                    const bgColor = getEtapaColor(r.etapa)
+                    const bgColor = getEtapaColor(r.etapa, r.input_o_proceso)
                     const hasSinAsignar = Object.values(r.days).some((d) => d.isSinAsignar)
 
                     return (

@@ -332,12 +332,21 @@ const STAGE_RGB: Record<string, [number, number, number]> = {
   MAQUILA: [239, 68, 68],
 }
 
-function getEtapaRGB(etapa: string): [number, number, number] {
+function getEtapaRGB(etapa: string, inputProceso?: string): [number, number, number] {
+  // Usar input_o_proceso como fuente primaria
+  if (inputProceso) {
+    if (inputProceso.includes('N/A')) return [148, 163, 184]
+    if (inputProceso.includes('PRELIMINAR')) return STAGE_RGB.PRELIMINAR
+    if (inputProceso.includes('ROBOT')) return STAGE_RGB.ROBOT
+    if (inputProceso.includes('POST')) return STAGE_RGB.POST
+    if (inputProceso.includes('MAQUILA')) return STAGE_RGB.MAQUILA
+  }
+  // Fallback a etapa con matching ampliado
   if (!etapa) return [148, 163, 184]
   if (etapa.includes('N/A PRELIMINAR')) return [148, 163, 184]
-  if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return STAGE_RGB.PRELIMINAR
+  if (etapa.includes('PRELIMINAR') || etapa.includes('PRE') || etapa === 'MESA') return STAGE_RGB.PRELIMINAR
   if (etapa.includes('ROBOT')) return STAGE_RGB.ROBOT
-  if (etapa.includes('POST')) return STAGE_RGB.POST
+  if (etapa.includes('POST') || etapa.includes('ZIGZAG')) return STAGE_RGB.POST
   if (etapa.includes('MAQUILA')) return STAGE_RGB.MAQUILA
   return [148, 163, 184]
 }

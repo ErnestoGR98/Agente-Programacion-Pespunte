@@ -858,14 +858,16 @@ def run_optimization(req: OptimizeRequest):
         # Transformar schedule entries: renombrar campos para el frontend
         schedule = []
         for s in source_schedule:
-            # Buscar etapa desde las operaciones del catalogo
+            # Buscar etapa e input_o_proceso desde las operaciones del catalogo
             modelo_code = s.get("modelo", "")
             etapa = ""
+            input_o_proceso = ""
             cat_model = model_lookup.get(modelo_code)
             if cat_model:
                 for op in cat_model.get("operations", []):
                     if op["fraccion"] == s.get("fraccion"):
                         etapa = op.get("etapa", "")
+                        input_o_proceso = op.get("input_o_proceso", "")
                         break
 
             entry = {
@@ -876,6 +878,7 @@ def run_optimization(req: OptimizeRequest):
                 "rate": s.get("rate", 0),
                 "hc": s.get("hc", 0),
                 "etapa": etapa,
+                "input_o_proceso": input_o_proceso,
                 "blocks": s.get("block_pares", []),
                 "total": s.get("total_pares", 0),
                 "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],

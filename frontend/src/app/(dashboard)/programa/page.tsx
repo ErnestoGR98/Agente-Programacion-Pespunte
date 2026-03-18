@@ -53,6 +53,34 @@ export default function ProgramaPage() {
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
   const [opMaquilaEntries, setOpMaquilaEntries] = useState<OpMaquilaEntry[]>([])
   const [catalogMaquilaOps, setCatalogMaquilaOps] = useState<CatalogMaquilaOp[]>([])
+  const [inputProcesoMap, setInputProcesoMap] = useState<Map<string, string>>(new Map())
+
+  // Load input_o_proceso from catalog for all models in the result (used for block coloring)
+  useEffect(() => {
+    if (!result) { setInputProcesoMap(new Map()); return }
+    const modelNums = new Set<string>()
+    if (result.weekly_schedule) {
+      for (const e of result.weekly_schedule) modelNums.add(e.Modelo.split(' ')[0])
+    }
+    if (result.daily_results) {
+      for (const dayData of Object.values(result.daily_results)) {
+        for (const s of dayData.schedule || []) modelNums.add(s.modelo.split(' ')[0])
+      }
+    }
+    if (modelNums.size === 0) { setInputProcesoMap(new Map()); return }
+    supabase
+      .from('catalogo_operaciones')
+      .select('fraccion, input_o_proceso, catalogo_modelos!inner(modelo_num)')
+      .in('catalogo_modelos.modelo_num', [...modelNums])
+      .then(({ data }) => {
+        const map = new Map<string, string>()
+        for (const op of data || []) {
+          const cm = op.catalogo_modelos as unknown as { modelo_num: string }
+          map.set(`${cm.modelo_num}|${op.fraccion}`, op.input_o_proceso || '')
+        }
+        setInputProcesoMap(map)
+      })
+  }, [result])
 
   // Load maquila fabrica names
   useEffect(() => {
@@ -365,7 +393,7 @@ export default function ProgramaPage() {
             ...(s.blocks || []).map((v: number) => (v > 0 ? v : '')),
             s.total,
           ] as (string | number)[]),
-          etapas: sched.map((s) => s.etapa || ''),
+          etapas: sched.map((s) => inputProcesoMap.get(`${s.modelo.split(' ')[0]}|${s.fraccion}`) || s.input_o_proceso || s.etapa || ''),
           maquilaCards: cards.length > 0 ? cards : undefined,
           kpis,
         }
@@ -497,12 +525,12 @@ export default function ProgramaPage() {
         </Card>
       )}
 
-      {dayData && <DayView dayName={day} data={dayData} weeklySchedule={result.weekly_schedule} maquilaModelos={maquilaModelos} maquilaDeps={maquilaDeps} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} />}
+      {dayData && <DayView dayName={day} data={dayData} weeklySchedule={result.weekly_schedule} maquilaModelos={maquilaModelos} maquilaDeps={maquilaDeps} cascadeSort={cascadeSort} onToggleCascade={() => setCascadeSort((v) => !v)} catImages={catImages} inputProcesoMap={inputProcesoMap} />}
     </div>
   )
 }
 
-function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages }: { dayName: string; data: DailyResult; weeklySchedule?: WeeklyScheduleEntry[]; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages> }) {
+function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, cascadeSort, onToggleCascade, catImages, inputProcesoMap }: { dayName: string; data: DailyResult; weeklySchedule?: WeeklyScheduleEntry[]; maquilaModelos: Set<string>; maquilaDeps: Map<string, { maquila: string; fecha_entrega: string | null }>; cascadeSort: boolean; onToggleCascade: () => void; catImages: ReturnType<typeof useCatalogoImages>; inputProcesoMap: Map<string, string> }) {
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
   const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
@@ -676,15 +704,45 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
     [schedule, opSkillGroups]
   )
 
-  function getEtapaColor(etapa: string): string {
-    if (!etapa) return '#94A3B8'
-    if (etapa.includes('N/A PRELIMINAR')) return STAGE_COLORS['N/A PRELIMINAR']
-    if (etapa.includes('PRELIMINAR') || etapa.includes('PRE')) return STAGE_COLORS.PRELIMINAR
-    if (etapa.includes('ROBOT')) return STAGE_COLORS.ROBOT
-    if (etapa.includes('POST')) return STAGE_COLORS.POST
-    if (etapa.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
-    return '#94A3B8'
-  }
+  /** Resolve color for a schedule entry using input_o_proceso from catalog */
+  const getEtapaColor = useMemo(() => {
+    function colorFromProceso(ip: string): string {
+      if (!ip) return ''
+      if (ip.includes('N/A')) return STAGE_COLORS['N/A PRELIMINAR']
+      if (ip.includes('PRELIMINAR')) return STAGE_COLORS.PRELIMINAR
+      if (ip.includes('ROBOT')) return STAGE_COLORS.ROBOT
+      if (ip.includes('POST')) return STAGE_COLORS.POST
+      if (ip.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
+      return ''
+    }
+    return (s: DailyScheduleEntry): string => {
+      // Fuente primaria: input_o_proceso del catálogo
+      const modeloNum = s.modelo.split(' ')[0]
+      const catalogIp = inputProcesoMap.get(`${modeloNum}|${s.fraccion}`) || ''
+      const fromCatalog = colorFromProceso(catalogIp)
+      if (fromCatalog) return fromCatalog
+      // Fallback: input_o_proceso del resultado (si existe)
+      const fromResult = colorFromProceso(s.input_o_proceso || '')
+      if (fromResult) return fromResult
+      // Fallback final: etapa
+      const etapa = s.etapa || ''
+      if (!etapa) return '#94A3B8'
+      if (etapa.includes('N/A PRELIMINAR')) return STAGE_COLORS['N/A PRELIMINAR']
+      if (etapa.includes('PRELIMINAR') || etapa.includes('PRE') || etapa === 'MESA') return STAGE_COLORS.PRELIMINAR
+      if (etapa.includes('ROBOT')) return STAGE_COLORS.ROBOT
+      if (etapa.includes('POST') || etapa.includes('ZIGZAG')) return STAGE_COLORS.POST
+      if (etapa.includes('MAQUILA')) return STAGE_COLORS.MAQUILA
+      return '#94A3B8'
+    }
+  }, [inputProcesoMap])
+
+  /** Lookup input_o_proceso from catalog for export */
+  const getInputProceso = useMemo(() => {
+    return (s: DailyScheduleEntry): string => {
+      const modeloNum = s.modelo.split(' ')[0]
+      return inputProcesoMap.get(`${modeloNum}|${s.fraccion}`) || ''
+    }
+  }, [inputProcesoMap])
 
   return (
     <div className="space-y-4">
@@ -875,7 +933,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
             </thead>
             <tbody>
               {schedule.map((s, i) => {
-                const bgColor = getEtapaColor(s.etapa)
+                const bgColor = getEtapaColor(s)
                 const recursoKey = s.robot || s.recurso
                 const opGroups = s.operario ? opSkillGroups.get(s.operario) : undefined
                 const hasSelectedSkill = selectedSkillGroup != null && opGroups?.some(g => g.key === selectedSkillGroup)
@@ -1022,7 +1080,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
 /** Cascade view grouped by OPERARIO — each row is an operator, cells show what they do per block */
 function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
-  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (e: string) => string; dayName: string
+  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (s: DailyScheduleEntry) => string; dayName: string
 }) {
   const grouped = useMemo(() => {
     const map = new Map<string, { blocks: (DailyScheduleEntry | null)[] }>()
@@ -1067,7 +1125,7 @@ function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
                 </td>
                 {data.blocks.map((s, bi) => {
                   if (!s) return <td key={bi} className="px-1 py-1.5 text-center text-muted-foreground/30">—</td>
-                  const bgColor = getEtapaColor(s.etapa)
+                  const bgColor = getEtapaColor(s)
                   const pares = (s.blocks || [])[bi] || 0
                   return (
                     <td
@@ -1169,7 +1227,7 @@ function IdleOperators({ schedule, dayName, allOperarios }: {
 
 /** Cascade view grouped by RECURSO (robot/machine) — each row is a resource, cells show what it produces per block */
 function CascadeByRecurso({ schedule, blockLabels, getEtapaColor, dayName }: {
-  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (e: string) => string; dayName: string
+  schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (s: DailyScheduleEntry) => string; dayName: string
 }) {
   const grouped = useMemo(() => {
     const map = new Map<string, { blocks: (DailyScheduleEntry | null)[] }>()
@@ -1209,7 +1267,7 @@ function CascadeByRecurso({ schedule, blockLabels, getEtapaColor, dayName }: {
                 </td>
                 {data.blocks.map((s, bi) => {
                   if (!s) return <td key={bi} className="px-1 py-1.5 text-center text-muted-foreground/30">—</td>
-                  const bgColor = getEtapaColor(s.etapa)
+                  const bgColor = getEtapaColor(s)
                   const pares = (s.blocks || [])[bi] || 0
                   return (
                     <td
