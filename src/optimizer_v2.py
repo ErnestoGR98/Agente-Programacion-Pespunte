@@ -63,14 +63,15 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
                 self.StopSearch()
 
 
-def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None):
-    """Calcula HC maximo por operacion segun recursos, operarios y estabilidad.
+def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None,
+                     enforce_hc_stability=False):
+    """Calcula HC maximo por operacion segun recursos y operarios.
 
-    Limita max_hc para que cada operacion dure al menos 1 bloque.
-    Sin esto, HC alto hace que las operaciones se completen en 1 bloque
-    y los operarios saltan entre operaciones cada hora.
     Robots siempre max_hc=1 (1 persona por robot).
     op_capacity: {recurso: num_operarios} — limita max_hc individual por operarios.
+    enforce_hc_stability: si True, limita max_hc para que cada operacion dure
+        al menos 1 bloque (evita saltos frecuentes entre operaciones).
+        Si False (default), permite HC alto para aprovechar operarios ociosos.
     """
     num_models = len(models_day)
     # Mas generoso: distribuir plantilla por modelo (no por operacion)
@@ -97,12 +98,12 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None):
                     parts = [p.strip() for p in recurso.split(",")] if "," in recurso else [recurso]
                     op_count = min(op_capacity.get(p, plantilla) for p in parts)
                     hc = min(hc, op_count)
-                # Limitar HC para que la operacion dure al menos min_blocks
-                # Si rate * hc * min_blocks > pares_dia, reducir hc
-                rate_per_block = op["rate"] * block_min / 60
-                if rate_per_block > 0:
-                    max_hc_stable = max(1, int(pares_dia / (rate_per_block * min_blocks)))
-                    hc = min(hc, max_hc_stable)
+                # Opcionalmente limitar HC para estabilidad (operaciones de al menos 1 bloque)
+                if enforce_hc_stability:
+                    rate_per_block = op["rate"] * block_min / 60
+                    if rate_per_block > 0:
+                        max_hc_stable = max(1, int(pares_dia / (rate_per_block * min_blocks)))
+                        hc = min(hc, max_hc_stable)
                 op["max_hc"] = hc
 
 
@@ -142,7 +143,8 @@ def schedule_day(models_day: list, params: dict, compiled=None,
 
     # Calcular HC dinamico por operacion segun recursos, operarios y plantilla
     _calc_dynamic_hc(models_day, resource_cap, plantilla,
-                     params.get("operator_capacity"))
+                     params.get("operator_capacity"),
+                     enforce_hc_stability=params.get("enforce_hc_stability", False))
 
     # Construir indices
     all_ops = []  # (m_idx, op_idx, model, op)
