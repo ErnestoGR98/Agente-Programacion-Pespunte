@@ -137,11 +137,12 @@ function ScenarioPanel({ resultName }: { resultName: string }) {
   if (gaps.total_tardiness === 0 && gaps.total_sin_asignar === 0) return null
 
   const totalDeficit = gaps.total_tardiness + gaps.total_sin_asignar_pares
-  const handleApply = async (scenario: Scenario) => {
-    setApplying(scenario.tipo)
+  const handleApply = async (scenario: Scenario, idx: number) => {
+    const key = `${scenario.tipo}_${idx}`
+    setApplying(key)
     try {
       const res = await applyScenario(resultName, pedidoNombre, semana, scenario)
-      setApplied(scenario.tipo)
+      setApplied(key)
       setApplyResult(res)
     } catch (e) {
       console.error('Error applying scenario:', e)
@@ -205,14 +206,14 @@ function ScenarioPanel({ resultName }: { resultName: string }) {
                 Escenarios para completar
               </div>
               <div className="space-y-2">
-                {scenarios.map((s) => {
+                {scenarios.map((s, idx) => {
                   const Icon = SCENARIO_ICONS[s.tipo] || Lightbulb
-                  const isApplied = applied === s.tipo
-                  const isApplying = applying === s.tipo
+                  const isApplied = applied === `${s.tipo}_${idx}`
+                  const isApplying = applying === `${s.tipo}_${idx}`
 
                   return (
                     <div
-                      key={s.tipo}
+                      key={`${s.tipo}_${idx}`}
                       className={`flex items-center justify-between rounded border p-3 transition-colors ${
                         isApplied ? 'border-green-500/50 bg-green-500/10' : 'border-border/50 hover:border-border'
                       }`}
@@ -236,7 +237,7 @@ function ScenarioPanel({ resultName }: { resultName: string }) {
                             size="sm"
                             variant="outline"
                             disabled={!!applying || !!applied}
-                            onClick={() => handleApply(s)}
+                            onClick={() => handleApply(s, idx)}
                           >
                             {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Aplicar'}
                           </Button>
