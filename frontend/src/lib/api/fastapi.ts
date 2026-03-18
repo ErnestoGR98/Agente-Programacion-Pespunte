@@ -1,4 +1,4 @@
-import type { OptimizeRequest, OptimizeResponse, ChatRequest, ChatResponse } from '@/types'
+import type { OptimizeRequest, OptimizeResponse, ChatRequest, ChatResponse, ScenarioProposals, Scenario } from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -55,6 +55,31 @@ export async function downloadTemplate(): Promise<void> {
   a.download = 'template_pedido.xlsx'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ============================================================
+// SCENARIO PLANNER
+// ============================================================
+
+export async function proposeScenarios(resultName: string): Promise<ScenarioProposals> {
+  return fetchAPI<ScenarioProposals>('/api/propose-scenarios', {
+    method: 'POST',
+    body: JSON.stringify({ result_name: resultName }),
+  })
+}
+
+export async function applyScenario(
+  resultName: string, pedidoNombre: string, semana: string, scenario: Scenario
+): Promise<{ status: string; changes: string[]; next_step: string }> {
+  return fetchAPI('/api/apply-scenario', {
+    method: 'POST',
+    body: JSON.stringify({
+      result_name: resultName,
+      pedido_nombre: pedidoNombre,
+      semana,
+      scenario,
+    }),
+  })
 }
 
 /** Warm up Render free tier on page load */

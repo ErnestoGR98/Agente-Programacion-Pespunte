@@ -401,6 +401,60 @@ export interface OptimizeResponse {
   saved_as: string
 }
 
+// ============================================================
+// SCENARIO PLANNER
+// ============================================================
+
+export interface GapByModel {
+  modelo: string
+  tardiness: number
+  sin_asignar: number
+  sin_asignar_pares: number
+  recurso_faltante: string
+  motivo: string
+}
+
+export interface GapByDay {
+  dia: string
+  tardiness: number
+  sin_asignar: number
+  pares_programados: number
+  plantilla: number
+}
+
+export interface Bottleneck {
+  recurso: string
+  deficit_horas: number
+  detalle: string
+}
+
+export interface GapAnalysis {
+  total_tardiness: number
+  total_sin_asignar: number
+  total_sin_asignar_pares: number
+  by_model: GapByModel[]
+  by_day: GapByDay[]
+  bottlenecks: Bottleneck[]
+  total_hh_faltantes: number
+  weekly_pares: number
+  daily_pares: number
+}
+
+export interface Scenario {
+  tipo: 'SABADO' | 'OVERTIME' | 'MAQUILA' | 'REORGANIZAR' | 'COMBINACION'
+  descripcion: string
+  config: Record<string, unknown>
+  pares_recuperables: number
+  pct_recuperable: number
+  costo_relativo: number
+  restricciones_auto: { tipo: string; modelo: string; parametros: Record<string, unknown> }[]
+}
+
+export interface ScenarioProposals {
+  gaps: GapAnalysis
+  scenarios: Scenario[]
+}
+
 export interface ChatAttachment {
   type: 'image' | 'excel'
   filename: string

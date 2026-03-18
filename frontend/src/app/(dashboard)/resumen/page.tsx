@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { supabase } from '@/lib/supabase/client'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -14,11 +15,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { DAY_ORDER } from '@/types'
-import type { WeeklyScheduleEntry, DailyResult } from '@/types'
-import { Truck } from 'lucide-react'
+import type { WeeklyScheduleEntry, DailyResult, ScenarioProposals, Scenario } from '@/types'
+import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
 import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
+import { proposeScenarios, applyScenario } from '@/lib/api/fastapi'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
@@ -62,6 +64,9 @@ export default function ResumenPage() {
         <KpiCard label="Tiempo Solver" value={`${(summary.wall_time_s || 0).toFixed(1)}s`} />
       </div>
 
+      {/* Scenario planner */}
+      <ScenarioPanel resultName={result.nombre} />
+
       {/* Pivot table */}
       <PivotTable schedule={schedule} maquilaFabricas={maquilaFabricas} />
 
@@ -71,6 +76,192 @@ export default function ResumenPage() {
       {/* Models detail */}
       <ModelsDetail summary={summary} />
     </div>
+  )
+}
+
+// ============================================================
+// Scenario Planner Panel
+// ============================================================
+
+const SCENARIO_ICONS: Record<string, typeof Clock> = {
+  SABADO: Calendar,
+  OVERTIME: Clock,
+  MAQUILA: Factory,
+  REORGANIZAR: Lightbulb,
+  COMBINACION: Lightbulb,
+}
+
+const COST_LABELS = ['', '$', '$$', '$$$']
+
+function ScenarioPanel({ resultName }: { resultName: string }) {
+  const [proposals, setProposals] = useState<ScenarioProposals | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [applying, setApplying] = useState<string | null>(null)
+  const [applied, setApplied] = useState<string | null>(null)
+  const [applyResult, setApplyResult] = useState<{ changes: string[]; next_step: string } | null>(null)
+  const pedidoNombre = useAppStore((s) => s.currentPedidoNombre) || ''
+  const semana = useAppStore((s) => s.currentSemana) || ''
+
+  const loadScenarios = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await proposeScenarios(resultName)
+      setProposals(data)
+      if (data.gaps.total_tardiness > 0 || data.gaps.total_sin_asignar > 0) {
+        setExpanded(true)
+      }
+    } catch (e) {
+      console.error('Error loading scenarios:', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [resultName])
+
+  useEffect(() => { loadScenarios() }, [loadScenarios])
+
+  if (!proposals) {
+    if (loading) return (
+      <Card>
+        <CardContent className="py-4 flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Analizando resultado...
+        </CardContent>
+      </Card>
+    )
+    return null
+  }
+
+  const { gaps, scenarios } = proposals
+
+  // No gaps = no panel
+  if (gaps.total_tardiness === 0 && gaps.total_sin_asignar === 0) return null
+
+  const totalDeficit = gaps.total_tardiness + gaps.total_sin_asignar_pares
+  const handleApply = async (scenario: Scenario) => {
+    setApplying(scenario.tipo)
+    try {
+      const res = await applyScenario(resultName, pedidoNombre, semana, scenario)
+      setApplied(scenario.tipo)
+      setApplyResult(res)
+    } catch (e) {
+      console.error('Error applying scenario:', e)
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  return (
+    <Card className="border-amber-500/30 bg-amber-500/5">
+      <CardHeader className="py-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <CardTitle className="text-base">
+              Deficit Semanal: {totalDeficit.toLocaleString()}p sin completar
+            </CardTitle>
+            {gaps.total_sin_asignar > 0 && (
+              <Badge variant="outline" className="text-red-500 border-red-500/30">
+                {gaps.total_sin_asignar} ops sin asignar
+              </Badge>
+            )}
+          </div>
+          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </div>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0 space-y-4">
+          {/* Gap details by model */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {gaps.by_model.filter(g => g.tardiness > 0 || g.sin_asignar > 0).map((g) => (
+              <div key={g.modelo} className="rounded border border-border/50 p-2 text-sm">
+                <div className="font-medium">{g.modelo}</div>
+                <div className="text-muted-foreground text-xs">
+                  {g.tardiness > 0 && <span className="text-amber-500">{g.tardiness}p tardiness</span>}
+                  {g.tardiness > 0 && g.sin_asignar > 0 && ' · '}
+                  {g.sin_asignar > 0 && <span className="text-red-500">{g.sin_asignar} sin asignar ({g.recurso_faltante})</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottlenecks */}
+          {gaps.bottlenecks.length > 0 && (
+            <div className="text-sm">
+              <span className="font-medium text-muted-foreground">Cuellos de botella: </span>
+              {gaps.bottlenecks.map((b, i) => (
+                <Badge key={i} variant="outline" className="mr-1 text-xs">
+                  {b.recurso} ({b.deficit_horas}h deficit)
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {/* Scenarios */}
+          {scenarios.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                <Lightbulb className="h-4 w-4 text-blue-500" />
+                Escenarios para completar
+              </div>
+              <div className="space-y-2">
+                {scenarios.map((s) => {
+                  const Icon = SCENARIO_ICONS[s.tipo] || Lightbulb
+                  const isApplied = applied === s.tipo
+                  const isApplying = applying === s.tipo
+
+                  return (
+                    <div
+                      key={s.tipo}
+                      className={`flex items-center justify-between rounded border p-3 transition-colors ${
+                        isApplied ? 'border-green-500/50 bg-green-500/10' : 'border-border/50 hover:border-border'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-sm font-medium">{s.descripcion}</div>
+                          <div className="text-xs text-muted-foreground">
+                            +{s.pares_recuperables.toLocaleString()}p ({s.pct_recuperable}%)
+                            <span className="ml-2 text-amber-500">{COST_LABELS[s.costo_relativo]}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Progress value={s.pct_recuperable} className="w-20 h-2" />
+                        {isApplied ? (
+                          <Badge className="bg-green-600"><Check className="h-3 w-3 mr-1" /> Aplicado</Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!!applying || !!applied}
+                            onClick={() => handleApply(s)}
+                          >
+                            {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Aplicar'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Apply result */}
+          {applyResult && (
+            <div className="rounded border border-green-500/30 bg-green-500/10 p-3 text-sm">
+              <div className="font-medium text-green-600 mb-1">Escenario aplicado</div>
+              <ul className="list-disc list-inside text-muted-foreground text-xs space-y-0.5">
+                {applyResult.changes.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+              <div className="mt-2 text-xs font-medium">{applyResult.next_step}</div>
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
   )
 }
 

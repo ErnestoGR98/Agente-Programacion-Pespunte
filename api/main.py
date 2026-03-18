@@ -28,6 +28,7 @@ from starlette.requests import Request
 from routes.optimize import router as optimize_router
 from routes.import_excel import router as import_router
 from routes.assistant import router as assistant_router
+from routes.scenarios import router as scenarios_router
 
 app = FastAPI(
     title="Pespunte Agent API",
@@ -51,6 +52,7 @@ app.add_middleware(
 app.include_router(optimize_router, prefix="/api", tags=["Optimizacion"])
 app.include_router(import_router, prefix="/api", tags=["Importacion"])
 app.include_router(assistant_router, prefix="/api", tags=["Asistente"])
+app.include_router(scenarios_router, prefix="/api", tags=["Escenarios"])
 
 
 @app.exception_handler(Exception)
