@@ -234,115 +234,171 @@ def propose_scenarios(req: GapRequest):
         return ScenarioProposals(gaps=gaps, scenarios=[])
 
     scenarios = []
+    total_deficit = gaps.total_tardiness + gaps.total_sin_asignar_pares
 
-    # Load current Saturday config
-    sat_config = _sb_get("dias_laborales", "select=*&nombre=eq.Sab")
-    sat = sat_config[0] if sat_config else {}
-    sat_plantilla = sat.get("plantilla", 0)
-    sat_minutos = sat.get("minutos", 300)
-
-    # Load current operator count
+    # Load config
     operarios = _sb_get("operarios", "select=id&activo=eq.true")
     total_operarios = len(operarios)
 
-    # --- Scenario 1: SABADO ---
-    if gaps.total_hh_faltantes > 0:
-        # Calculate Saturday needs
-        target_pares = min(gaps.total_tardiness, 800)  # cap at reasonable amount
-        plantilla_needed = min(total_operarios, max(6, int(gaps.total_hh_faltantes / 4) + 1))
-        horas_needed = min(5, max(2, math.ceil(gaps.total_hh_faltantes / plantilla_needed)))
+    # --- Classify the ROOT CAUSE of gaps ---
+    # Count pares sin asignar by cause category
+    robot_pares = sum(b.deficit_horas * 80 for b in gaps.bottlenecks
+                      if "ROBOT" in b.recurso.upper() or "3020" in b.recurso or "6040" in b.recurso
+                      or "CHACHE" in b.recurso.upper())
+    plana_pares = sum(b.deficit_horas * 80 for b in gaps.bottlenecks
+                      if "PLANA" in b.recurso.upper())
+    poste_pares = sum(b.deficit_horas * 80 for b in gaps.bottlenecks
+                      if "POSTE" in b.recurso.upper())
+    skill_limited = robot_pares + plana_pares + poste_pares
+    time_limited = max(0, total_deficit - skill_limited)
+
+    # Check weekly utilization — if < 85%, the problem is NOT time
+    weekly_util = 0
+    result = _sb_get("resultados", f"select=weekly_summary&nombre=eq.{req.result_name}")
+    if result:
+        ws = result[0].get("weekly_summary", {})
+        days_data = ws.get("days", [])
+        if days_data:
+            weekly_util = sum(d.get("utilizacion_pct", 0) for d in days_data) / len(days_data)
+
+    is_time_problem = weekly_util > 85  # Solo si la utilizacion es alta
+    is_robot_problem = robot_pares > total_deficit * 0.2
+    is_skill_problem = (plana_pares + poste_pares) > total_deficit * 0.2
+
+    print(f"[SCENARIOS] Clasificacion: util={weekly_util:.0f}%, "
+          f"robot={robot_pares:.0f}p, plana={plana_pares:.0f}p, "
+          f"time_limited={time_limited:.0f}p, "
+          f"is_time={is_time_problem}, is_robot={is_robot_problem}, is_skill={is_skill_problem}")
+
+    # --- Scenario: OVERTIME (solo si el problema es tiempo, no recursos) ---
+    if is_time_problem and time_limited > 50:
+        days_with_tard = sorted(
+            [(g.dia, g.tardiness) for g in gaps.by_day if g.tardiness > 0],
+            key=lambda x: -x[1]
+        )
+        if days_with_tard:
+            ot_days = [d[0] for d in days_with_tard[:3]]
+            minutos_extra = 60
+            pares_ot = int(time_limited * 0.8)  # only time-limited portion
+            pares_ot = min(pares_ot, total_deficit)
+
+            scenarios.append(Scenario(
+                tipo="OVERTIME",
+                descripcion=f"+1 hora extra {', '.join(ot_days)}",
+                config={"dias": ot_days, "minutos_extra": minutos_extra},
+                pares_recuperables=pares_ot,
+                pct_recuperable=round(100 * pares_ot / max(1, total_deficit), 1),
+                costo_relativo=1,
+            ))
+
+    # --- Scenario: SABADO (solo si hay deficit real de tiempo o para robots en dia nuevo) ---
+    if total_deficit > 100:
+        plantilla_needed = min(total_operarios, max(4, int(total_deficit / 200) + 1))
+        horas_needed = min(5, max(2, math.ceil(gaps.total_hh_faltantes / max(1, plantilla_needed))))
         minutos_sab = horas_needed * 60
 
-        # Estimate pares producible
-        pares_sab = int(plantilla_needed * horas_needed * 80 * 0.7)  # 80 pares/hr avg * efficiency
-        pares_sab = min(pares_sab, gaps.total_tardiness + gaps.total_sin_asignar_pares)
+        # Saturday helps with robots because they're free that day
+        robot_bonus = min(int(robot_pares * 0.5), 400) if is_robot_problem else 0
+        pares_sab = int(plantilla_needed * horas_needed * 60 * 0.7) + robot_bonus
+        pares_sab = min(pares_sab, total_deficit)
+
+        reason = []
+        if is_robot_problem:
+            reason.append("robots libres")
+        if is_skill_problem:
+            reason.append("operarios PLANA disponibles")
+        if is_time_problem:
+            reason.append("capacidad extra")
+        reason_str = f" ({', '.join(reason)})" if reason else ""
 
         scenarios.append(Scenario(
             tipo="SABADO",
-            descripcion=f"Trabajar sábado {horas_needed}hrs con {plantilla_needed} operarios",
-            config={
-                "plantilla": plantilla_needed,
-                "minutos": minutos_sab,
-                "horas": horas_needed,
-            },
+            descripcion=f"Sábado {horas_needed}hrs, {plantilla_needed} operarios{reason_str}",
+            config={"plantilla": plantilla_needed, "minutos": minutos_sab, "horas": horas_needed},
             pares_recuperables=pares_sab,
-            pct_recuperable=round(100 * pares_sab / max(1, gaps.total_tardiness + gaps.total_sin_asignar_pares), 1),
+            pct_recuperable=round(100 * pares_sab / max(1, total_deficit), 1),
             costo_relativo=2,
         ))
 
-    # --- Scenario 2: OVERTIME (entre semana) ---
-    # Find days with most tardiness
-    days_with_tard = sorted(
-        [(g.dia, g.tardiness) for g in gaps.by_day if g.tardiness > 0],
-        key=lambda x: -x[1]
-    )
-    if days_with_tard:
-        ot_days = [d[0] for d in days_with_tard[:3]]  # top 3 days
-        minutos_extra = 60  # 1 hour extra (se SUMA al OT actual)
-        plantilla_ot = 17  # full team
+    # --- Scenario: MAQUILA (cuando robots son el cuello de botella) ---
+    if is_robot_problem:
+        robot_models = [g for g in gaps.by_model
+                        if "ROBOT" in g.recurso_faltante.upper() or "robot" in g.motivo.lower()
+                        or "3020" in g.recurso_faltante or "6040" in g.recurso_faltante
+                        or "CHACHE" in g.recurso_faltante.upper()]
+        if robot_models:
+            candidate = max(robot_models, key=lambda g: g.sin_asignar_pares + g.tardiness)
+            pares_maq = candidate.tardiness + candidate.sin_asignar_pares
+            # Maquila also frees robot capacity for OTHER models
+            freed_pares = min(int(pares_maq * 1.5), total_deficit)
 
-        pares_ot = int(len(ot_days) * plantilla_ot * (minutos_extra / 60) * 80 * 0.7)
-        pares_ot = min(pares_ot, gaps.total_tardiness + gaps.total_sin_asignar_pares)
+            scenarios.append(Scenario(
+                tipo="MAQUILA",
+                descripcion=f"Maquila {candidate.modelo} ({pares_maq}p) — libera robot para otros modelos",
+                config={"modelo": candidate.modelo, "pares": pares_maq},
+                pares_recuperables=freed_pares,
+                pct_recuperable=round(100 * freed_pares / max(1, total_deficit), 1),
+                costo_relativo=3,
+            ))
 
-        scenarios.append(Scenario(
-            tipo="OVERTIME",
-            descripcion=f"+1 hora extra {', '.join(ot_days)}",
-            config={
-                "dias": ot_days,
-                "minutos_extra": minutos_extra,
-            },
-            pares_recuperables=pares_ot,
-            pct_recuperable=round(100 * pares_ot / max(1, gaps.total_tardiness + gaps.total_sin_asignar_pares), 1),
-            costo_relativo=1,
-        ))
+    # --- Scenario: CAPACITAR OPERARIOS (cuando PLANA/POSTE son cuello de botella) ---
+    if is_skill_problem:
+        skill_bottlenecks = [b for b in gaps.bottlenecks
+                             if "PLANA" in b.recurso.upper() or "POSTE" in b.recurso.upper()]
+        if skill_bottlenecks:
+            recurso_top = skill_bottlenecks[0].recurso
+            deficit = skill_bottlenecks[0].deficit_horas
+            # Count current operators with this skill
+            pares_gain = int(deficit * 80 * 0.7)
+            pares_gain = min(pares_gain, total_deficit)
 
-    # --- Scenario 3: MAQUILA ---
-    # Find models with robot bottlenecks that could be sent to maquila
-    robot_bottleneck_models = [
-        g for g in gaps.by_model
-        if "ROBOT" in g.recurso_faltante.upper() or "robot" in g.motivo.lower()
-    ]
-    if robot_bottleneck_models:
-        candidate = max(robot_bottleneck_models, key=lambda g: g.sin_asignar_pares + g.tardiness)
-        pares_maq = candidate.tardiness + candidate.sin_asignar_pares
+            scenarios.append(Scenario(
+                tipo="REORGANIZAR",
+                descripcion=f"Capacitar 2-3 operarios en {recurso_top} ({deficit:.0f}h deficit)",
+                config={"recurso": recurso_top, "deficit_horas": deficit},
+                pares_recuperables=pares_gain,
+                pct_recuperable=round(100 * pares_gain / max(1, total_deficit), 1),
+                costo_relativo=1,
+            ))
 
-        scenarios.append(Scenario(
-            tipo="MAQUILA",
-            descripcion=f"Enviar {candidate.modelo} a maquila ({pares_maq}p)",
-            config={
-                "modelo": candidate.modelo,
-                "pares": pares_maq,
-            },
-            pares_recuperables=pares_maq,
-            pct_recuperable=round(100 * pares_maq / max(1, gaps.total_tardiness + gaps.total_sin_asignar_pares), 1),
-            costo_relativo=3,
-        ))
+    # --- Scenario: REDISTRIBUIR (cuando modelos compiten por robots en mismo dia) ---
+    if is_robot_problem and len(gaps.by_model) >= 2:
+        robot_competing = [g for g in gaps.by_model if g.sin_asignar > 0 and
+                           ("ROBOT" in g.recurso_faltante.upper() or "3020" in g.recurso_faltante
+                            or "6040" in g.recurso_faltante or "CHACHE" in g.recurso_faltante.upper())]
+        if len(robot_competing) >= 2:
+            models_str = ", ".join(g.modelo for g in robot_competing[:3])
+            pares_freed = sum(g.sin_asignar_pares for g in robot_competing)
+            pares_freed = min(pares_freed, total_deficit)
 
-    # --- Scenario 4: COMBINACION (Sábado + OT) ---
-    if len(scenarios) >= 2:
-        combo_pares = sum(s.pares_recuperables for s in scenarios[:2])
-        combo_pares = min(combo_pares, gaps.total_tardiness + gaps.total_sin_asignar_pares)
+            scenarios.append(Scenario(
+                tipo="REORGANIZAR",
+                descripcion=f"Separar {models_str} en dias distintos (comparten robot)",
+                config={"modelos": [g.modelo for g in robot_competing[:3]], "accion": "FIJAR_DIA"},
+                pares_recuperables=pares_freed,
+                pct_recuperable=round(100 * pares_freed / max(1, total_deficit), 1),
+                costo_relativo=1,
+            ))
 
-        # Build combined config
-        combo_config = {}
-        combo_desc_parts = []
-        for s in scenarios[:2]:
-            combo_config[s.tipo.lower()] = s.config
-            combo_desc_parts.append(s.descripcion)
+    # --- Combination if multiple scenarios ---
+    viable = [s for s in scenarios if s.pares_recuperables > 0]
+    if len(viable) >= 2:
+        # Pick best 2 non-overlapping
+        best = viable[:2]
+        combo_pares = min(sum(s.pares_recuperables for s in best), total_deficit)
+        combo_desc = " + ".join(s.descripcion for s in best)
+        combo_config = {s.tipo.lower(): s.config for s in best}
 
         scenarios.append(Scenario(
             tipo="COMBINACION",
-            descripcion=" + ".join(combo_desc_parts),
+            descripcion=combo_desc,
             config=combo_config,
             pares_recuperables=combo_pares,
-            pct_recuperable=round(100 * combo_pares / max(1, gaps.total_tardiness + gaps.total_sin_asignar_pares), 1),
+            pct_recuperable=round(100 * combo_pares / max(1, total_deficit), 1),
             costo_relativo=2,
         ))
 
-    # Sort by cost-effectiveness (pares/costo)
-    for s in scenarios:
-        s.pares_recuperables = min(s.pares_recuperables, gaps.total_tardiness + gaps.total_sin_asignar_pares)
-
+    # Sort: most effective first
     scenarios.sort(key=lambda s: (-s.pct_recuperable, s.costo_relativo))
 
     return ScenarioProposals(gaps=gaps, scenarios=scenarios)
