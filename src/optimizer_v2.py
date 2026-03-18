@@ -1032,6 +1032,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
     # Track de ops completadas acumulativamente: {modelo_code: set of fraccion numbers}
     # For multi-day pipelines: ops completed on previous days are skipped
     cumulative_completed_fracs = {}  # {code: set of completed fraccion numbers}
+    # Track cumulative pairs produced per operation across days (for cross-day pipeline cap)
+    cumulative_produced_by_op = {}  # {code: {fraccion: total_pairs_produced_so_far}}
 
     for task_idx, (day_name, (models_day, day_params)) in enumerate(ordered_tasks):
         # Descontar pares ya adelantados del dia anterior
@@ -1097,6 +1099,36 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                           f"completed fracs {done_fracs}, {len(remaining)} remaining")
                     m["operations"] = remaining
 
+        # Cross-day pipeline cap: if upstream ops were completed on prior days,
+        # cap today's pares_dia so downstream can't exceed upstream cumulative total
+        for m in models_day:
+            code = m["codigo"]
+            completed_fracs = cumulative_completed_fracs.get(code, set())
+            cum_prod = cumulative_produced_by_op.get(code, {})
+            if not completed_fracs or not cum_prod:
+                continue
+
+            # Min production among all completed (removed) upstream fracs
+            upstream_vals = [cum_prod[f] for f in completed_fracs if f in cum_prod]
+            if not upstream_vals:
+                continue
+            upstream_total = min(upstream_vals)
+
+            # Max production already done by remaining (downstream) ops
+            remaining_fracs = [op.get("fraccion", 0) for op in m["operations"]]
+            downstream_already = max(
+                (cum_prod.get(f, 0) for f in remaining_fracs), default=0
+            )
+
+            # Remaining capacity = what upstream produced minus what downstream already consumed
+            remaining_cap = max(0, upstream_total - downstream_already)
+
+            if remaining_cap < m["pares_dia"]:
+                print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
+                      f"{m['pares_dia']} -> {remaining_cap} "
+                      f"(upstream={upstream_total}, downstream_done={downstream_already})")
+                m["pares_dia"] = remaining_cap
+
         # Filtrar modelos con 0 pares o 0 operaciones
         models_day = [m for m in models_day if m["pares_dia"] > 0 and m.get("operations")]
 
@@ -1140,6 +1172,16 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                             prev_done.add(frac)
                     cumulative_completed_fracs[code] = prev_done
                     print(f"    [PIPELINE] {code}: cumulative completed fracs: {prev_done}")
+
+        # --- Accumulate per-operation production for cross-day pipeline cap ---
+        day_produced = results[day_name]["summary"].get("produced_by_op", {})
+        for code, op_prod in day_produced.items():
+            if code not in cumulative_produced_by_op:
+                cumulative_produced_by_op[code] = {}
+            for frac, pares in op_prod.items():
+                cumulative_produced_by_op[code][frac] = (
+                    cumulative_produced_by_op[code].get(frac, 0) + pares
+                )
 
         # --- Carry-over overproduction al dia siguiente (acreditar como adelanto) ---
         day_over = results[day_name]["summary"].get("overproduction_by_model", {})
@@ -1276,6 +1318,16 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 # Sumar pares al summary del dia
                 results[day_name]["summary"]["total_pares"] += pares_adelantados
                 results[day_name]["summary"]["pares_adelantados"] = pares_adelantados
+
+                # Accumulate adelanto production for pipeline cap
+                adel_produced = a_summary.get("produced_by_op", {})
+                for code_a, op_prod_a in adel_produced.items():
+                    if code_a not in cumulative_produced_by_op:
+                        cumulative_produced_by_op[code_a] = {}
+                    for frac_a, pares_a in op_prod_a.items():
+                        cumulative_produced_by_op[code_a][frac_a] = (
+                            cumulative_produced_by_op[code_a].get(frac_a, 0) + pares_a
+                        )
 
                 # Registrar creditos para descontar del dia siguiente
                 for m in adelanto_day:
@@ -1483,6 +1535,18 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
                 print(f"    [PIPELINE] {code}: completed ops {completed}, "
                       f"remaining ops {remaining}")
 
+    # Per-op production tracking: actual pairs produced per operation (for cross-day pipeline cap)
+    produced_by_op = {}  # {codigo: {fraccion: pares_produced}}
+    for m_idx, model in enumerate(models_day):
+        code = model["codigo"]
+        op_production = {}
+        for op_idx, op in enumerate(model["operations"]):
+            total_op_pares = sum(solver.Value(x[m_idx, op_idx, b]) for b in range(num_blocks))
+            frac = op.get("fraccion", op_idx)
+            op_production[frac] = total_op_pares
+        if op_production:
+            produced_by_op[code] = op_production
+
     # Pares totales (reales producidos = pares_dia - tardiness + overproduction)
     total_pares = sum(m["pares_dia"] for m in models_day) - total_tard + total_over
 
@@ -1499,6 +1563,7 @@ def _build_day_summary(solver, x, tardiness, overproduction, models_day,
         "block_labels": [tb["label"] for tb in time_blocks],
         "completed_ops_by_model": completed_ops_by_model,
         "remaining_ops_by_model": remaining_ops_by_model,
+        "produced_by_op": produced_by_op,
     }
 
 
