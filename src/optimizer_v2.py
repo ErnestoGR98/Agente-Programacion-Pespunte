@@ -406,11 +406,12 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     overproduction = {}
     for m_idx, model in enumerate(models_day):
         pares_dia = model["pares_dia"]
-        # Max overproduction: rate * max_hc (un bloque extra completo)
-        max_over = max(
+        # Max overproduction: limitada a 15% del pares_dia (solo para redondeo de bloques)
+        rate_max = max(
             int(op["rate"] * op.get("max_hc", 1))
             for op in model["operations"]
         ) if model["operations"] else 0
+        max_over = min(rate_max, max(10, int(pares_dia * 0.15)))
         overproduction[m_idx] = solver_model.NewIntVar(
             0, max_over, f"over_{m_idx}"
         )
@@ -1028,7 +1029,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
     ordered_tasks = [(dn, day_tasks[dn]) for dn in day_order if dn in day_tasks]
 
     # Track de pares adelantados: {modelo_code: pares_ya_adelantados}
-    adelanto_credits = {}  # se descuenta del dia siguiente
+    adelanto_credits = {}  # se descuenta del dia siguiente (solo de adelanto EXPLICITO)
     # Track de tardiness carry-over: {modelo_code: pares_pendientes_dia_anterior}
     tardiness_carryover = {}
     # Track de ops completadas acumulativamente: {modelo_code: set of fraccion numbers}
@@ -1036,14 +1037,24 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
     cumulative_completed_fracs = {}  # {code: set of completed fraccion numbers}
     # Track cumulative pairs produced per operation across days (for cross-day pipeline cap)
     cumulative_produced_by_op = {}  # {code: {fraccion: total_pairs_produced_so_far}}
+    # Track which models have rezago (tardiness carryover applied this day)
+    rezago_applied_today = set()
+    # Guardar pares originales del weekly para cada modelo-dia (proteccion minima)
+    weekly_pares_lookup = {}  # {(code, day_name): pares}
+    for dn, (md_list, _) in day_tasks.items():
+        for m in md_list:
+            weekly_pares_lookup[(m["codigo"], dn)] = m["pares_dia"]
 
     for task_idx, (day_name, (models_day, day_params)) in enumerate(ordered_tasks):
+        rezago_applied_today.clear()
+
         # Descontar pares ya adelantados del dia anterior
         for m in models_day:
             code = m["codigo"]
             if code in adelanto_credits and adelanto_credits[code] > 0:
                 descuento = min(adelanto_credits[code], m["pares_dia"])
-                print(f"    [ADELANTO] {day_name} {code}: descontando {descuento}p adelantados")
+                print(f"    [ADELANTO] {day_name} {code}: descontando {descuento}p adelantados "
+                      f"(pares_dia {m['pares_dia']} -> {m['pares_dia'] - descuento})")
                 m["pares_dia"] -= descuento
                 adelanto_credits[code] -= descuento
 
@@ -1058,6 +1069,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 m["pares_dia"] += extra
                 pares_rezago += extra
                 tardiness_carryover[code] = 0
+                rezago_applied_today.add(code)
 
         # Inyectar modelos con tardiness pendiente que NO estan programados hoy
         for code, pending in list(tardiness_carryover.items()):
@@ -1083,11 +1095,14 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             })
             pares_rezago += pending
             tardiness_carryover[code] = 0
+            rezago_applied_today.add(code)
 
         # Multi-day pipeline: filter out ops completed on previous days
+        # SOLO aplicar a modelos con rezago (tardiness de dia anterior),
+        # NO a lotes frescos del weekly (cada dia es un lote independiente).
         for m in models_day:
             code = m["codigo"]
-            if code in cumulative_completed_fracs:
+            if code in cumulative_completed_fracs and code in rezago_applied_today:
                 done_fracs = cumulative_completed_fracs[code]
                 original_count = len(m["operations"])
                 # Keep only operations whose fraccion is NOT yet completed
@@ -1102,9 +1117,12 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                     m["operations"] = remaining
 
         # Cross-day pipeline cap: if upstream ops were completed on prior days,
-        # cap today's pares_dia so downstream can't exceed upstream cumulative total
+        # cap today's pares_dia so downstream can't exceed upstream cumulative total.
+        # SOLO aplicar a modelos con rezago, no a lotes frescos del weekly.
         for m in models_day:
             code = m["codigo"]
+            if code not in rezago_applied_today:
+                continue  # lote fresco del weekly: no aplicar cap
             completed_fracs = cumulative_completed_fracs.get(code, set())
             cum_prod = cumulative_produced_by_op.get(code, {})
             if not completed_fracs or not cum_prod:
@@ -1125,13 +1143,22 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             # Remaining capacity = what upstream produced minus what downstream already consumed
             remaining_cap = max(0, upstream_total - downstream_already)
 
-            if remaining_cap < m["pares_dia"]:
-                print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
-                      f"{m['pares_dia']} -> {remaining_cap} "
-                      f"(upstream={upstream_total}, downstream_done={downstream_already})")
-                m["pares_dia"] = remaining_cap
+            # Proteger minimo: nunca por debajo de los pares del weekly
+            weekly_min = weekly_pares_lookup.get((code, day_name), 0)
 
-        # Filtrar modelos con 0 pares o 0 operaciones
+            if remaining_cap < m["pares_dia"]:
+                new_pares = max(remaining_cap, weekly_min)
+                print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
+                      f"{m['pares_dia']} -> {new_pares} "
+                      f"(upstream={upstream_total}, downstream_done={downstream_already}, weekly_min={weekly_min})")
+                m["pares_dia"] = new_pares
+
+        # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico
+        filtered_out = [m for m in models_day if m["pares_dia"] <= 0 or not m.get("operations")]
+        for m in filtered_out:
+            print(f"    WARNING: {day_name} {m['codigo']} ELIMINADO: "
+                  f"pares_dia={m['pares_dia']}, ops={len(m.get('operations', []))}, "
+                  f"weekly_pares={weekly_pares_lookup.get((m['codigo'], day_name), '?')}")
         models_day = [m for m in models_day if m["pares_dia"] > 0 and m.get("operations")]
 
         total_p = sum(m["pares_dia"] for m in models_day)
@@ -1185,12 +1212,14 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                     cumulative_produced_by_op[code].get(frac, 0) + pares
                 )
 
-        # --- Carry-over overproduction al dia siguiente (acreditar como adelanto) ---
+        # --- Overproduction: solo logear, NO convertir en adelanto_credits ---
+        # La sobreproduccion es un artefacto de discretizacion del solver (completar
+        # un bloque al rate exacto), no un adelanto intencional. Convertirla en
+        # creditos destruia los pares de dias posteriores.
         day_over = results[day_name]["summary"].get("overproduction_by_model", {})
-        if day_over and task_idx + 1 < len(ordered_tasks):
+        if day_over:
             for code, over in day_over.items():
-                adelanto_credits[code] = adelanto_credits.get(code, 0) + over
-                print(f"    [OVERPROD] {code}: +{over}p sobreproducidos -> se descuentan del siguiente dia")
+                print(f"    [OVERPROD] {code}: +{over}p sobreproducidos (no se descuentan)")
 
         # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
         if task_idx + 1 >= len(ordered_tasks):
