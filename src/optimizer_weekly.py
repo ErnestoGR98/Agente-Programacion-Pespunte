@@ -314,54 +314,6 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                       f"minutes={day_minutes}, cascade_eff={cascade_eff:.2f}, "
                       f"max_throughput={max_throughput}")
 
-    # 4b. POST conveyor constraint per model: las operaciones POST van en serie
-    #     en un conveyor fisico. Los pares/dia de cada modelo no pueden exceder
-    #     lo que la cadena POST puede procesar en los bloques disponibles.
-    for m, model in enumerate(models):
-        post_ops = [op for op in model.get("operations", [])
-                    if op.get("input_o_proceso") == "POST" and op.get("recurso") != "MAQUILA"]
-        if not post_ops:
-            continue
-        # Tiempo total POST por par (todas las fracs POST corren en serie)
-        post_sec_per_pair = sum(op.get("sec_per_pair", 0) for op in post_ops)
-        if post_sec_per_pair <= 0:
-            continue
-
-        for d in range(num_days):
-            day_minutes = days[d]["minutes"]
-            productive_blocks = int(day_minutes / 60)
-            # Max pares = bloques × 3600 seg / sec_per_pair_total_POST
-            max_post_pares = int(productive_blocks * 3600 / post_sec_per_pair)
-            max_post_pares = (max_post_pares // step) * step
-            max_post_pares = max(max_post_pares, step)
-            # Solo aplicar si es mas restrictivo que el throughput general
-            if max_post_pares < model["total_producir"]:
-                solver_model.Add(x[m, d] <= max_post_pares)
-        if d == 0:
-            print(f"    [POST_CAP] {model.get('modelo_num','?')}: "
-                  f"{len(post_ops)} fracs POST, {post_sec_per_pair}s/par, "
-                  f"max={max_post_pares}p/dia")
-
-    # 4c. POST conveyor exclusivity: el conveyor es compartido — solo N modelos
-    #     pueden correr POST simultaneamente (lineas_post, default 1). La suma de
-    #     tiempo POST de todos los modelos en un dia no puede exceder la capacidad.
-    lineas_post = params.get("lineas_post", 1) or 1
-    post_model_spp = {}  # {m_idx: total_post_sec_per_pair}
-    for m, model in enumerate(models):
-        spp = sum(op.get("sec_per_pair", 0) for op in model.get("operations", [])
-                  if op.get("input_o_proceso") == "POST" and op.get("recurso") != "MAQUILA")
-        if spp > 0:
-            post_model_spp[m] = spp
-
-    if post_model_spp:
-        for d in range(num_days):
-            day_minutes = days[d]["minutes"]
-            post_capacity_sec = int(day_minutes * 60 * lineas_post)
-            terms = [x[m_idx, d] * spp for m_idx, spp in post_model_spp.items()]
-            solver_model.Add(sum(terms) <= post_capacity_sec)
-        print(f"    [POST_EXCL] {len(post_model_spp)} modelos con POST, "
-              f"lineas={lineas_post}, cap={post_capacity_sec}s/dia")
-
     # 5. Balanceo: rastrear carga maxima y minima entre dias normales
     normal_day_indices = [d for d in range(num_days) if not days[d]["is_saturday"]]
     for d in normal_day_indices:
