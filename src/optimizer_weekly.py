@@ -234,48 +234,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                         sum(terms) <= cap * day_minutes * 60
                     )
 
-    # 3b-ROBOT. Capacidad por robot fisico por dia.
-    # Cada robot es exclusivo: 1 operacion por bloque. Si dos modelos comparten
-    # un robot, la suma de sus pares/dia no puede exceder los bloques disponibles
-    # del robot × rate promedio. Sin esto, el weekly sobrecarga robots compartidos
-    # y el daily genera tardiness.
-    robot_model_ops = {}  # {robot_name: [(m_idx, rate, sec_per_pair)]}
-    for m, model in enumerate(models):
-        for op in model.get("operations", []):
-            if op.get("recurso") == "MAQUILA":
-                continue
-            for rname in op.get("robots", []):
-                if rname:
-                    robot_model_ops.setdefault(rname, []).append(
-                        (m, op.get("rate", 60), op.get("sec_per_pair", 60))
-                    )
-    if robot_model_ops:
-        for d in range(num_days):
-            day_minutes = days[d]["minutes"]
-            num_blocks = int(day_minutes / 60)  # bloques productivos de 1 hora
-            for rname, model_ops in robot_model_ops.items():
-                # Sumar spp total por modelo en este robot (un modelo puede tener
-                # varias operaciones en el mismo robot, ej: F1 y F3 ambas usan 2A-3020-M2)
-                model_total_spp = {}
-                for m_idx, rate, spp in model_ops:
-                    model_total_spp[m_idx] = model_total_spp.get(m_idx, 0) + spp
-                if len(model_total_spp) < 2:
-                    continue  # solo 1 modelo usa este robot, no hay contención
-                # Constraint: la suma de tiempo requerido en este robot por todos los
-                # modelos no puede exceder la capacidad del robot × factor de margen.
-                # Factor 0.90: las operaciones son secuenciales dentro de cada modelo,
-                # el daily puede time-share el robot entre modelos en bloques distintos.
-                robot_capacity_sec = int(num_blocks * 3600 * 0.90)
-                terms = []
-                for m_idx, total_spp in model_total_spp.items():
-                    terms.append(x[m_idx, d] * total_spp)
-                solver_model.Add(sum(terms) <= robot_capacity_sec)
-            if d == 0:
-                for rname, model_ops in robot_model_ops.items():
-                    unique = set(m for m, _, _ in model_ops)
-                    if len(unique) >= 2:
-                        model_names = [models[m].get("modelo_num", "?") for m in unique]
-                        print(f"    [ROBOT_CAP] {rname}: compartido por {model_names}")
+    # NOTE: Robot-level constraints removed from weekly solver.
+    # The daily solver handles robot exclusivity via y[m,op,r,b] variables.
+    # Weekly solver focuses on headcount capacity and balance only.
 
     # 3c. Capacidad de operarios por recurso por dia
     #     El diario limita HC concurrente por recurso al numero real de operarios.
@@ -292,15 +253,11 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                     if load_sec > 0:
                         terms.append(x[m, d] * load_sec)
                 if terms:
-                    # Factor de concurrencia: la cascada hace que operarios de
-                    # un recurso no esten disponibles el 100% del tiempo (estan
-                    # en otras fracciones del mismo modelo). Descontar 25%.
-                    concurrency_factor = 0.85
-                    max_sec = int(op_count * day_minutes * 60 * concurrency_factor)
+                    max_sec = op_count * day_minutes * 60
                     solver_model.Add(sum(terms) <= max_sec)
                     if d == 0:
                         print(f"    [OP_CAP] {res_type}: {op_count} operarios, "
-                              f"max={max_sec}s/dia ({day_minutes}min, factor={concurrency_factor})")
+                              f"max={max_sec}s/dia ({day_minutes}min)")
 
     # 4. Throughput maximo por modelo/dia: considera el cuello de botella Y la
     #    profundidad de cascada. En el diario, las operaciones corren en cascada
@@ -342,10 +299,9 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             cascade_startup = (num_ops - 1) * 0.3
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor de conservadurismo: modelos con operaciones ROBOT son mas
-            # restrictivos (HC=1, robot exclusivo, contención con otros modelos).
-            has_robot_ops = any(op.get("recurso") == "ROBOT" for op in ops)
-            throughput_factor = 0.60 if has_robot_ops else 0.70
+            # Factor 0.70: the daily solver handles physical machine constraints,
+            # so the weekly just needs a moderate cap to avoid wild overestimation.
+            throughput_factor = 0.70
             max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
             max_throughput = (max_throughput // step) * step
             max_throughput = max(max_throughput, step)  # never round to 0
