@@ -278,7 +278,7 @@ def propose_scenarios(req: GapRequest):
     )
     if days_with_tard:
         ot_days = [d[0] for d in days_with_tard[:3]]  # top 3 days
-        minutos_extra = 60  # 1 hour extra
+        minutos_extra = 60  # 1 hour extra (se SUMA al OT actual)
         plantilla_ot = 17  # full team
 
         pares_ot = int(len(ot_days) * plantilla_ot * (minutos_extra / 60) * 80 * 0.7)
@@ -379,13 +379,16 @@ def apply_scenario(req: ApplyScenarioRequest):
         dias = ot_cfg.get("dias", [])
         minutos_extra = ot_cfg.get("minutos_extra", 60)
 
-        # Update minutos_ot for specified days
+        # Add minutos_extra to current minutos_ot (not replace)
         for dia in dias:
             try:
+                current = _sb_get("dias_laborales", f"select=minutos_ot&nombre=eq.{dia}")
+                current_ot = current[0].get("minutos_ot", 0) if current else 0
+                new_ot = current_ot + minutos_extra
                 _sb_patch("dias_laborales", f"nombre=eq.{dia}", {
-                    "minutos_ot": minutos_extra,
+                    "minutos_ot": new_ot,
                 })
-                changes_made.append(f"OT {dia}: +{minutos_extra}min")
+                changes_made.append(f"OT {dia}: {current_ot}min -> {new_ot}min (+{minutos_extra}min)")
             except Exception as e:
                 changes_made.append(f"Error OT {dia}: {e}")
 
