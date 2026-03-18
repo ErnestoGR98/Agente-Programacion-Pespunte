@@ -254,19 +254,21 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             day_minutes = days[d]["minutes"]
             num_blocks = int(day_minutes / 60)  # bloques productivos de 1 hora
             for rname, model_ops in robot_model_ops.items():
-                # Modelos unicos que usan este robot
-                unique_models = {}
+                # Sumar spp total por modelo en este robot (un modelo puede tener
+                # varias operaciones en el mismo robot, ej: F1 y F3 ambas usan 2A-3020-M2)
+                model_total_spp = {}
                 for m_idx, rate, spp in model_ops:
-                    if m_idx not in unique_models or spp > unique_models[m_idx][1]:
-                        unique_models[m_idx] = (rate, spp)
-                if len(unique_models) < 2:
+                    model_total_spp[m_idx] = model_total_spp.get(m_idx, 0) + spp
+                if len(model_total_spp) < 2:
                     continue  # solo 1 modelo usa este robot, no hay contención
-                # Constraint: la suma de tiempo requerido por cada modelo en este robot
-                # no puede exceder los bloques disponibles × 3600 seg/bloque
-                robot_capacity_sec = num_blocks * 3600  # 1 robot × bloques × 60min × 60seg
+                # Constraint: la suma de tiempo requerido en este robot por todos los
+                # modelos no puede exceder la capacidad del robot × factor de margen.
+                # Factor 0.90: las operaciones son secuenciales dentro de cada modelo,
+                # el daily puede time-share el robot entre modelos en bloques distintos.
+                robot_capacity_sec = int(num_blocks * 3600 * 0.90)
                 terms = []
-                for m_idx, (rate, spp) in unique_models.items():
-                    terms.append(x[m_idx, d] * spp)
+                for m_idx, total_spp in model_total_spp.items():
+                    terms.append(x[m_idx, d] * total_spp)
                 solver_model.Add(sum(terms) <= robot_capacity_sec)
             if d == 0:
                 for rname, model_ops in robot_model_ops.items():
@@ -293,7 +295,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
                     # Factor de concurrencia: la cascada hace que operarios de
                     # un recurso no esten disponibles el 100% del tiempo (estan
                     # en otras fracciones del mismo modelo). Descontar 25%.
-                    concurrency_factor = 0.75
+                    concurrency_factor = 0.85
                     max_sec = int(op_count * day_minutes * 60 * concurrency_factor)
                     solver_model.Add(sum(terms) <= max_sec)
                     if d == 0:
@@ -343,7 +345,7 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             # Factor de conservadurismo: modelos con operaciones ROBOT son mas
             # restrictivos (HC=1, robot exclusivo, contención con otros modelos).
             has_robot_ops = any(op.get("recurso") == "ROBOT" for op in ops)
-            throughput_factor = 0.50 if has_robot_ops else 0.70
+            throughput_factor = 0.60 if has_robot_ops else 0.70
             max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
             max_throughput = (max_throughput // step) * step
             max_throughput = max(max_throughput, step)  # never round to 0
