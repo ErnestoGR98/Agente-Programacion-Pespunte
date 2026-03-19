@@ -4,8 +4,9 @@ capacity_planner.py — Vista de capacidad instalada.
 Planifica usando SOLO restricciones fisicas:
 - Robot exclusivity (1 robot = 1 op por bloque)
 - Conteo de maquinas (MESA, PLANA, POSTE)
-- Precedencias (cascada + conveyor buffer=0)
+- Precedencias REALES de la DB (cascada + conveyor buffer=0)
 - Rates de operacion (propiedad de la maquina)
+- Horario laboral (minutos + minutos_ot por dia)
 
 SIN operarios, SIN skills, SIN HC limits.
 Muestra el techo teorico de produccion de la planta.
@@ -40,9 +41,7 @@ def _capacity_weekly(models, params, compiled=None):
     resource_cap = params.get("resource_capacity", {})
 
     # --- Robots por modelo: mapear operacion → robot names ---
-    # Para el constraint de exclusividad de robots a nivel semanal,
-    # necesitamos saber cuantos segundos de cada robot usa cada modelo.
-    robot_sec_per_model = defaultdict(lambda: defaultdict(float))  # robot_name → model_idx → sec
+    robot_sec_per_model = defaultdict(lambda: defaultdict(float))
     for m, model in enumerate(models):
         for op in model.get("operations", []):
             robots = op.get("robots", [])
@@ -59,7 +58,6 @@ def _capacity_weekly(models, params, compiled=None):
             r = op.get("recurso", "GENERAL") or "GENERAL"
             if r == "MAQUILA":
                 continue
-            # Robots ya se manejan individualmente
             rload[r] = rload.get(r, 0) + op.get("sec_per_pair", 0)
         model_resource_load.append(rload)
 
@@ -139,18 +137,17 @@ def _capacity_weekly(models, params, compiled=None):
                     solver_model.Add(sum(terms) <= cap * day_minutes * 60)
 
     # 4. Capacidad por robot individual por dia
-    #    Cada robot fisico tiene max bloques_productivos * 3600 segundos/dia
     for rname, model_secs in robot_sec_per_model.items():
         for d in range(num_days):
             day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
-            max_robot_sec = int(day_minutes * 60)  # 1 robot, all blocks
+            max_robot_sec = int(day_minutes * 60)
             terms = []
             for m_idx, spp in model_secs.items():
                 terms.append(x[m_idx, d] * int(spp))
             if terms:
                 solver_model.Add(sum(terms) <= max_robot_sec)
 
-    # 5. Max models per day (physical constraint: more models = more cascade overhead)
+    # 5. Max models per day
     for d in range(num_days):
         solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max(4, num_models))
 
@@ -163,7 +160,7 @@ def _capacity_weekly(models, params, compiled=None):
     for m in range(num_models):
         obj_terms.append(_W_SPAN * span[m])
 
-    # Balance: minimize max-min pares spread
+    # Balance
     total_volume = sum(model["total_producir"] for model in models)
     max_pares = solver_model.NewIntVar(0, total_volume, "max_pares")
     min_pares = solver_model.NewIntVar(0, total_volume, "min_pares")
@@ -226,36 +223,60 @@ def _capacity_weekly(models, params, compiled=None):
 
 
 # ---------------------------------------------------------------------------
-# Daily greedy scheduler — solo restricciones fisicas
+# Build precedence graph from compiled constraints
 # ---------------------------------------------------------------------------
 
-def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list):
+def _build_precedence_graph(modelo_num, ops_list, precedences):
+    """
+    Build a precedence lookup from compiled precedences for a specific model.
+
+    Returns:
+        dict: fraccion → list of (prerequisite_fraccion, buffer_pares)
+    """
+    # prereqs[frac] = [(source_frac, buffer), ...]
+    prereqs = defaultdict(list)
+    op_fracs = {op["fraccion"] for op in ops_list}
+
+    for (mn, fracs_origen, fracs_destino, buffer) in precedences:
+        if mn != modelo_num:
+            continue
+        for dest in fracs_destino:
+            if dest not in op_fracs:
+                continue
+            for src in fracs_origen:
+                if src in op_fracs:
+                    prereqs[dest].append((src, buffer))
+
+    return prereqs
+
+
+# ---------------------------------------------------------------------------
+# Daily greedy scheduler — solo restricciones fisicas + precedencias reales
+# ---------------------------------------------------------------------------
+
+def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
+                  precedences=None):
     """
     Greedy block-by-block scheduler usando solo capacidad de maquinas.
     Sin HC limits, sin operator skills.
-
-    Args:
-        models_day: list of model dicts with operations and pares_dia
-        time_blocks: list of {id, label, minutes}
-        resource_cap: {MESA: N, PLANA: N, POSTE: N, ...}
-        all_robots_list: list of robot names (for tracking exclusivity)
-
-    Returns:
-        {schedule: [...], summary: {...}}
+    Usa precedencias reales de la DB (buffer=0 para conveyor).
     """
     productive_blocks = [b for b in time_blocks if b["minutes"] > 0]
     num_blocks = len(productive_blocks)
 
-    # Build operation list with cascade ordering
+    # Build operation list
     ops = []
+    modelo_num_map = {}  # codigo → modelo_num
     for model in models_day:
         codigo = model["codigo"]
+        modelo_num_map[codigo] = model.get("modelo_num", "")
         pares_dia = model.get("pares_dia", 0)
         if pares_dia <= 0:
             continue
         for op in sorted(model.get("operations", []), key=lambda o: o["fraccion"]):
             ops.append({
                 "modelo": codigo,
+                "modelo_num": model.get("modelo_num", ""),
                 "fraccion": op["fraccion"],
                 "operacion": op.get("operacion", ""),
                 "recurso": op.get("recurso", "MESA"),
@@ -266,88 +287,139 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list):
                 "pares_target": pares_dia,
                 "cum_produced": 0,
                 "block_pares": [0] * num_blocks,
+                "last_block": -1,  # track last block used (for conveyor)
             })
 
     # Track resource usage per block
     robot_used = {}  # (robot_name, block_idx) → True
     resource_used = defaultdict(int)  # (res_type, block_idx) → count
 
-    # Group ops by model for cascade checking
+    # Group ops by model
     model_ops = defaultdict(list)
     for op in ops:
         model_ops[op["modelo"]].append(op)
 
+    # Build precedence graphs per model
+    prec_graphs = {}  # modelo_num → {frac: [(src_frac, buffer), ...]}
+    if precedences:
+        for codigo, ops_list in model_ops.items():
+            mn = modelo_num_map.get(codigo, "")
+            if mn:
+                prec_graphs[mn] = _build_precedence_graph(mn, ops_list, precedences)
+
+    # Helper: get op by (modelo, fraccion)
+    op_lookup = {}
+    for op in ops:
+        op_lookup[(op["modelo"], op["fraccion"])] = op
+
     # Greedy: iterate blocks, fill each to capacity
+    # Do multiple passes per block to allow cascade to flow
     for b_idx, block in enumerate(productive_blocks):
         block_min = block["minutes"]
 
-        for op in ops:
-            if op["cum_produced"] >= op["pares_target"]:
-                continue
-
-            # Cascade: can't produce more than previous fraction
-            modelo = op["modelo"]
-            fracc = op["fraccion"]
-            prev_ops = [o for o in model_ops[modelo] if o["fraccion"] < fracc]
-            if prev_ops:
-                max_from_cascade = min(o["cum_produced"] for o in prev_ops
-                                       if o["fraccion"] == max(p["fraccion"] for p in prev_ops
-                                                               if p["fraccion"] < fracc))
-                available = max_from_cascade - op["cum_produced"]
-                if available <= 0:
-                    continue
-            else:
-                available = op["pares_target"] - op["cum_produced"]
-
-            remaining = op["pares_target"] - op["cum_produced"]
-            can_produce = min(remaining, available)
-
-            recurso = op["recurso"]
-            robots = op["robots"]
-
-            if robots:
-                # Robot operation: find a free robot
-                assigned_robot = None
-                for rname in robots:
-                    if not robot_used.get((rname, b_idx)):
-                        assigned_robot = rname
-                        break
-                if not assigned_robot:
-                    continue  # all robots busy
-
-                # 1 robot, 1 operator equivalent, rate pares per hour
-                max_rate = int(op["rate"] * block_min / 60)
-                produced = min(can_produce, max_rate)
-                if produced > 0:
-                    robot_used[(assigned_robot, b_idx)] = True
-                    op["block_pares"][b_idx] = produced
-                    op["cum_produced"] += produced
-            else:
-                # Manual operation: use up to machine_count concurrent instances
-                res_parts = [r.strip() for r in recurso.split(",")]
-                # Find min available machines across all required resource types
-                max_instances = 999
-                for rp in res_parts:
-                    cap = resource_cap.get(rp, 10)
-                    used = resource_used[(rp, b_idx)]
-                    max_instances = min(max_instances, cap - used)
-
-                if max_instances <= 0:
+        # Multiple passes to let cascade propagate within a block
+        for _pass in range(3):
+            progress = False
+            for op in ops:
+                if op["cum_produced"] >= op["pares_target"]:
                     continue
 
-                # Each instance produces rate pares/hour
-                rate_per_block = int(op["rate"] * block_min / 60)
-                max_from_machines = rate_per_block * max_instances
-                produced = min(can_produce, max_from_machines)
-                instances_needed = max(1, (produced + rate_per_block - 1) // rate_per_block)
-                instances_needed = min(instances_needed, max_instances)
-                produced = min(produced, rate_per_block * instances_needed)
+                modelo = op["modelo"]
+                mn = op["modelo_num"]
+                fracc = op["fraccion"]
 
-                if produced > 0:
+                # Check precedences (real from DB)
+                prec = prec_graphs.get(mn, {})
+                if fracc in prec:
+                    # Must satisfy ALL prerequisite fractions
+                    available = op["pares_target"] - op["cum_produced"]
+                    for (src_frac, buffer) in prec[fracc]:
+                        src_op = op_lookup.get((modelo, src_frac))
+                        if src_op:
+                            if buffer == -1:
+                                # "todo" = source must complete fully first
+                                if src_op["cum_produced"] < src_op["pares_target"]:
+                                    available = 0
+                                    break
+                            else:
+                                # Source must have buffer pares more than dest
+                                headroom = src_op["cum_produced"] - op["cum_produced"] - buffer
+                                available = min(available, max(0, headroom))
+                        else:
+                            # Source op not in today's schedule — no constraint
+                            pass
+                    if available <= 0:
+                        continue
+                elif fracc > 1:
+                    # No explicit precedence but respect natural order
+                    # (fallback: previous fraction must have produced something)
+                    prev_fracs = [o for o in model_ops[modelo]
+                                  if o["fraccion"] < fracc]
+                    if prev_fracs:
+                        max_prev = max(prev_fracs, key=lambda o: o["fraccion"])
+                        available = max_prev["cum_produced"] - op["cum_produced"]
+                        if available <= 0:
+                            continue
+                    else:
+                        available = op["pares_target"] - op["cum_produced"]
+                else:
+                    available = op["pares_target"] - op["cum_produced"]
+
+                remaining = op["pares_target"] - op["cum_produced"]
+                can_produce = min(remaining, available)
+
+                recurso = op["recurso"]
+                robots = op["robots"]
+
+                if robots:
+                    # Robot: find a free robot
+                    assigned_robot = None
+                    for rname in robots:
+                        if not robot_used.get((rname, b_idx)):
+                            assigned_robot = rname
+                            break
+                    if not assigned_robot:
+                        continue
+
+                    max_rate = int(op["rate"] * block_min / 60)
+                    produced = min(can_produce, max_rate)
+                    if produced > 0:
+                        robot_used[(assigned_robot, b_idx)] = True
+                        op["block_pares"][b_idx] += produced
+                        op["cum_produced"] += produced
+                        op["last_block"] = b_idx
+                        progress = True
+                else:
+                    # Manual: use up to machine_count concurrent instances
+                    res_parts = [r.strip() for r in recurso.split(",")]
+                    max_instances = 999
                     for rp in res_parts:
-                        resource_used[(rp, b_idx)] += instances_needed
-                    op["block_pares"][b_idx] = produced
-                    op["cum_produced"] += produced
+                        cap = resource_cap.get(rp, 10)
+                        used = resource_used[(rp, b_idx)]
+                        max_instances = min(max_instances, cap - used)
+
+                    if max_instances <= 0:
+                        continue
+
+                    rate_per_block = int(op["rate"] * block_min / 60)
+                    if rate_per_block <= 0:
+                        continue
+                    max_from_machines = rate_per_block * max_instances
+                    produced = min(can_produce, max_from_machines)
+                    instances_needed = max(1, (produced + rate_per_block - 1) // rate_per_block)
+                    instances_needed = min(instances_needed, max_instances)
+                    produced = min(produced, rate_per_block * instances_needed)
+
+                    if produced > 0:
+                        for rp in res_parts:
+                            resource_used[(rp, b_idx)] += instances_needed
+                        op["block_pares"][b_idx] += produced
+                        op["cum_produced"] += produced
+                        op["last_block"] = b_idx
+                        progress = True
+
+            if not progress:
+                break
 
     # Build schedule output (same format as optimizer_v2)
     schedule = []
@@ -408,6 +480,11 @@ def plan_capacity(models, params, compiled=None):
     resource_cap = params.get("resource_capacity", {})
     days = params.get("days", [])
 
+    # Extract precedences from compiled constraints
+    precedences = []
+    if compiled and hasattr(compiled, 'precedences'):
+        precedences = compiled.precedences
+
     # Build model lookup
     model_lookup = {m["codigo"]: m for m in models}
 
@@ -443,7 +520,10 @@ def plan_capacity(models, params, compiled=None):
             }
             continue
 
-        result = _greedy_daily(models_today, time_blocks, resource_cap, list(all_robots))
+        result = _greedy_daily(
+            models_today, time_blocks, resource_cap,
+            list(all_robots), precedences
+        )
         daily_results[day_name] = {
             "status": result["summary"]["status"],
             "total_pares": result["summary"]["total_pares"],
