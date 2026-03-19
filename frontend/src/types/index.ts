@@ -362,6 +362,7 @@ export interface DailyScheduleEntry {
   adelanto?: boolean
   adelanto_de?: string
   motivo_sin_asignar?: string
+  motivos_por_bloque?: Record<string, string>
 }
 
 export interface OperatorTimelineEntry {

@@ -944,7 +944,7 @@ def _build_augmented_schedule(day_schedule, tasks):
             t["total_pares"] for t in task_list)
 
         # Agrupar bloques activos por operario (fusiona todas las tasks del entry)
-        op_groups = {}  # {op_name: {"blocks": {idx: pares}, "robot": str, "motivo": str}}
+        op_groups = {}  # {op_name: {"blocks": {idx: pares}, "robot": str, "motivo": str, "motivos_bloque": {idx: str}}}
         for task in task_list:
             for b in range(num_bp):
                 bp = task["block_pares"][b] if b < len(task["block_pares"]) else 0
@@ -955,13 +955,14 @@ def _build_augmented_schedule(day_schedule, tasks):
                 robot = (ba.get("robot") or "") if ba else ""
                 motivo = (ba.get("motivo") or "") if ba else ""
                 if op_name not in op_groups:
-                    op_groups[op_name] = {"blocks": {}, "robot": robot, "motivo": motivo}
+                    op_groups[op_name] = {"blocks": {}, "robot": robot, "motivo": motivo, "motivos_bloque": {}}
                 op_groups[op_name]["blocks"][b] = (
                     op_groups[op_name]["blocks"].get(b, 0) + bp)
                 if robot:
                     op_groups[op_name]["robot"] = robot
                 if motivo:
                     op_groups[op_name]["motivo"] = motivo
+                    op_groups[op_name]["motivos_bloque"][b] = motivo
 
         if len(op_groups) <= 1:
             # Caso simple: un solo operario (o todos SIN ASIGNAR)
@@ -972,6 +973,9 @@ def _build_augmented_schedule(day_schedule, tasks):
             aug["pendiente"] = pendiente
             if op_name == "SIN ASIGNAR" and op_groups:
                 aug["motivo_sin_asignar"] = op_groups[op_name].get("motivo", "")
+                mb = op_groups[op_name].get("motivos_bloque", {})
+                if mb:
+                    aug["motivos_por_bloque"] = {str(k): v for k, v in mb.items()}
             augmented.append(aug)
         else:
             # Caso cascada: dividir en una fila por operario
@@ -994,6 +998,9 @@ def _build_augmented_schedule(day_schedule, tasks):
                 aug["pendiente"] = pendiente
                 if op_name == "SIN ASIGNAR":
                     aug["motivo_sin_asignar"] = info.get("motivo", "")
+                    mb = info.get("motivos_bloque", {})
+                    if mb:
+                        aug["motivos_por_bloque"] = {str(k): v for k, v in mb.items()}
                 augmented.append(aug)
 
     return augmented

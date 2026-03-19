@@ -1024,23 +1024,29 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     </td>
                     <td className="px-2 py-1 text-right">{s.rate}</td>
                     <td className="px-2 py-1 text-right">{s.hc}</td>
-                    {(s.blocks || []).map((val, bi) => (
-                      <td
-                        key={bi}
-                        className={`px-1 py-1 text-center ${isSinAsignar && val > 0 ? 'ring-1 ring-inset ring-red-500/50 font-bold' : ''}`}
-                        style={{
-                          backgroundColor: val > 0
-                            ? isSinAsignar ? 'rgba(239,68,68,0.25)' : `${bgColor}30`
-                            : undefined,
-                          color: val > 0
-                            ? isSinAsignar ? '#ef4444' : bgColor
-                            : undefined,
-                          fontWeight: val > 0 ? 600 : 400,
-                        }}
-                      >
-                        {val > 0 ? val : ''}
-                      </td>
-                    ))}
+                    {(s.blocks || []).map((val, bi) => {
+                      const blockMotivo = isSinAsignar && val > 0 && s.motivos_por_bloque?.[String(bi)]
+                        ? s.motivos_por_bloque[String(bi)]
+                        : undefined
+                      return (
+                        <td
+                          key={bi}
+                          className={`px-1 py-1 text-center ${isSinAsignar && val > 0 ? 'ring-1 ring-inset ring-red-500/50 font-bold cursor-help' : ''}`}
+                          title={blockMotivo}
+                          style={{
+                            backgroundColor: val > 0
+                              ? isSinAsignar ? 'rgba(239,68,68,0.25)' : `${bgColor}30`
+                              : undefined,
+                            color: val > 0
+                              ? isSinAsignar ? '#ef4444' : bgColor
+                              : undefined,
+                            fontWeight: val > 0 ? 600 : 400,
+                          }}
+                        >
+                          {val > 0 ? val : ''}
+                        </td>
+                      )
+                    })}
                     <td className="px-2 py-1 text-right font-bold">{s.total}</td>
                   </tr>
                 )
