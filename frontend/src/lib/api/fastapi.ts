@@ -1,4 +1,4 @@
-import type { OptimizeRequest, OptimizeResponse, ChatRequest, ChatResponse, ScenarioProposals, Scenario } from '@/types'
+import type { OptimizeRequest, OptimizeResponse, ChatRequest, ChatResponse, ScenarioProposals, Scenario, CapacityRequest, CapacityResponse } from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -79,6 +79,17 @@ export async function applyScenario(
       semana,
       scenario,
     }),
+  })
+}
+
+// ============================================================
+// CAPACITY PLANNER
+// ============================================================
+
+export async function runCapacityPlan(req: CapacityRequest): Promise<CapacityResponse> {
+  return fetchAPI<CapacityResponse>('/api/capacity-plan', {
+    method: 'POST',
+    body: JSON.stringify(req),
   })
 }
 

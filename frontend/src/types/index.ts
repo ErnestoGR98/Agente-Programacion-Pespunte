@@ -402,6 +402,26 @@ export interface OptimizeResponse {
 }
 
 // ============================================================
+// CAPACITY PLANNER
+// ============================================================
+
+export interface CapacityRequest {
+  pedido_nombre: string
+  semana?: string
+  nota?: string
+}
+
+export interface CapacityResponse {
+  status: string
+  total_pares: number
+  tardiness: number
+  wall_time: number
+  saved_as: string
+  daily_total: number
+  daily_tardiness: number
+}
+
+// ============================================================
 // SCENARIO PLANNER
 // ============================================================
 

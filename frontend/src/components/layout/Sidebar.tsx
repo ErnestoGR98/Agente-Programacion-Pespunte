@@ -6,7 +6,7 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, Users, Settings,
   CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen, Sheet,
-  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft,
+  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft, Factory,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
@@ -65,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
       { href: '/robots', label: 'Robots', icon: Bot, minStep: 2 },
       { href: '/cuellos', label: 'Cuellos de Botella', icon: AlertTriangle, minStep: 2 },
+      { href: '/capacidad', label: 'Capacidad Instalada', icon: Factory, minStep: 2 },
     ],
   },
 ]
