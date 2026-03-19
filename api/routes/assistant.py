@@ -188,6 +188,26 @@ TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "consultar_capacidad_instalada",
+        "description": (
+            "Consulta los resultados de CAPACIDAD INSTALADA — el techo teorico de "
+            "produccion usando solo restricciones fisicas (robots, maquinas, precedencias), "
+            "SIN operarios ni skills. Retorna: schedule semanal, programa diario por dia, "
+            "y comparacion capacidad vs produccion actual. "
+            "Usa esto para analizar cuanto limita el HC/skills vs la capacidad fisica."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dia": {
+                    "type": "string",
+                    "description": "Dia especifico para ver detalle (opcional). Si no se pasa, retorna resumen semanal.",
+                }
+            },
+            "required": [],
+        },
+    },
 ]
 
 
@@ -498,6 +518,86 @@ def _exec_consultar_pedido(args: dict, state: dict) -> str:
     return "\n".join(lines)
 
 
+def _exec_consultar_capacidad_instalada(args: dict, state: dict) -> str:
+    """Consulta resultados de capacidad instalada desde Supabase."""
+    dia_filter = args.get("dia", "")
+    semana = state.get("_semana", "")
+    pedido = state.get("_pedido_nombre", "")
+    base_name = f"cap_{semana or pedido}"
+
+    BLOCK_LABELS = ["8-9", "9-10", "10-11", "11-12", "12-1", "1-2", "COMIDA", "3-4", "4-5", "5-6"]
+
+    # Fetch latest capacity result
+    resp = _sb_get(f"/rest/v1/resultados?base_name=eq.{base_name}"
+                   f"&order=version.desc&limit=1&select=*")
+    if not resp or not isinstance(resp, list) or len(resp) == 0:
+        return (f"No hay resultados de capacidad instalada para '{base_name}'. "
+                f"El usuario debe ir a /capacidad y hacer click en 'Calcular Capacidad'.")
+
+    cap = resp[0]
+    ws = cap.get("weekly_summary") or {}
+    weekly_sched = cap.get("weekly_schedule") or []
+    daily = cap.get("daily_results") or {}
+
+    lines = [
+        f"CAPACIDAD INSTALADA (version {cap.get('version', '?')}):",
+        f"  Techo teorico (solo maquinas/robots, sin HC): {ws.get('total_pares', 0):,} pares",
+        f"  Status: {ws.get('status', '?')}",
+        f"  Tardiness capacidad: {ws.get('total_tardiness', 0)} pares",
+        f"  Daily total: {ws.get('daily_total_pares', 0)} pares",
+        f"  Daily tardiness: {ws.get('daily_total_tardiness', 0)} pares",
+    ]
+
+    # Comparar con produccion actual
+    actual_summary = state.get("weekly_summary") or {}
+    actual_pares = actual_summary.get("total_pares", 0)
+    cap_pares = ws.get("total_pares", 0)
+    gap = cap_pares - actual_pares
+    if gap > 0:
+        lines.append(f"\n  GAP capacidad vs actual: {gap} pares ({100*gap/cap_pares:.0f}% perdido por HC/skills)")
+
+    # Weekly schedule
+    if weekly_sched:
+        lines.append("\nSCHEDULE SEMANAL CAPACIDAD:")
+        current_day = ""
+        for entry in weekly_sched:
+            if entry["Dia"] != current_day:
+                current_day = entry["Dia"]
+                lines.append(f"  {current_day}:")
+            lines.append(f"    {entry['Modelo']}: {entry['Pares']} pares")
+
+    # Daily detail (specific day or summary)
+    if dia_filter:
+        dr = daily.get(dia_filter)
+        if not dr:
+            lines.append(f"\nNo hay datos de capacidad para dia '{dia_filter}'")
+        else:
+            lines.append(f"\nDETALLE CAPACIDAD {dia_filter}: {dr.get('total_pares', 0)} pares")
+            for s in dr.get("schedule", []):
+                blocks = s.get("blocks", [])
+                block_str = " | ".join(
+                    f"{BLOCK_LABELS[i]}:{blocks[i]}" for i in range(min(len(blocks), len(BLOCK_LABELS)))
+                    if i < len(blocks) and blocks[i]
+                )
+                lines.append(
+                    f"  {s.get('modelo','?')} F{s.get('fraccion','?')} "
+                    f"{s.get('operacion','?')[:35]} [{s.get('recurso','?')}] "
+                    f"rate={s.get('rate',0)} | {block_str} | TOTAL={s.get('total',0)}"
+                )
+    else:
+        # Summary per day
+        lines.append("\nRESUMEN POR DIA (capacidad):")
+        for day_name in ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab"]:
+            dr = daily.get(day_name)
+            if dr and dr.get("total_pares", 0) > 0:
+                lines.append(
+                    f"  {day_name}: {dr['total_pares']} pares, "
+                    f"tardiness={dr.get('total_tardiness', 0)}"
+                )
+
+    return "\n".join(lines)
+
+
 # Tool dispatcher
 TOOL_HANDLERS = {
     "consultar_programa_dia": _exec_consultar_programa_dia,
@@ -508,6 +608,7 @@ TOOL_HANDLERS = {
     "consultar_resumen_semanal": _exec_consultar_resumen_semanal,
     "consultar_operarios_dia": _exec_consultar_operarios_dia,
     "consultar_pedido": _exec_consultar_pedido,
+    "consultar_capacidad_instalada": _exec_consultar_capacidad_instalada,
 }
 
 
@@ -517,7 +618,10 @@ TOOL_HANDLERS = {
 
 def _build_state_from_supabase(pedido_nombre: str, semana: str = "") -> dict:
     """Construye un dict compatible con build_context() y tool handlers desde Supabase."""
-    state = {}
+    state = {
+        "_semana": semana,
+        "_pedido_nombre": pedido_nombre,
+    }
 
     # Pedido (con color y clave_material)
     items = []

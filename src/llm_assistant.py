@@ -43,6 +43,10 @@ CONCEPTOS CLAVE:
 - Skills: PRELIMINARES, ROBOTS, MAQ_COMPLEMENTARIAS, ZIGZAG, PLANA_RECTA, DOS_AGUJAS, POSTE_CONV, RIBETE, CODO
 - Adelanto: produccion adelantada de un dia posterior cuando hay HC ocioso
 - Rezago: pares pendientes de un dia anterior que se pasan al siguiente
+- Capacidad instalada: techo teorico de produccion usando SOLO restricciones fisicas (robots, maquinas,
+  precedencias). NO usa operarios ni skills. La diferencia entre capacidad y produccion actual = gap por HC/skills.
+  Si la capacidad es mucho mayor que lo actual, el cuello de botella es personal (capacitar, contratar).
+  Si son similares, el cuello de botella es fisico (maquinas, robots).
 
 RESTRICCIONES (13 tipos que el usuario puede crear en la app):
 - Temporales (por semana): PRIORIDAD, MAQUILA, RETRASO_MATERIAL, FIJAR_DIA, FECHA_LIMITE,
