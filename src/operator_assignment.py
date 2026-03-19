@@ -205,7 +205,7 @@ def assign_operators_day(day_schedule: list, operarios: list,
             bp = task["block_pares"][bl] if bl < len(task["block_pares"]) else 0
             if bp > 0 and bl not in task["block_assignments"]:
                 motivo = _diagnose_unassigned(
-                    task, bl, op_states, robot_usage, op_block_map)
+                    task, bl, op_states, robot_usage, op_block_map, tasks)
                 task["block_assignments"][bl] = {
                     "op_name": "SIN ASIGNAR", "pares": bp, "robot": None,
                     "motivo": motivo,
@@ -228,8 +228,10 @@ def assign_operators_day(day_schedule: list, operarios: list,
 # Diagnostico de motivo SIN ASIGNAR
 # ---------------------------------------------------------------------------
 
-def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map):
-    """Determina por que un bloque no pudo ser asignado a ningun operario."""
+def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map,
+                         all_tasks=None):
+    """Determina por que un bloque no pudo ser asignado a ningun operario.
+    Incluye detalle de en que esta ocupado cada candidato."""
     recurso = task["recurso"]
     robots_needed = task["robots_available"]
 
@@ -247,22 +249,34 @@ def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map):
         if block not in op_block_map.get(op_st["nombre"], set())
     ]
     if not free_in_block:
-        nombres = [op_st["nombre"].split()[0] for op_st in eligible]
-        return f"Todos ocupados ({', '.join(nombres[:3])})"
+        # Buscar en que esta ocupado cada operario elegible
+        details = []
+        for op_st in eligible:
+            nombre = op_st["nombre"]
+            ocupado_en = ""
+            if all_tasks:
+                for t in all_tasks:
+                    ba = t.get("block_assignments", {}).get(block)
+                    if ba and ba.get("op_name") == nombre:
+                        ocupado_en = f"{t['modelo']} F{t['fraccion']}"
+                        break
+            short = nombre.split()[0]
+            if ocupado_en:
+                details.append(f"{short}→{ocupado_en}")
+            else:
+                details.append(short)
+        return f"Todos ocupados ({', '.join(details)})"
 
     # Paso 3: si necesita robot, hay robot disponible?
     if robots_needed:
         for op_st in free_in_block:
             robot = _find_robot(op_st, robots_needed, robot_usage, [block])
             if robot is not None:
-                # Hay operario libre con robot libre — no deberia llegar aqui
                 return "Conflicto de asignacion"
-        # Ningun operario libre tiene robot disponible
-        robots_list = list(robots_needed)[:3]
+        robots_list = list(robots_needed)
         return f"Robot no disponible ({', '.join(robots_list)})"
 
     # Operario libre con recurso existe pero no fue asignado
-    # (puede ser por contiguidad o compromiso full-task)
     return "Ocupados en otra tarea"
 
 
