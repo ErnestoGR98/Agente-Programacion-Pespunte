@@ -270,7 +270,7 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list):
 
     # Track resource usage per block
     robot_used = {}  # (robot_name, block_idx) → True
-    resource_used = defaultdict(lambda: defaultdict(int))  # (res_type, block_idx) → count
+    resource_used = defaultdict(int)  # (res_type, block_idx) → count
 
     # Group ops by model for cascade checking
     model_ops = defaultdict(list)
