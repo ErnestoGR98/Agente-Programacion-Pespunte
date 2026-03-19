@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { runCapacityPlan } from '@/lib/api/fastapi'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase/client'
 import KpiCard from '@/components/shared/KpiCard'
 import DaySelector from '@/components/shared/DaySelector'
 import { BLOCK_LABELS, STAGE_COLORS, DAY_ORDER } from '@/types'
