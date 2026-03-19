@@ -64,8 +64,9 @@ export default function ResumenPage() {
         <KpiCard label="Tiempo Solver" value={`${(summary.wall_time_s || 0).toFixed(1)}s`} />
       </div>
 
-      {/* Scenario planner */}
+      {/* Scenario planner — deshabilitado temporalmente
       <ScenarioPanel resultName={result.nombre} />
+      */}
 
       {/* Pivot table */}
       <PivotTable schedule={schedule} maquilaFabricas={maquilaFabricas} />
