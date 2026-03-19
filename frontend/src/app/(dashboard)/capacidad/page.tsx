@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { runCapacityPlan } from '@/lib/api/fastapi'
 import { supabase } from '@/lib/supabase/client'
@@ -40,7 +40,7 @@ export default function CapacidadPage() {
     }
   }, [semana, pedidoNombre])
 
-  useEffect(() => { loadCapResult() }, [loadCapResult])
+  // No auto-load — solo mostrar despues de click en "Calcular Capacidad"
 
   const handleCalculate = async () => {
     if (!pedidoNombre) return
