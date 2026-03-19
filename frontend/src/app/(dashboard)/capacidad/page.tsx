@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import { runCapacityPlan } from '@/lib/api/fastapi'
 import { supabase } from '@/lib/supabase/client'
 import KpiCard from '@/components/shared/KpiCard'
-import DaySelector from '@/components/shared/DaySelector'
+import { DaySelector } from '@/components/shared/DaySelector'
 import { BLOCK_LABELS, STAGE_COLORS, DAY_ORDER } from '@/types'
 import type { DayName, CapacityResponse } from '@/types'
 
@@ -227,9 +227,9 @@ export default function CapacidadPage() {
             <div className="flex items-center gap-3 mb-3">
               <h2 className="text-sm font-semibold">Programa Diario — Capacidad</h2>
               <DaySelector
-                days={availableDays.length > 0 ? availableDays : DAY_ORDER.filter(d => d !== 'Sab')}
-                selected={selectedDay}
-                onChange={setSelectedDay}
+                dayNames={availableDays.length > 0 ? availableDays : DAY_ORDER.filter(d => d !== 'Sab')}
+                selectedDay={selectedDay}
+                onDayChange={(d) => setSelectedDay(d as DayName)}
               />
               {dayData && (
                 <span className="text-xs text-muted-foreground ml-auto">
