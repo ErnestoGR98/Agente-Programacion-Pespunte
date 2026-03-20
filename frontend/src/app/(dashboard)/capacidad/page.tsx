@@ -358,7 +358,7 @@ export default function CapacidadPage() {
                     const blockLabels = BLOCK_LABELS.filter(b => b !== 'COMIDA')
                     const headers = ['MODELO', 'FRACC', 'OPERACION', 'REC', ...days.flatMap(d => blockLabels.map(b => `${d} ${b}`)), ...days.map(d => `${d} TOT`), 'TOTAL']
                     const rows: (string | number)[][] = []
-                    for (const group of sabanaData) {
+                    for (const group of sabanaGroups) {
                       for (const row of group.rows) {
                         const r: (string | number)[] = [group.modelo, row.fraccion, row.operacion, row.recurso]
                         for (const d of days) {
@@ -383,7 +383,7 @@ export default function CapacidadPage() {
                     const days = sabanadays
                     const headers = ['MODELO', 'FRACC', 'OPERACION', 'REC', ...days.map(d => `${d} TOT`), 'TOTAL']
                     const rows: (string | number)[][] = []
-                    for (const group of sabanaData) {
+                    for (const group of sabanaGroups) {
                       for (const row of group.rows) {
                         const r: (string | number)[] = [group.modelo, row.fraccion, row.operacion, row.recurso]
                         for (const d of days) {
@@ -399,7 +399,7 @@ export default function CapacidadPage() {
                 >📄 PDF</button>
                 <button
                   onClick={() => {
-                    const jsonData = sabanaData.map(g => ({
+                    const jsonData = sabanaGroups.map(g => ({
                       modelo: g.modelo,
                       operaciones: g.rows.map(r => ({
                         fraccion: r.fraccion,
