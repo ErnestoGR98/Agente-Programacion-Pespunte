@@ -18,7 +18,7 @@ from collections import defaultdict
 # ---------------------------------------------------------------------------
 # Pesos del objetivo (simplificados)
 # ---------------------------------------------------------------------------
-_W_TARDINESS = 100_000
+_W_TARDINESS = 1_000_000  # Muy alto: completar 100% del pedido es obligatorio
 _W_SPAN = 3_000
 _W_BALANCE = 500
 _W_SATURDAY = 300
@@ -121,12 +121,13 @@ def _capacity_weekly(models, params, compiled=None):
                     if day_names[d] not in allowed:
                         solver_model.Add(x[m, d] == 0)
 
-    # 3. Capacidad por recurso por dia (solo limites fisicos de maquinas)
+    # 3. Capacidad por recurso por dia (solo PLANA y POSTE — limites fisicos de maquinas)
+    # MESA es ilimitado en modo capacidad (operarios ilimitados = estaciones ilimitadas)
     if resource_cap:
         for d in range(num_days):
             day_minutes = days[d]["minutes"] + days[d].get("minutes_ot", 0)
             for res_type, cap in resource_cap.items():
-                if res_type in ("ROBOT", "GENERAL", "MAQUILA"):
+                if res_type in ("ROBOT", "GENERAL", "MAQUILA", "MESA"):
                     continue
                 terms = []
                 for m in range(num_models):
@@ -147,9 +148,7 @@ def _capacity_weekly(models, params, compiled=None):
             if terms:
                 solver_model.Add(sum(terms) <= max_robot_sec)
 
-    # 5. Max models per day
-    for d in range(num_days):
-        solver_model.Add(sum(y[m, d] for m in range(num_models)) <= max(4, num_models))
+    # 5. Sin limite de modelos por dia en modo capacidad
 
     # --- Objective ---
     obj_terms = []
@@ -391,9 +390,12 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
                         progress = True
                 else:
                     # Manual: use up to machine_count concurrent instances
+                    # MESA es ilimitado en capacidad (operarios ilimitados)
                     res_parts = [r.strip() for r in recurso.split(",")]
                     max_instances = 999
                     for rp in res_parts:
+                        if rp == "MESA":
+                            continue  # sin limite en modo capacidad
                         cap = resource_cap.get(rp, 10)
                         used = resource_used[(rp, b_idx)]
                         max_instances = min(max_instances, cap - used)
