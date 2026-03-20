@@ -273,6 +273,9 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
         if pares_dia <= 0:
             continue
         for op in sorted(model.get("operations", []), key=lambda o: o["fraccion"]):
+            # Skip maquila — se procesa externamente
+            if (op.get("recurso", "") or "").upper() == "MAQUILA":
+                continue
             ops.append({
                 "modelo": codigo,
                 "modelo_num": model.get("modelo_num", ""),
