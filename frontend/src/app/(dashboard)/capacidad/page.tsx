@@ -8,6 +8,7 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { BLOCK_LABELS, STAGE_COLORS, DAY_ORDER } from '@/types'
 import type { CapacityResponse } from '@/types'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
+import { exportToExcel, exportToPDF } from '@/lib/export'
 
 // ============================================================
 // Capacidad Instalada — Vista teorica sin restricciones de HC
@@ -256,7 +257,54 @@ export default function CapacidadPage() {
 
           {/* Weekly Pivot Table */}
           <div className="rounded-lg border bg-card p-4">
-            <h2 className="text-sm font-semibold mb-3">Asignacion Semanal — Capacidad</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Asignacion Semanal — Capacidad</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const days = DAY_ORDER.filter(d => d !== 'Sab')
+                    const headers = ['Modelo', ...days, 'TOTAL']
+                    const rows = Object.entries(pivotData).map(([modelo, dias]) => {
+                      const total = Object.values(dias).reduce((a, b) => a + b, 0)
+                      return [modelo, ...days.map(d => dias[d] || 0), total]
+                    })
+                    const totals = ['TOTAL', ...days.map(d =>
+                      Object.values(pivotData).reduce((sum, dias) => sum + (dias[d] || 0), 0)
+                    ), Object.values(pivotData).reduce((sum, dias) =>
+                      sum + Object.values(dias).reduce((a, b) => a + b, 0), 0
+                    )]
+                    rows.push(totals)
+                    exportToExcel(`Capacidad_${selectedCapVersion}`, headers, rows)
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >📊 Excel</button>
+                <button
+                  onClick={() => {
+                    const days = DAY_ORDER.filter(d => d !== 'Sab')
+                    const headers = ['Modelo', ...days, 'TOTAL']
+                    const rows = Object.entries(pivotData).map(([modelo, dias]) => {
+                      const total = Object.values(dias).reduce((a, b) => a + b, 0)
+                      return [modelo, ...days.map(d => dias[d] || 0), total]
+                    })
+                    exportToPDF(`Capacidad_${selectedCapVersion}`, headers, rows)
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >📄 PDF</button>
+                <button
+                  onClick={() => {
+                    const jsonData = {
+                      version: selectedCapVersion,
+                      summary: capSummary,
+                      weekly_schedule: weeklySchedule,
+                      daily_results: dailyResults,
+                    }
+                    navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2))
+                      .then(() => alert('JSON copiado al portapapeles'))
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >{'{}'} JSON</button>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
