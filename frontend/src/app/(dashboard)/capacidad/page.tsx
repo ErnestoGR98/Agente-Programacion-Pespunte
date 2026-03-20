@@ -83,7 +83,7 @@ export default function CapacidadPage() {
   }
 
   // Comparison with actual
-  const actualWeekly = (currentResult?.weekly_schedule || []) as Array<Record<string, unknown>>
+  const actualWeekly = (currentResult?.weekly_schedule || []) as unknown as Array<Record<string, unknown>>
   const actualByModel: Record<string, number> = {}
   for (const entry of actualWeekly) {
     const m = entry.Modelo as string
