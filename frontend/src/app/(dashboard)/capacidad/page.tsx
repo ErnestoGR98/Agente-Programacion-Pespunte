@@ -349,7 +349,73 @@ export default function CapacidadPage() {
 
           {/* Sabana Semanal — Capacidad (same format as /sabana) */}
           <div className="rounded-lg border bg-card p-4">
-            <h2 className="text-sm font-semibold mb-3">Sabana Semanal — Capacidad Instalada</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Sabana Semanal — Capacidad Instalada</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const days = sabanadays
+                    const blockLabels = BLOCK_LABELS.filter(b => b !== 'COMIDA')
+                    const headers = ['MODELO', 'FRACC', 'OPERACION', 'REC', ...days.flatMap(d => blockLabels.map(b => `${d} ${b}`)), ...days.map(d => `${d} TOT`), 'TOTAL']
+                    const rows: (string | number)[][] = []
+                    for (const group of sabanaData) {
+                      for (const row of group.rows) {
+                        const r: (string | number)[] = [group.modelo, row.fraccion, row.operacion, row.recurso]
+                        for (const d of days) {
+                          const dayData = row.days[d]
+                          for (let bi = 0; bi < blockLabels.length; bi++) {
+                            r.push(dayData?.blocks[bi] || '')
+                          }
+                        }
+                        for (const d of days) {
+                          r.push(row.days[d]?.total || '')
+                        }
+                        r.push(row.weekTotal || 0)
+                        rows.push(r)
+                      }
+                    }
+                    exportToExcel(`Sabana_Capacidad_${selectedCapVersion}`, headers, rows)
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >📊 Excel</button>
+                <button
+                  onClick={() => {
+                    const days = sabanadays
+                    const headers = ['MODELO', 'FRACC', 'OPERACION', 'REC', ...days.map(d => `${d} TOT`), 'TOTAL']
+                    const rows: (string | number)[][] = []
+                    for (const group of sabanaData) {
+                      for (const row of group.rows) {
+                        const r: (string | number)[] = [group.modelo, row.fraccion, row.operacion, row.recurso]
+                        for (const d of days) {
+                          r.push(row.days[d]?.total || '')
+                        }
+                        r.push(row.weekTotal || 0)
+                        rows.push(r)
+                      }
+                    }
+                    exportToPDF(`Sabana_Capacidad_${selectedCapVersion}`, headers, rows)
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >📄 PDF</button>
+                <button
+                  onClick={() => {
+                    const jsonData = sabanaData.map(g => ({
+                      modelo: g.modelo,
+                      operaciones: g.rows.map(r => ({
+                        fraccion: r.fraccion,
+                        operacion: r.operacion,
+                        recurso: r.recurso,
+                        dias: r.days,
+                        total: r.weekTotal,
+                      }))
+                    }))
+                    navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2))
+                      .then(() => alert('JSON copiado al portapapeles'))
+                  }}
+                  className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                >{'{}'} JSON</button>
+              </div>
+            </div>
             <div className="overflow-x-auto" style={{ cursor: 'grab' }}
               onMouseDown={(e) => {
                 const el = e.currentTarget
