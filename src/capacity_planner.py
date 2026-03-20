@@ -316,11 +316,15 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
 
     # Greedy: iterate blocks, fill each to capacity
     # Do multiple passes per block to allow cascade to flow
+    # Need enough passes for longest cascade chain (max fracciones per model)
+    max_fracs = max((len(model_ops[m]) for m in model_ops), default=3)
+    num_passes = max(3, max_fracs + 1)
+
     for b_idx, block in enumerate(productive_blocks):
         block_min = block["minutes"]
 
         # Multiple passes to let cascade propagate within a block
-        for _pass in range(3):
+        for _pass in range(num_passes):
             progress = False
             for op in ops:
                 if op["cum_produced"] >= op["pares_target"]:
