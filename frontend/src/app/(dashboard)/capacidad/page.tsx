@@ -22,25 +22,54 @@ export default function CapacidadPage() {
   const [error, setError] = useState('')
   const [capResult, setCapResult] = useState<Record<string, unknown> | null>(null)
   const [capSummary, setCapSummary] = useState<Record<string, unknown> | null>(null)
+  const [capVersions, setCapVersions] = useState<Array<{ nombre: string; version: number }>>([])
+  const [selectedCapVersion, setSelectedCapVersion] = useState<string>('')
   const catImages = useCatalogoImages()
 
-  // Load latest capacity result from Supabase
-  const loadCapResult = useCallback(async () => {
+  // Load all capacity versions
+  const loadCapVersions = useCallback(async () => {
     if (!semana && !pedidoNombre) return
     const baseName = `cap_${semana || pedidoNombre}`
     const { data } = await supabase
       .from('resultados')
-      .select('*')
+      .select('nombre,version')
       .eq('base_name', baseName)
       .order('version', { ascending: false })
-      .limit(1)
+    if (data?.length) {
+      setCapVersions(data)
+      if (!selectedCapVersion) setSelectedCapVersion(data[0].nombre)
+    }
+  }, [semana, pedidoNombre, selectedCapVersion])
+
+  // Load specific version
+  const loadCapResult = useCallback(async (versionName?: string) => {
+    if (!semana && !pedidoNombre) return
+    const baseName = `cap_${semana || pedidoNombre}`
+    let query = supabase.from('resultados').select('*').eq('base_name', baseName)
+    if (versionName) {
+      query = query.eq('nombre', versionName)
+    } else {
+      query = query.order('version', { ascending: false }).limit(1)
+    }
+    const { data } = await query
     if (data?.[0]) {
       setCapResult(data[0])
       setCapSummary(data[0].weekly_summary)
+      setSelectedCapVersion(data[0].nombre)
     }
   }, [semana, pedidoNombre])
 
-  // No auto-load — solo mostrar despues de click en "Calcular Capacidad"
+  // Auto-load versions and latest result on mount
+  React.useEffect(() => {
+    loadCapVersions()
+    loadCapResult()
+  }, [loadCapVersions, loadCapResult])
+
+  // Handle version change
+  const handleVersionChange = async (nombre: string) => {
+    setSelectedCapVersion(nombre)
+    await loadCapResult(nombre)
+  }
 
   const handleCalculate = async () => {
     if (!pedidoNombre) return
@@ -51,6 +80,7 @@ export default function CapacidadPage() {
         pedido_nombre: pedidoNombre,
         semana: semana || '',
       })
+      await loadCapVersions()
       await loadCapResult()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al calcular')
@@ -174,13 +204,28 @@ export default function CapacidadPage() {
             Techo teorico de produccion — solo restricciones fisicas (robots, maquinas, precedencias)
           </p>
         </div>
-        <button
-          onClick={handleCalculate}
-          disabled={loading || !pedidoNombre}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
-        >
-          {loading ? 'Calculando...' : 'Calcular Capacidad'}
-        </button>
+        <div className="flex items-center gap-3">
+          {capVersions.length > 0 && (
+            <select
+              value={selectedCapVersion}
+              onChange={(e) => handleVersionChange(e.target.value)}
+              className="h-9 px-3 rounded-md border bg-background text-sm"
+            >
+              {capVersions.map((v) => (
+                <option key={v.nombre} value={v.nombre}>
+                  {v.nombre}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={handleCalculate}
+            disabled={loading || !pedidoNombre}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? 'Calculando...' : 'Calcular Capacidad'}
+          </button>
+        </div>
       </div>
 
       {error && (
