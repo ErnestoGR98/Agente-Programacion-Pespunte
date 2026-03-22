@@ -399,28 +399,29 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
                         op["last_block"] = b_idx
                         progress = True
                 else:
-                    # Manual: use up to machine_count concurrent instances
-                    # MESA es ilimitado en capacidad (operarios ilimitados)
+                    # Manual: 1 maquina por operacion en modo capacidad
+                    # para distribuir el trabajo a lo largo del dia.
+                    # Solo verificar que haya al menos 1 maquina libre.
                     res_parts = [r.strip() for r in recurso.split(",")]
-                    max_instances = 999
+                    machine_free = True
                     for rp in res_parts:
                         if rp == "MESA":
-                            continue  # sin limite en modo capacidad
+                            continue
                         cap = resource_cap.get(rp, 10)
                         used = resource_used[(rp, b_idx)]
-                        max_instances = min(max_instances, cap - used)
+                        if used >= cap:
+                            machine_free = False
+                            break
 
-                    if max_instances <= 0:
+                    if not machine_free:
                         continue
 
                     rate_per_block = int(op["rate"] * block_min / 60)
                     if rate_per_block <= 0:
                         continue
-                    max_from_machines = rate_per_block * max_instances
-                    produced = min(can_produce, max_from_machines)
-                    instances_needed = max(1, (produced + rate_per_block - 1) // rate_per_block)
-                    instances_needed = min(instances_needed, max_instances)
-                    produced = min(produced, rate_per_block * instances_needed)
+                    # 1 maquina = 1x rate por bloque
+                    produced = min(can_produce, rate_per_block)
+                    instances_needed = 1
 
                     if produced > 0:
                         for rp in res_parts:
