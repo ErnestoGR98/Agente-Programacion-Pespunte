@@ -434,12 +434,21 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
             if not progress:
                 break
 
+    # Re-expand productive block indices → full time_blocks array (with COMIDA=0)
+    # para mantener consistencia con optimizer_v2
+    prod_indices = [i for i, b in enumerate(time_blocks) if b["minutes"] > 0]
+
     # Build schedule output (same format as optimizer_v2)
     schedule = []
     for op in ops:
         total = sum(op["block_pares"])
         if total == 0:
             continue
+        # Expand to full blocks (including non-productive like COMIDA)
+        full_blocks = [0] * len(time_blocks)
+        for pi, fi in enumerate(prod_indices):
+            if pi < len(op["block_pares"]):
+                full_blocks[fi] = op["block_pares"][pi]
         entry = {
             "modelo": op["modelo"],
             "fraccion": op["fraccion"],
@@ -449,7 +458,7 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
             "hc": 1,
             "etapa": op.get("etapa", ""),
             "input_o_proceso": op.get("input_o_proceso", ""),
-            "blocks": op["block_pares"],
+            "blocks": full_blocks,
             "total": total,
             "robot": "",
             "robot_per_block": [],

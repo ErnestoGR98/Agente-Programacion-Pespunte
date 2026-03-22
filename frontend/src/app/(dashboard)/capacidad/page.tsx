@@ -126,11 +126,19 @@ export default function CapacidadPage() {
     dailyResults[d] && (dailyResults[d].total_pares as number) > 0
   )
 
+  // Block labels: dinámicos desde params_snapshot, fallback a BLOCK_LABELS
+  const paramsSnapshot = (capResult as Record<string, unknown>)?.params_snapshot as Record<string, unknown> | undefined
+  const dynamicBlockLabels: string[] = useMemo(() => {
+    const tb = paramsSnapshot?.time_blocks as Array<{ label: string }> | undefined
+    if (tb?.length) return tb.map(b => b.label)
+    return [...BLOCK_LABELS]
+  }, [paramsSnapshot])
+
   // Build sabana model groups (same format as /sabana page)
   const sabanaGroups = useMemo(() => {
     if (!dailyResults || sabanadays.length === 0) return []
 
-    const numBlocks = 11 // BLOCK_LABELS length
+    const numBlocks = dynamicBlockLabels.length
     const makeKey = (modelo: string, fracc: number, op: string, rec: string) =>
       `${modelo}||${fracc}||${op}||${rec}`
 
@@ -427,7 +435,7 @@ export default function CapacidadPage() {
                 el.style.cursor = 'grabbing'
               }}
             >
-              <table className="text-[11px] border-collapse" style={{ minWidth: sabanadays.length * 11 * 36 + 280 }}>
+              <table className="text-[11px] border-collapse" style={{ minWidth: sabanadays.length * (dynamicBlockLabels.length + 1) * 36 + 280 }}>
                 <thead>
                   <tr>
                     <th className="sticky left-0 bg-background z-10 text-left px-1 py-1 min-w-[80px]" rowSpan={2}>OPERACION</th>
@@ -437,7 +445,7 @@ export default function CapacidadPage() {
                         : d === 'Mie' ? '#06b6d4' : d === 'Jue' ? '#f59e0b'
                         : d === 'Vie' ? '#10b981' : '#ef4444'
                       return (
-                        <th key={d} colSpan={BLOCK_LABELS.length + 1}
+                        <th key={d} colSpan={dynamicBlockLabels.length + 1}
                             className="text-center py-1 border-l border-border/50"
                             style={{ color: dayColor }}>
                           {d}
@@ -448,7 +456,7 @@ export default function CapacidadPage() {
                   <tr>
                     {sabanadays.map(d => (
                       <React.Fragment key={d}>
-                        {BLOCK_LABELS.map(bl => (
+                        {dynamicBlockLabels.map(bl => (
                           <th key={`${d}-${bl}`} className="text-right px-0.5 py-0.5 min-w-[32px] text-muted-foreground border-l border-border/20">
                             {bl}
                           </th>
@@ -469,7 +477,7 @@ export default function CapacidadPage() {
                         </td>
                         {sabanadays.map(d => (
                           <React.Fragment key={d}>
-                            <td colSpan={BLOCK_LABELS.length} className="border-l border-border/50" />
+                            <td colSpan={dynamicBlockLabels.length} className="border-l border-border/50" />
                             <td className="text-right px-1 py-1 font-bold border-l border-border/50"
                                 style={{ color: d === 'Lun' ? '#3b82f6' : d === 'Mar' ? '#8b5cf6' : d === 'Mie' ? '#06b6d4' : d === 'Jue' ? '#f59e0b' : d === 'Vie' ? '#10b981' : '#ef4444' }}>
                               {dayTotals[d] ? `${dayTotals[d]}p` : ''}
@@ -501,7 +509,7 @@ export default function CapacidadPage() {
                               const cell = row.days[d]
                               return (
                                 <React.Fragment key={d}>
-                                  {BLOCK_LABELS.map((bl, bi) => {
+                                  {dynamicBlockLabels.map((bl, bi) => {
                                     const val = cell?.blocks[bi] || 0
                                     return (
                                       <td key={`${d}-${bl}`}
