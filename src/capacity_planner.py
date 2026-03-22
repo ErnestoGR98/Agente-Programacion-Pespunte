@@ -335,6 +335,9 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
                 fracc = op["fraccion"]
 
                 # Check precedences (real from DB)
+                # En modo capacidad: ignorar buffer_pares (usar buffer=0)
+                # para mostrar el techo teorico real. Solo respetar
+                # buffer=-1 ("todo") que es restriccion fisica.
                 prec = prec_graphs.get(mn, {})
                 if fracc in prec:
                     # Must satisfy ALL prerequisite fractions
@@ -348,8 +351,8 @@ def _greedy_daily(models_day, time_blocks, resource_cap, all_robots_list,
                                     available = 0
                                     break
                             else:
-                                # Source must have buffer pares more than dest
-                                headroom = src_op["cum_produced"] - op["cum_produced"] - buffer
+                                # Capacidad: buffer=0 (conveyor sin retraso)
+                                headroom = src_op["cum_produced"] - op["cum_produced"]
                                 available = min(available, max(0, headroom))
                         else:
                             # Source op not in today's schedule — no constraint
