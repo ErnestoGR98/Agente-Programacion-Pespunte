@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/useAppStore'
 import {
-  Database, ShieldAlert, Users, Settings,
-  CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen, Sheet,
-  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft, Factory,
+  Database, Users, Settings,
+  CalendarDays, LayoutGrid, LogOut, BookOpen, Sheet, BarChart3,
+  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
@@ -47,25 +47,16 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/datos', label: 'Datos', icon: Database, minStep: 0 },
       { href: '/catalogo', label: 'Catalogo', icon: BookOpen, minStep: 0 },
       { href: '/operarios', label: 'Operarios', icon: Users, minStep: 0 },
-      { href: '/restricciones', label: 'Restricciones', icon: ShieldAlert, minStep: 0 },
-    ],
-  },
-  {
-    label: 'Herramientas',
-    items: [
       { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
     ],
   },
   {
-    label: 'Resultados',
+    label: 'Planificacion',
     items: [
-      { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
+      { href: '/planificacion', label: 'Plan Semanal', icon: CalendarDays, minStep: 1 },
+      { href: '/analisis', label: 'Analisis', icon: BarChart3, minStep: 1 },
       { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },
       { href: '/sabana', label: 'Sabana Semanal', icon: Sheet, minStep: 2 },
-      { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
-      { href: '/robots', label: 'Robots', icon: Bot, minStep: 2 },
-      { href: '/cuellos', label: 'Cuellos de Botella', icon: AlertTriangle, minStep: 2 },
-      { href: '/capacidad', label: 'Capacidad Instalada', icon: Factory, minStep: 2 },
     ],
   },
 ]

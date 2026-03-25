@@ -58,6 +58,30 @@ export async function downloadTemplate(): Promise<void> {
 }
 
 // ============================================================
+// GENERATE DAILY from manual weekly plan
+// ============================================================
+
+export interface GenerateDailyRequest {
+  resultado_id: string
+  nota?: string
+}
+
+export interface GenerateDailyResponse {
+  status: string
+  total_pares: number
+  total_tardiness: number
+  wall_time: number
+  saved_as: string
+}
+
+export async function generateDaily(req: GenerateDailyRequest): Promise<GenerateDailyResponse> {
+  return fetchAPI<GenerateDailyResponse>('/api/generate-daily', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+// ============================================================
 // SCENARIO PLANNER
 // ============================================================
 
