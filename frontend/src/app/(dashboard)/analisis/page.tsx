@@ -95,7 +95,12 @@ function deriveRecursosFromHabilidades(habs: string[]): ResourceType[] {
 // ============================================================
 
 export default function AnalisisPage() {
-  const { appStep, currentSemana, weeklyDraft, weeklyDraftSemana } = useAppStore()
+  const { appStep, currentSemana, weeklyDraft, weeklyDraftSemana, currentResult } = useAppStore()
+
+  // Detect if we have real daily results from solver
+  const dailyResults = currentResult?.daily_results
+  const hasRealData = !!(dailyResults && Object.keys(dailyResults).length > 0 &&
+    Object.values(dailyResults).some((dr) => dr.schedule && dr.schedule.length > 0))
 
   const [operarios, setOperarios] = useState<OperarioSlim[]>([])
   const [operaciones, setOperaciones] = useState<CatalogoOperacion[]>([])
@@ -341,11 +346,126 @@ export default function AnalisisPage() {
     return { dayAnalysis: allDayAnalysis, operarioAnalysis: opAnalysis }
   }, [weeklyDraft, weeklyDraftSemana, currentSemana, activeDays, modelOps, operarios, diasLaborales])
 
+  // ============================================================
+  // REAL DATA from solver (when daily_results exist)
+  // ============================================================
+
+  // Extract real HC usage per resource per day from solver schedule
+  const realDayAnalysis = useMemo((): DayAnalysis[] | null => {
+    if (!hasRealData || !dailyResults) return null
+
+    return activeDays.map((dia) => {
+      const dr = dailyResults[dia]
+      if (!dr || !dr.schedule || dr.schedule.length === 0) {
+        return {
+          dia, minutosLaborales: 0,
+          resources: RESOURCE_ORDER.map((r) => ({ recurso: r, needed: 0, available: 0, occupied: 0, free: 0, deficit: 0 })),
+          totalNeeded: 0, totalAvailable: 0, totalFree: 0, totalDeficit: 0,
+        }
+      }
+
+      const diaConfig = diasLaborales.find((d) => d.nombre === dia)
+      const availableOps = operarios.filter((op) => op.dias.includes(dia))
+
+      const numBlocks = Math.max(...dr.schedule.map((s) => (s.blocks || []).length), 0)
+      const peakByRecurso: Record<string, number> = {}
+
+      for (let b = 0; b < numBlocks; b++) {
+        const hcInBlock: Record<string, number> = {}
+        for (const s of dr.schedule) {
+          const pares = (s.blocks || [])[b] || 0
+          if (pares > 0) {
+            const recurso = s.recurso || 'GENERAL'
+            hcInBlock[recurso] = (hcInBlock[recurso] || 0) + (s.hc || 1)
+          }
+        }
+        for (const [r, hc] of Object.entries(hcInBlock)) {
+          peakByRecurso[r] = Math.max(peakByRecurso[r] || 0, hc)
+        }
+      }
+
+      const assignedByRecurso: Record<string, Set<string>> = {}
+      for (const s of dr.schedule) {
+        if (s.operario && s.operario !== 'SIN ASIGNAR') {
+          const r = s.recurso || 'GENERAL'
+          if (!assignedByRecurso[r]) assignedByRecurso[r] = new Set()
+          assignedByRecurso[r].add(s.operario)
+        }
+      }
+
+      const unassignedByRecurso: Record<string, number> = {}
+      for (const u of dr.unassigned_ops || []) {
+        const r = u.recurso || 'GENERAL'
+        unassignedByRecurso[r] = (unassignedByRecurso[r] || 0) + 1
+      }
+
+      const resources: ResourceDayAnalysis[] = RESOURCE_ORDER.map((recurso) => {
+        const needed = peakByRecurso[recurso] || 0
+        const occupied = assignedByRecurso[recurso]?.size || 0
+        const deficit = unassignedByRecurso[recurso] || 0
+        return { recurso, needed, available: occupied, occupied, free: 0, deficit }
+      })
+
+      const totalOccupied = new Set(
+        dr.schedule.filter((s) => s.operario && s.operario !== 'SIN ASIGNAR').map((s) => s.operario)
+      ).size
+
+      return {
+        dia,
+        minutosLaborales: diaConfig?.minutos || 600,
+        resources,
+        totalNeeded: resources.reduce((s, r) => s + r.needed, 0),
+        totalAvailable: availableOps.length,
+        totalFree: Math.max(0, availableOps.length - totalOccupied),
+        totalDeficit: resources.reduce((s, r) => s + r.deficit, 0),
+      }
+    })
+  }, [hasRealData, dailyResults, activeDays, diasLaborales, operarios])
+
+  // Real operator analysis from operator_timelines
+  const realOperarioAnalysis = useMemo((): OperarioAnalysis[] | null => {
+    if (!hasRealData || !dailyResults) return null
+
+    return operarios.map((op) => {
+      const days: OperarioDayStatus[] = activeDays.map((dia) => {
+        const dr = dailyResults[dia]
+        const timeline = dr?.operator_timelines?.[op.nombre]
+        const isAvailable = op.dias.includes(dia)
+
+        let assignedTo: ResourceType | null = null
+        if (timeline && timeline.length > 0) {
+          const recursoCount: Record<string, number> = {}
+          for (const entry of timeline) {
+            const r = entry.recurso || 'GENERAL'
+            recursoCount[r] = (recursoCount[r] || 0) + 1
+          }
+          assignedTo = Object.entries(recursoCount).sort((a, b) => b[1] - a[1])[0]?.[0] as ResourceType || null
+        }
+
+        return { dia, available: isAvailable, assignedTo }
+      })
+
+      return {
+        id: op.id,
+        nombre: op.nombre,
+        recursos: op.recursos,
+        habilidades: op.habilidades,
+        days,
+        diasOcupado: days.filter((d) => d.assignedTo !== null).length,
+        diasLibre: days.filter((d) => d.available && d.assignedTo === null).length,
+      }
+    })
+  }, [hasRealData, dailyResults, operarios, activeDays])
+
+  // Use real data if available, otherwise estimation
+  const displayDayAnalysis = realDayAnalysis || dayAnalysis
+  const displayOperarioAnalysis = realOperarioAnalysis || operarioAnalysis
+
   // Alerts
   const alerts = useMemo(() => {
     const items: { type: 'danger' | 'warning' | 'info'; message: string }[] = []
 
-    for (const da of dayAnalysis) {
+    for (const da of displayDayAnalysis) {
       for (const r of da.resources) {
         if (r.deficit > 0) {
           items.push({
@@ -357,7 +477,7 @@ export default function AnalisisPage() {
     }
 
     // Check for operators that are free every day (underutilized)
-    for (const oa of operarioAnalysis) {
+    for (const oa of displayOperarioAnalysis) {
       if (oa.diasLibre === activeDays.length && oa.days.some((d) => d.available)) {
         items.push({
           type: 'info',
@@ -370,7 +490,7 @@ export default function AnalisisPage() {
     for (const recurso of RESOURCE_ORDER) {
       const opsWithSkill = operarios.filter((op) => op.recursos.includes(recurso))
       if (opsWithSkill.length === 1) {
-        const hasDeficit = dayAnalysis.some((da) =>
+        const hasDeficit = displayDayAnalysis.some((da) =>
           da.resources.find((r) => r.recurso === recurso && r.needed > 0)
         )
         if (hasDeficit) {
@@ -383,7 +503,7 @@ export default function AnalisisPage() {
     }
 
     return items
-  }, [dayAnalysis, operarioAnalysis, operarios, activeDays])
+  }, [displayDayAnalysis, displayOperarioAnalysis, operarios, activeDays])
 
   // Robot utilization: per robot type, per day — how many models need it vs how many physical robots
   const robotAnalysis = useMemo(() => {
@@ -459,7 +579,7 @@ export default function AnalisisPage() {
 
   // Chart data: HC needed vs available per day
   const hcChartData = useMemo(() => {
-    return dayAnalysis.map((da) => {
+    return displayDayAnalysis.map((da) => {
       const totalAssigned = da.resources.reduce((s, r) => s + r.occupied, 0)
       return {
         dia: da.dia,
@@ -468,7 +588,7 @@ export default function AnalisisPage() {
         'Disponibles': da.totalAvailable,
       }
     })
-  }, [dayAnalysis])
+  }, [displayDayAnalysis])
 
   // Chart data: robots needed vs available per day (stacked by tipo)
   const robotChartData = useMemo(() => {
@@ -512,11 +632,16 @@ export default function AnalisisPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold">Analisis de Factibilidad</h1>
-        <p className="text-sm text-muted-foreground">
-          {currentSemana} — Basado en el plan semanal actual
-        </p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">Analisis de Factibilidad</h1>
+          <p className="text-sm text-muted-foreground">
+            {currentSemana} — {hasRealData ? 'Datos reales del programa diario' : 'Estimacion basada en el plan semanal'}
+          </p>
+        </div>
+        <Badge variant={hasRealData ? 'default' : 'outline'} className={hasRealData ? 'bg-green-600' : ''}>
+          {hasRealData ? 'Datos reales (solver)' : 'Estimacion (pre-solver)'}
+        </Badge>
       </div>
 
       {/* Alerts */}
@@ -569,7 +694,7 @@ export default function AnalisisPage() {
                       {RESOURCE_LABELS[recurso] || recurso}
                     </TableCell>
                     {activeDays.map((dia) => {
-                      const da = dayAnalysis.find((d) => d.dia === dia)
+                      const da = displayDayAnalysis.find((d) => d.dia === dia)
                       const r = da?.resources.find((r) => r.recurso === recurso)
                       if (!r) return <TableCell key={dia} className="text-center text-muted-foreground">—</TableCell>
 
@@ -619,7 +744,7 @@ export default function AnalisisPage() {
                     TOTAL
                   </TableCell>
                   {activeDays.map((dia) => {
-                    const da = dayAnalysis.find((d) => d.dia === dia)
+                    const da = displayDayAnalysis.find((d) => d.dia === dia)
                     if (!da) return <TableCell key={dia} />
                     const totalAssigned = da.resources.reduce((s, r) => s + r.occupied, 0)
                     return (
@@ -673,7 +798,7 @@ export default function AnalisisPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {operarioAnalysis.map((oa) => (
+                {displayOperarioAnalysis.map((oa) => (
                   <TableRow key={oa.id}>
                     <TableCell className="sticky left-0 bg-card z-10 font-medium text-sm">
                       {oa.nombre}
