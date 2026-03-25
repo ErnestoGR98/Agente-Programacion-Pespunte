@@ -93,6 +93,23 @@ export async function runCapacityPlan(req: CapacityRequest): Promise<CapacityRes
   })
 }
 
+// ============================================================
+// GENERATE DAILY FROM MANUAL WEEKLY PLAN
+// ============================================================
+
+export async function generateDaily(req: { resultado_id: string; nota?: string }): Promise<{
+  status: string
+  total_pares: number
+  total_tardiness: number
+  wall_time: number
+  saved_as: string
+}> {
+  return fetchAPI('/api/generate-daily', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
 /** Warm up Render free tier on page load */
 export async function wakeUpAPI(): Promise<void> {
   try {

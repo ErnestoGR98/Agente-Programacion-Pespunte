@@ -14,17 +14,21 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+import { Input } from '@/components/ui/input'
 import { DAY_ORDER } from '@/types'
-import type { WeeklyScheduleEntry, DailyResult, ScenarioProposals, Scenario } from '@/types'
-import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check } from 'lucide-react'
+import type { DayName, WeeklyScheduleEntry, DailyResult, DiaLaboral, PedidoItem, Resultado, ScenarioProposals, Scenario } from '@/types'
+import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check, Wand2, Save, RotateCcw, Play, Pencil } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
 import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
-import { proposeScenarios, applyScenario } from '@/lib/api/fastapi'
+import { proposeScenarios, applyScenario, generateDaily } from '@/lib/api/fastapi'
+import type { WeeklyDraftRow } from '@/lib/store/useAppStore'
 
 export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
+  const appStep = useAppStore((s) => s.appStep)
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
+  const [showEditor, setShowEditor] = useState(false)
 
   useEffect(() => {
     supabase
@@ -38,8 +42,13 @@ export default function ResumenPage() {
 
   if (!result) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted-foreground">
-        Ejecuta una optimizacion para ver el resumen semanal.
+      <div className="space-y-6">
+        <div className="flex h-64 items-center justify-center text-muted-foreground">
+          Ejecuta una optimizacion para ver el resumen semanal.
+        </div>
+        {appStep >= 1 && (
+          <ManualWeeklyEditor />
+        )}
       </div>
     )
   }
@@ -49,11 +58,21 @@ export default function ResumenPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Resumen Semanal</h1>
-        <p className="text-sm text-muted-foreground">
-          Resultado: <Badge variant="secondary">{result.nombre}</Badge>
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Resumen Semanal</h1>
+          <p className="text-sm text-muted-foreground">
+            Resultado: <Badge variant="secondary">{result.nombre}</Badge>
+          </p>
+        </div>
+        <Button
+          variant={showEditor ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setShowEditor(!showEditor)}
+        >
+          <Pencil className="mr-1 h-4 w-4" />
+          {showEditor ? 'Ocultar Editor' : 'Editar Plan Manual'}
+        </Button>
       </div>
 
       {/* KPIs */}
@@ -63,6 +82,9 @@ export default function ResumenPage() {
         <KpiCard label="Pendientes (Tardiness)" value={summary.total_tardiness || 0} />
         <KpiCard label="Tiempo Solver" value={`${(summary.wall_time_s || 0).toFixed(1)}s`} />
       </div>
+
+      {/* Manual weekly editor (collapsible) */}
+      {showEditor && <ManualWeeklyEditor />}
 
       {/* Scenario planner — deshabilitado temporalmente
       <ScenarioPanel resultName={result.nombre} />
@@ -77,6 +99,514 @@ export default function ResumenPage() {
       {/* Models detail */}
       <ModelsDetail summary={summary} />
     </div>
+  )
+}
+
+// ============================================================
+// Manual Weekly Editor
+// ============================================================
+
+function ManualWeeklyEditor() {
+  const {
+    appStep, currentPedidoNombre, currentSemana,
+    weeklyDraft, weeklyDraftSemana, setWeeklyDraft,
+  } = useAppStore()
+
+  const [items, setItems] = useState<PedidoItem[]>([])
+  const [dias, setDias] = useState<DiaLaboral[]>([])
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<WeeklyDraftRow[]>([])
+  const [autoLoading, setAutoLoading] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+
+  // Lot range config
+  const [loteMin, setLoteMin] = useState(200)
+  const [loteMax, setLoteMax] = useState(400)
+
+  const activeDays = useMemo(() => {
+    return DAY_ORDER.filter((d) => dias.some((dl) => dl.nombre === d && dl.plantilla > 0))
+  }, [dias])
+
+  // Persist draft to store
+  useEffect(() => {
+    if (rows.length > 0 && currentSemana) {
+      setWeeklyDraft(rows, currentSemana)
+    }
+  }, [rows, currentSemana, setWeeklyDraft])
+
+  // Load data
+  useEffect(() => {
+    if (appStep < 1 || !currentPedidoNombre) return
+    setLoading(true)
+
+    async function load() {
+      const { data: pedido } = await supabase
+        .from('pedidos')
+        .select('id')
+        .eq('nombre', currentPedidoNombre!)
+        .single()
+
+      if (!pedido) { setLoading(false); return }
+
+      const [itemsRes, diasRes] = await Promise.all([
+        supabase.from('pedido_items').select('*').eq('pedido_id', pedido.id).order('modelo_num'),
+        supabase.from('dias_laborales').select('*').order('orden'),
+      ])
+
+      setItems(itemsRes.data || [])
+      setDias(diasRes.data || [])
+
+      // Restore draft or init from existing result's weekly_schedule
+      const hasDraft = weeklyDraft && weeklyDraftSemana === currentSemana
+      if (hasDraft) {
+        setRows(weeklyDraft)
+      } else {
+        const currentResult = useAppStore.getState().currentResult
+        const pedidoItems = itemsRes.data || []
+
+        if (currentResult?.weekly_schedule?.length) {
+          // Pre-fill from existing optimization result
+          const newRows: WeeklyDraftRow[] = pedidoItems.map((it: PedidoItem) => {
+            const days = Object.fromEntries(DAY_ORDER.map((d) => [d, 0])) as Record<DayName, number>
+            const codigo = `${it.modelo_num} ${it.color}`.trim()
+            for (const entry of currentResult.weekly_schedule) {
+              if (entry.Modelo === codigo && entry.Dia) {
+                days[entry.Dia as DayName] = (days[entry.Dia as DayName] || 0) + entry.Pares
+              }
+            }
+            return { modelo_num: it.modelo_num, color: it.color, fabrica: it.fabrica, pedido: it.volumen, days }
+          })
+          setRows(newRows)
+        } else {
+          const newRows: WeeklyDraftRow[] = pedidoItems.map((it: PedidoItem) => ({
+            modelo_num: it.modelo_num,
+            color: it.color,
+            fabrica: it.fabrica,
+            pedido: it.volumen,
+            days: Object.fromEntries(DAY_ORDER.map((d) => [d, 0])) as Record<DayName, number>,
+          }))
+          setRows(newRows)
+        }
+      }
+      setLoading(false)
+    }
+
+    load()
+  }, [appStep, currentPedidoNombre]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Day capacity estimate
+  const dayCapacity = useMemo(() => {
+    const cap: Record<string, { plantilla: number; maxPares: number }> = {}
+    for (const d of dias) {
+      const maxPares = d.plantilla * (d.minutos / 60) * 30
+      cap[d.nombre] = { plantilla: d.plantilla, maxPares: Math.round(maxPares) }
+    }
+    return cap
+  }, [dias])
+
+  const dayTotals = useMemo(() => {
+    const totals: Record<string, number> = {}
+    for (const d of activeDays) totals[d] = rows.reduce((sum, r) => sum + (r.days[d] || 0), 0)
+    return totals
+  }, [rows, activeDays])
+
+  const rowTotals = useMemo(() => {
+    return rows.map((r) => activeDays.reduce((sum, d) => sum + (r.days[d] || 0), 0))
+  }, [rows, activeDays])
+
+  const handleCellChange = useCallback((rowIdx: number, day: DayName, value: string) => {
+    const num = parseInt(value) || 0
+    setRows((prev) => {
+      const next = [...prev]
+      next[rowIdx] = { ...next[rowIdx], days: { ...next[rowIdx].days, [day]: Math.max(0, num) } }
+      return next
+    })
+    setSaved(false)
+  }, [])
+
+  // Auto-distribute
+  const handleAutoDistribute = useCallback(() => {
+    setAutoLoading(true)
+    setTimeout(() => {
+      const weekdays = activeDays.filter((d): d is DayName => d !== 'Sab')
+      const hasSab = activeDays.includes('Sab')
+      const dayLoad: Record<string, number> = {}
+      const dayModels: Record<string, number> = {}
+      activeDays.forEach((d) => { dayLoad[d] = 0; dayModels[d] = 0 })
+
+      const indexed = rows.map((r, i) => ({ ...r, idx: i }))
+      indexed.sort((a, b) => b.pedido - a.pedido)
+
+      const newRowDays: Record<DayName, number>[] = rows.map(() =>
+        Object.fromEntries(activeDays.map((d) => [d, 0])) as Record<DayName, number>
+      )
+
+      for (const model of indexed) {
+        let remaining = model.pedido
+        if (remaining === 0) continue
+
+        const slotSize = Math.max(loteMin, Math.min(loteMax, Math.ceil(remaining / 3 / 100) * 100))
+        const daysNeeded = Math.min(weekdays.length, Math.max(1, Math.ceil(remaining / slotSize)))
+
+        const sortedWeekdays = [...weekdays].sort((a, b) => {
+          const loadDiff = dayLoad[a] - dayLoad[b]
+          return loadDiff !== 0 ? loadDiff : dayModels[a] - dayModels[b]
+        })
+
+        const selectedDays = sortedWeekdays.slice(0, daysNeeded)
+        const perDay = Math.floor(remaining / selectedDays.length / 100) * 100
+        let leftover = remaining - perDay * selectedDays.length
+
+        for (const d of selectedDays) {
+          let assign = perDay
+          if (leftover >= 100) { assign += 100; leftover -= 100 }
+          else if (leftover > 0) { assign += leftover; leftover = 0 }
+          newRowDays[model.idx][d as DayName] = assign
+          dayLoad[d] += assign
+          if (assign > 0) dayModels[d]++
+        }
+      }
+
+      // Spill overflow to Saturday
+      if (hasSab && weekdays.length > 0) {
+        const weekdayConfig = dias.find((d) => weekdays.includes(d.nombre))
+        if (weekdayConfig) {
+          const weekdayCap = weekdayConfig.plantilla * (weekdayConfig.minutos / 60) * 30
+          for (const wd of weekdays) {
+            if (dayLoad[wd] > weekdayCap) {
+              const modelsOnDay = indexed
+                .filter((m) => newRowDays[m.idx][wd as DayName] > 0)
+                .sort((a, b) => newRowDays[a.idx][wd as DayName] - newRowDays[b.idx][wd as DayName])
+              let toMove = dayLoad[wd] - weekdayCap
+              for (const m of modelsOnDay) {
+                if (toMove <= 0) break
+                const current = newRowDays[m.idx][wd as DayName]
+                const move = Math.min(current, Math.ceil(toMove / 100) * 100)
+                newRowDays[m.idx][wd as DayName] -= move
+                newRowDays[m.idx]['Sab'] += move
+                dayLoad[wd] -= move
+                dayLoad['Sab'] += move
+                toMove -= move
+              }
+            }
+          }
+        }
+      }
+
+      setRows((prev) => prev.map((r, i) => ({ ...r, days: newRowDays[i] })))
+      setAutoLoading(false)
+      setSaved(false)
+    }, 300)
+  }, [activeDays, rows, loteMin, loteMax, dias])
+
+  const handleClear = useCallback(() => {
+    setRows((prev) => prev.map((r) => ({
+      ...r,
+      days: Object.fromEntries(DAY_ORDER.map((d) => [d, 0])) as Record<DayName, number>,
+    })))
+    setSaved(false)
+  }, [])
+
+  // Save as resultado
+  const handleSave = useCallback(async () => {
+    if (!currentSemana) return
+
+    const weeklySchedule = rows.flatMap((r) =>
+      activeDays
+        .filter((d) => r.days[d] > 0)
+        .map((d) => ({
+          Dia: d,
+          Modelo: `${r.modelo_num} ${r.color}`.trim(),
+          Fabrica: r.fabrica,
+          Pares: r.days[d],
+          HC_Necesario: 0,
+        }))
+    )
+
+    const totalPares = weeklySchedule.reduce((s, e) => s + e.Pares, 0)
+
+    const weeklySummary = {
+      status: 'MANUAL',
+      total_pares: totalPares,
+      total_tardiness: rows.reduce((s, r, i) => s + Math.max(0, r.pedido - rowTotals[i]), 0),
+      wall_time_s: 0,
+      days: activeDays.map((d) => ({
+        dia: d,
+        pares: dayTotals[d] || 0,
+        hc_necesario: 0,
+        hc_disponible: dayCapacity[d]?.plantilla || 0,
+        utilizacion_pct: 0,
+        overtime_hrs: 0,
+        is_saturday: d === 'Sab',
+      })),
+      models: rows.map((r, i) => ({
+        codigo: `${r.modelo_num} ${r.color}`.trim(),
+        volumen: r.pedido,
+        producido: rowTotals[i],
+        tardiness: Math.max(0, r.pedido - rowTotals[i]),
+        pct_completado: r.pedido > 0 ? Math.min(100, Math.round((rowTotals[i] / r.pedido) * 100)) : 100,
+      })),
+    }
+
+    const baseName = currentSemana
+    const { data: existing } = await supabase
+      .from('resultados')
+      .select('id, version')
+      .eq('base_name', baseName)
+      .order('version', { ascending: false })
+      .limit(1)
+
+    const nextVersion = existing && existing.length > 0 ? existing[0].version + 1 : 1
+    const nombre = `${baseName}_v${nextVersion}`
+
+    await supabase.from('resultados').insert({
+      nombre,
+      base_name: baseName,
+      version: nextVersion,
+      nota: 'Plan semanal manual',
+      weekly_schedule: weeklySchedule,
+      weekly_summary: weeklySummary,
+      daily_results: {},
+      pedido_snapshot: items,
+      params_snapshot: {},
+    })
+
+    const { data: savedResult } = await supabase
+      .from('resultados')
+      .select('*')
+      .eq('nombre', nombre)
+      .single()
+
+    if (savedResult) {
+      useAppStore.getState().setCurrentResult(savedResult as Resultado)
+    }
+
+    setSaved(true)
+  }, [rows, activeDays, dayTotals, rowTotals, currentSemana, items, dayCapacity])
+
+  // Generate daily from saved plan
+  const handleGenerateDaily = useCallback(async () => {
+    const currentResult = useAppStore.getState().currentResult
+    if (!currentResult) return
+
+    setGenerating(true)
+    setGenError(null)
+
+    try {
+      const res = await generateDaily({ resultado_id: currentResult.id })
+
+      const { data } = await supabase
+        .from('resultados')
+        .select('*')
+        .eq('nombre', res.saved_as)
+        .single()
+
+      if (data) {
+        useAppStore.getState().setCurrentResult(data as Resultado)
+      }
+      setSaved(false)
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : 'Error al generar diario')
+    } finally {
+      setGenerating(false)
+    }
+  }, [])
+
+  // Render
+  if (appStep < 1) return null
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-8 flex items-center justify-center text-muted-foreground">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Cargando datos para planificacion...
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const grandTotal = rowTotals.reduce((s, t) => s + t, 0)
+  const grandPedido = rows.reduce((s, r) => s + r.pedido, 0)
+  const grandPendiente = Math.max(0, grandPedido - grandTotal)
+
+  return (
+    <Card className="border-blue-500/30">
+      <CardHeader className="py-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Pencil className="h-4 w-4" />
+            Plan Semanal Manual
+            <Badge variant="outline" className="text-xs font-normal">
+              {rows.length} modelos · {grandPedido.toLocaleString()}p pedido
+            </Badge>
+          </CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleClear}>
+              <RotateCcw className="mr-1 h-3 w-3" /> Limpiar
+            </Button>
+            <div className="flex items-center gap-1 rounded-md border border-border/50 px-2 py-1">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Lote:</span>
+              <Input
+                type="number" min={100} step={100} value={loteMin}
+                onChange={(e) => setLoteMin(Math.max(100, parseInt(e.target.value) || 100))}
+                className="h-6 w-14 text-xs text-center p-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <span className="text-xs text-muted-foreground">—</span>
+              <Input
+                type="number" min={100} step={100} value={loteMax}
+                onChange={(e) => setLoteMax(Math.max(loteMin, parseInt(e.target.value) || 400))}
+                className="h-6 w-14 text-xs text-center p-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={handleAutoDistribute} disabled={autoLoading}>
+              {autoLoading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Wand2 className="mr-1 h-3 w-3" />}
+              Auto
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={grandTotal === 0}>
+              {saved ? <><Check className="mr-1 h-3 w-3" /> Guardado</> : <><Save className="mr-1 h-3 w-3" /> Guardar</>}
+            </Button>
+            {saved && (
+              <Button size="sm" variant={genError ? 'destructive' : 'default'} onClick={handleGenerateDaily} disabled={generating}>
+                {generating
+                  ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generando...</>
+                  : <><Play className="mr-1 h-3 w-3" /> Generar Diario</>
+                }
+              </Button>
+            )}
+            {genError && <span className="text-xs text-destructive max-w-[200px] truncate">{genError}</span>}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        {/* KPIs row */}
+        <div className="grid grid-cols-4 gap-2">
+          <div className="rounded border p-2 text-center">
+            <p className="text-[10px] text-muted-foreground">Asignado</p>
+            <p className="text-lg font-bold">{grandTotal.toLocaleString()}</p>
+          </div>
+          <div className="rounded border p-2 text-center">
+            <p className="text-[10px] text-muted-foreground">Pedido</p>
+            <p className="text-lg font-bold">{grandPedido.toLocaleString()}</p>
+          </div>
+          <div className="rounded border p-2 text-center">
+            <p className="text-[10px] text-muted-foreground">Pendiente</p>
+            <p className={`text-lg font-bold ${grandPendiente > 0 ? 'text-destructive' : 'text-green-600'}`}>
+              {grandPendiente.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded border p-2 text-center">
+            <p className="text-[10px] text-muted-foreground">Cobertura</p>
+            <p className="text-lg font-bold">
+              {grandPedido > 0 ? Math.min(100, Math.round((grandTotal / grandPedido) * 100)) : 0}%
+            </p>
+          </div>
+        </div>
+
+        {/* Capacity bars */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+          {activeDays.map((d) => {
+            const cap = dayCapacity[d]
+            const assigned = dayTotals[d] || 0
+            const pct = cap?.maxPares ? Math.round((assigned / cap.maxPares) * 100) : 0
+            const overloaded = pct > 100
+            return (
+              <div key={d} className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">{d}{d === 'Sab' ? ' (TE)' : ''}</span>
+                  <span className={`text-[10px] ${overloaded ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{pct}%</span>
+                </div>
+                <Progress value={Math.min(pct, 100)} className={`h-1.5 ${overloaded ? '[&>div]:bg-destructive' : ''}`} />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>{assigned.toLocaleString()}p</span>
+                  <span>{cap?.plantilla || 0}HC</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Editable table */}
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 bg-card z-10 min-w-[120px] text-xs">Modelo</TableHead>
+                <TableHead className="text-center min-w-[60px] text-xs">Pedido</TableHead>
+                {activeDays.map((d) => (
+                  <TableHead key={d} className={`text-center min-w-[80px] text-xs ${d === 'Sab' ? 'text-amber-500' : ''}`}>
+                    {d}
+                  </TableHead>
+                ))}
+                <TableHead className="text-center min-w-[60px] text-xs">Total</TableHead>
+                <TableHead className="text-center min-w-[60px] text-xs">Estado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row, ri) => {
+                const total = rowTotals[ri]
+                const pendiente = row.pedido - total
+                const complete = total >= row.pedido
+                return (
+                  <TableRow key={`${row.modelo_num}-${row.color}`}>
+                    <TableCell className="sticky left-0 bg-card z-10 font-mono text-xs py-1">
+                      <div>{row.modelo_num}</div>
+                      {row.color && <div className="text-muted-foreground text-[10px]">{row.color}</div>}
+                    </TableCell>
+                    <TableCell className="text-center text-xs font-medium py-1">{row.pedido.toLocaleString()}</TableCell>
+                    {activeDays.map((d) => (
+                      <TableCell key={d} className="p-0.5">
+                        <Input
+                          type="number" min={0} step={100}
+                          value={row.days[d] || ''}
+                          onChange={(e) => handleCellChange(ri, d, e.target.value)}
+                          className="h-7 w-full text-center text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          placeholder="0"
+                        />
+                      </TableCell>
+                    ))}
+                    <TableCell className={`text-center font-bold text-xs py-1 ${total > row.pedido ? 'text-amber-500' : ''}`}>
+                      {total.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center py-1">
+                      {complete
+                        ? <Badge variant="default" className="bg-green-600 text-[10px] px-1.5 py-0">OK</Badge>
+                        : <Badge variant="destructive" className="text-[10px] px-1.5 py-0">-{pendiente}</Badge>
+                      }
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              {/* Totals row */}
+              <TableRow className="bg-primary/10 font-bold border-t-2 border-primary/30">
+                <TableCell className="sticky left-0 bg-primary/10 z-10 text-primary text-xs">TOTAL</TableCell>
+                <TableCell className="text-center text-primary text-xs">{grandPedido.toLocaleString()}</TableCell>
+                {activeDays.map((d) => {
+                  const cap = dayCapacity[d]
+                  const val = dayTotals[d] || 0
+                  const overloaded = cap?.maxPares && val > cap.maxPares
+                  return (
+                    <TableCell key={d} className={`text-center text-xs ${overloaded ? 'text-destructive' : 'text-primary'}`}>
+                      {val.toLocaleString()}
+                    </TableCell>
+                  )
+                })}
+                <TableCell className="text-center text-primary text-xs">{grandTotal.toLocaleString()}</TableCell>
+                <TableCell className="text-center">
+                  {grandPendiente > 0
+                    ? <span className="text-destructive flex items-center justify-center gap-0.5 text-[10px]">
+                        <AlertTriangle className="h-3 w-3" /> -{grandPendiente}
+                      </span>
+                    : <Badge className="bg-green-600 text-[10px] px-1.5 py-0">Completo</Badge>
+                  }
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

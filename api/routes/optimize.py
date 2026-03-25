@@ -945,3 +945,237 @@ def run_optimization(req: OptimizeRequest):
         wall_time=weekly_summary.get("wall_time_s", 0),
         saved_as=saved_as,
     )
+
+
+# ============================================================
+# Generate Daily from Manual Weekly Plan
+# ============================================================
+
+class GenerateDailyRequest(BaseModel):
+    resultado_id: str  # ID del resultado con weekly_schedule manual
+    nota: str = ""
+
+
+class GenerateDailyResponse(BaseModel):
+    status: str
+    total_pares: int
+    total_tardiness: int
+    wall_time: float
+    saved_as: str
+
+
+@router.post("/generate-daily", response_model=GenerateDailyResponse)
+def generate_daily(req: GenerateDailyRequest):
+    """Genera programa diario a partir de un plan semanal manual ya guardado.
+    Salta el weekly optimizer y ejecuta solo: daily scheduling + operarios."""
+    import time
+    t0 = time.time()
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(500, "Supabase no configurado en el servidor")
+
+    # 1. Cargar el resultado existente (plan semanal manual)
+    results = _sb_get("resultados", f"select=*&id=eq.{req.resultado_id}")
+    if not results:
+        raise HTTPException(404, "Resultado no encontrado")
+    resultado = results[0]
+
+    weekly_schedule = resultado.get("weekly_schedule", [])
+    weekly_summary = resultado.get("weekly_summary", {})
+    base_name = resultado.get("base_name", "")
+    pedido_snapshot = resultado.get("pedido_snapshot", [])
+
+    if not weekly_schedule:
+        raise HTTPException(400, "El resultado no tiene plan semanal")
+
+    print(f"[GEN-DAILY] Generando diario desde resultado '{resultado['nombre']}'")
+    print(f"[GEN-DAILY] {len(weekly_schedule)} entradas en weekly_schedule")
+
+    # 2. Cargar datos necesarios
+    params = _load_params()
+    catalogo = _load_catalogo()
+    operarios = _load_operarios()
+    semana = base_name
+    restricciones = _load_restricciones(semana)
+    avance_data = _load_avance(semana) if semana else {}
+
+    # 3. Reconstruir pedido y cruzar con catalogo
+    if pedido_snapshot:
+        pedido_items = []
+        for it in pedido_snapshot:
+            pedido_items.append({
+                "modelo": it.get("modelo") or it.get("modelo_num", ""),
+                "color": it.get("color", ""),
+                "volumen": it.get("volumen", 0),
+                "fabrica": it.get("fabrica", ""),
+            })
+    else:
+        pedido_items = [
+            {"modelo": e["Modelo"].split()[0], "color": " ".join(e["Modelo"].split()[1:]),
+             "volumen": 0, "fabrica": e.get("Fabrica", "")}
+            for e in weekly_schedule
+        ]
+    matched = _match_models(catalogo, pedido_items)
+    if not matched:
+        raise HTTPException(400, "Ningun modelo del plan tiene catalogo")
+
+    print(f"[GEN-DAILY] matched: {len(matched)} modelos")
+
+    # 4. Compilar restricciones
+    compiled = compile_constraints(
+        restricciones, avance_data, matched, params["days"],
+    )
+
+    # 5. Usar volumenes del weekly_schedule (no del pedido)
+    models_for_opt = deepcopy(matched)
+    weekly_by_model = {}
+    for entry in weekly_schedule:
+        modelo = entry["Modelo"]
+        weekly_by_model[modelo] = weekly_by_model.get(modelo, 0) + entry.get("Pares", 0)
+
+    for m in models_for_opt:
+        codigo = m["codigo"]
+        m["total_producir"] = weekly_by_model.get(codigo, 0)
+
+    models_for_opt = [m for m in models_for_opt if m["total_producir"] > 0]
+    print(f"[GEN-DAILY] models_for_opt: {len(models_for_opt)} modelos con volumen > 0")
+
+    # 6. Corregir plantilla con operarios reales
+    params = deepcopy(params)
+    if operarios:
+        for day_cfg in params["days"]:
+            dn = day_cfg["name"]
+            dn_prefix = dn.split()[0] if dn else ""
+            real_count = 0
+            for op in operarios:
+                dias = op.get("dias_disponibles", [])
+                if not dias:
+                    real_count += 1
+                    continue
+                for d in dias:
+                    if d == dn or dn.startswith(d) or d.startswith(dn_prefix):
+                        real_count += 1
+                        break
+            day_cfg["plantilla"] = real_count
+            day_cfg["plantilla_ot"] = real_count
+
+    # 6b. Operator capacity
+    if operarios:
+        op_cap_global = {}
+        for op in operarios:
+            if not op.get("activo", True):
+                continue
+            for r in op.get("recursos_habilitados", []):
+                op_cap_global[r] = op_cap_global.get(r, 0) + 1
+        if op_cap_global:
+            params["operator_capacity"] = op_cap_global
+
+    # 7. Scheduling diario
+    raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled, operarios=operarios)
+
+    # 8. Asignacion de operarios
+    op_results = {}
+    if operarios:
+        op_results = assign_operators_week(
+            raw_daily, operarios, params["time_blocks"]
+        )
+
+    # 9. Aplanar resultados
+    model_lookup = {m["codigo"]: m for m in models_for_opt}
+    daily_results = {}
+    for day_name, day_data in raw_daily.items():
+        summary = day_data.get("summary", {})
+        op_day = op_results.get(day_name, {})
+        source_schedule = op_day.get("assignments") or day_data.get("schedule", [])
+
+        schedule = []
+        for s in source_schedule:
+            modelo_code = s.get("modelo", "")
+            etapa = ""
+            input_o_proceso = ""
+            cat_model = model_lookup.get(modelo_code)
+            if cat_model:
+                for op in cat_model.get("operations", []):
+                    if op["fraccion"] == s.get("fraccion"):
+                        etapa = op.get("etapa", "")
+                        input_o_proceso = op.get("input_o_proceso", "")
+                        break
+
+            entry = {
+                "modelo": modelo_code,
+                "fraccion": s.get("fraccion", 0),
+                "operacion": s.get("operacion", ""),
+                "recurso": s.get("recurso", ""),
+                "rate": s.get("rate", 0),
+                "hc": s.get("hc", 0),
+                "etapa": etapa,
+                "input_o_proceso": input_o_proceso,
+                "blocks": s.get("block_pares", []),
+                "total": s.get("total_pares", 0),
+                "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+                "robot_per_block": s.get("robot_per_block", []),
+                "operario": s.get("operario", ""),
+            }
+            if s.get("adelanto"):
+                entry["adelanto"] = True
+                entry["adelanto_de"] = s.get("adelanto_de", "")
+            if s.get("motivo_sin_asignar"):
+                entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+            schedule.append(entry)
+
+        day_dict = {
+            "status": summary.get("status", ""),
+            "total_pares": summary.get("total_pares", 0),
+            "total_tardiness": summary.get("total_tardiness", 0),
+            "plantilla": summary.get("plantilla", 0),
+            "schedule": schedule,
+            "operator_timelines": op_day.get("operator_timelines", {}),
+            "unassigned_ops": op_day.get("unassigned", []),
+        }
+        if summary.get("pares_adelantados"):
+            day_dict["pares_adelantados"] = summary["pares_adelantados"]
+        if summary.get("pares_rezago"):
+            day_dict["pares_rezago"] = summary["pares_rezago"]
+        if summary.get("tardiness_by_model"):
+            day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
+        daily_results[day_name] = day_dict
+
+    # 10. Actualizar weekly_summary con HC real
+    if operarios and weekly_summary.get("days"):
+        for day_sum in weekly_summary["days"]:
+            day_name = day_sum.get("dia", "")
+            day_prefix = day_name.split()[0] if day_name else ""
+            count = 0
+            for op in operarios:
+                dias = op.get("dias_disponibles", [])
+                if not dias:
+                    count += 1
+                    continue
+                for d in dias:
+                    if d == day_name or day_name.startswith(d) or d.startswith(day_prefix):
+                        count += 1
+                        break
+            day_sum["hc_disponible"] = count
+
+    # 11. Guardar nuevo resultado
+    wall_time = time.time() - t0
+    weekly_summary["wall_time_s"] = round(wall_time, 2)
+
+    total_daily_pares = sum(dr.get("total_pares", 0) for dr in daily_results.values())
+    total_daily_tardiness = sum(dr.get("total_tardiness", 0) for dr in daily_results.values())
+
+    saved_as = _save_resultado(
+        base_name, weekly_schedule, weekly_summary,
+        daily_results, pedido_items, params,
+        req.nota or "Diario generado desde plan manual",
+    )
+
+    print(f"[GEN-DAILY] Guardado como '{saved_as}' en {wall_time:.1f}s")
+
+    return GenerateDailyResponse(
+        status="OK",
+        total_pares=total_daily_pares,
+        total_tardiness=total_daily_tardiness,
+        wall_time=round(wall_time, 2),
+        saved_as=saved_as,
+    )
