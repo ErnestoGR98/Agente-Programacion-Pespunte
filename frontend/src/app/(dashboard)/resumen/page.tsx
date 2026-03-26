@@ -28,7 +28,7 @@ export default function ResumenPage() {
   const result = useAppStore((s) => s.currentResult)
   const appStep = useAppStore((s) => s.appStep)
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
-  const [showEditor, setShowEditor] = useState(false)
+  const [showEditor, setShowEditor] = useState(true)
 
   useEffect(() => {
     supabase
@@ -119,6 +119,7 @@ function ManualWeeklyEditor() {
   const [autoLoading, setAutoLoading] = useState(false)
   const [saved, setSaved] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [generatingDay, setGeneratingDay] = useState<string | null>(null)
   const [genError, setGenError] = useState<string | null>(null)
 
   // Lot range config
@@ -414,6 +415,40 @@ function ManualWeeklyEditor() {
     }
   }, [])
 
+  // Generate single day
+  const handleGenerateDay = useCallback(async (dia: string) => {
+    const currentResult = useAppStore.getState().currentResult
+    if (!currentResult) return
+
+    setGeneratingDay(dia)
+    setGenError(null)
+
+    try {
+      const res = await generateDaily({ resultado_id: currentResult.id, dia })
+
+      // Reload the updated resultado (PATCH in-place, same nombre)
+      const { data } = await supabase
+        .from('resultados')
+        .select('*')
+        .eq('nombre', res.saved_as)
+        .single()
+
+      if (data) {
+        useAppStore.getState().setCurrentResult(data as Resultado)
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : `Error al generar dia ${dia}`)
+    } finally {
+      setGeneratingDay(null)
+    }
+  }, [])
+
+  // Which days are already generated?
+  const generatedDays = useMemo(() => {
+    const currentResult = useAppStore.getState().currentResult
+    return new Set(Object.keys(currentResult?.daily_results || {}))
+  }, [saved, generatingDay]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Render
   if (appStep < 1) return null
 
@@ -467,14 +502,7 @@ function ManualWeeklyEditor() {
             <Button size="sm" onClick={handleSave} disabled={grandTotal === 0}>
               {saved ? <><Check className="mr-1 h-3 w-3" /> Guardado</> : <><Save className="mr-1 h-3 w-3" /> Guardar</>}
             </Button>
-            {saved && (
-              <Button size="sm" variant={genError ? 'destructive' : 'default'} onClick={handleGenerateDaily} disabled={generating}>
-                {generating
-                  ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generando...</>
-                  : <><Play className="mr-1 h-3 w-3" /> Generar Diario</>
-                }
-              </Button>
-            )}
+            {/* Per-day generate buttons are below in the capacity bars */}
             {genError && <span className="text-xs text-destructive max-w-[200px] truncate">{genError}</span>}
           </div>
         </div>
@@ -504,13 +532,17 @@ function ManualWeeklyEditor() {
           </div>
         </div>
 
-        {/* Capacity bars */}
+        {/* Capacity bars + per-day generate */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
           {activeDays.map((d) => {
             const cap = dayCapacity[d]
             const assigned = dayTotals[d] || 0
             const pct = cap?.maxPares ? Math.round((assigned / cap.maxPares) * 100) : 0
             const overloaded = pct > 100
+            const isGenerated = generatedDays.has(d)
+            const isGenerating = generatingDay === d
+            const hasResult = !!useAppStore.getState().currentResult?.weekly_schedule?.length
+            const canGenerate = (saved || hasResult) && assigned > 0
             return (
               <div key={d} className="space-y-0.5">
                 <div className="flex items-center justify-between">
@@ -522,6 +554,22 @@ function ManualWeeklyEditor() {
                   <span>{assigned.toLocaleString()}p</span>
                   <span>{cap?.plantilla || 0}HC</span>
                 </div>
+                {/* Per-day generate button */}
+                <Button
+                  size="sm"
+                  variant={isGenerated ? 'outline' : 'default'}
+                  className="w-full h-6 text-[10px] mt-1"
+                  disabled={!canGenerate || isGenerating || generating}
+                  onClick={() => handleGenerateDay(d)}
+                >
+                  {isGenerating ? (
+                    <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Generando...</>
+                  ) : isGenerated ? (
+                    <><Check className="mr-1 h-3 w-3 text-green-600" /> Regenerar</>
+                  ) : (
+                    <><Play className="mr-1 h-3 w-3" /> Generar</>
+                  )}
+                </Button>
               </div>
             )
           })}

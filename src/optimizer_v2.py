@@ -74,9 +74,9 @@ def _calc_dynamic_hc(models_day, resource_cap, plantilla, op_capacity=None,
         Si False (default), permite HC alto para aprovechar operarios ociosos.
     """
     num_models = len(models_day)
-    # Mas generoso: distribuir plantilla por modelo (no por operacion)
-    # Con cascada, cada modelo tiene varias ops concurrentes que comparten el HC
-    base_hc = max(3, plantilla // max(1, num_models))
+    # Generous: allow up to half the plantilla per operation so idle operators
+    # can help accelerate bottleneck/buffer operations
+    base_hc = max(4, plantilla // max(1, num_models))
     block_min = 60  # duracion tipica de bloque en minutos
     min_blocks = 1  # permitir operaciones de 1 bloque para aprovechar todo el HC
     for model in models_day:
@@ -274,14 +274,6 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             for op_idx, op in enumerate(model["operations"]):
                 frac_to_op[(m_idx, op["fraccion"])] = op_idx
 
-        # Pre-count precedence rules per model to scale buffers.
-        # With N rules each having buffer B, total startup = N*B.
-        # If N*B > pares_dia, the pipeline is infeasible.
-        # Scale each buffer so total startup <= pares_dia * 0.4.
-        prec_count_per_model = {}
-        for (mc, _, _, _) in compiled.precedences:
-            prec_count_per_model[str(mc)] = prec_count_per_model.get(str(mc), 0) + 1
-
         for (modelo_code, fracs_orig, fracs_dest, buffer) in compiled.precedences:
             target_m = None
             for m_idx, model in enumerate(models_day):
@@ -299,17 +291,21 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             effective_buffer = buffer
             if effective_buffer < 0:
                 effective_buffer = pares_dia_m
-            # Scale buffer so total startup across all rules stays feasible.
-            # With N rules, each buffer is capped at pares_dia * 0.4 / N.
-            # This ensures the pipeline has enough overlap to complete.
-            if effective_buffer > 0 and pares_dia_m > 0:
-                n_rules = prec_count_per_model.get(str(modelo_code), 1)
-                max_total_startup = max(1, int(pares_dia_m * 0.4))
-                max_per_rule = max(1, max_total_startup // max(1, n_rules))
+            # Cap buffer to pares_dia
+            if effective_buffer > pares_dia_m:
+                effective_buffer = pares_dia_m
+            # Gentle scaling: if total startup across all rules would exceed
+            # 80% of pares_dia, scale down proportionally to stay feasible.
+            # Count rules for this model
+            n_rules = sum(1 for (mc, _, _, _) in compiled.precedences
+                          if mc == modelo_code or str(mc) == str(modelo_code))
+            if n_rules > 1 and effective_buffer > 0 and pares_dia_m > 0:
+                max_total_startup = max(1, int(pares_dia_m * 0.8))
+                max_per_rule = max(1, max_total_startup // n_rules)
                 if effective_buffer > max_per_rule:
                     print(f"    [PREC] {modelo_code}: buffer {effective_buffer} "
                           f"scaled to {max_per_rule} ({n_rules} rules, "
-                          f"pares_dia={pares_dia_m})")
+                          f"pares_dia={pares_dia_m}, 80% cap)")
                     effective_buffer = max_per_rule
 
             # Map fraccion numbers to op_idx

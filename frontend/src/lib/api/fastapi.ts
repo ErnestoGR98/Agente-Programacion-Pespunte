@@ -97,7 +97,7 @@ export async function runCapacityPlan(req: CapacityRequest): Promise<CapacityRes
 // GENERATE DAILY FROM MANUAL WEEKLY PLAN
 // ============================================================
 
-export async function generateDaily(req: { resultado_id: string; nota?: string }): Promise<{
+export async function generateDaily(req: { resultado_id: string; nota?: string; dia?: string }): Promise<{
   status: string
   total_pares: number
   total_tardiness: number

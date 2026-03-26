@@ -608,9 +608,30 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
   // Maquila info is shown in the banner above, not as rows in the table
 
+  // Consolidate rows with same modelo+fraccion+operario+recurso into one row
+  const consolidatedSchedule = useMemo(() => {
+    const map = new Map<string, DailyScheduleEntry>()
+    for (const s of rawSchedule) {
+      const key = `${s.modelo}|${s.fraccion}|${s.operario || ''}|${s.robot || s.recurso}`
+      const existing = map.get(key)
+      if (existing) {
+        // Merge blocks: sum pares per block
+        const blocks = [...(existing.blocks || [])]
+        for (let i = 0; i < (s.blocks || []).length; i++) {
+          blocks[i] = (blocks[i] || 0) + ((s.blocks || [])[i] || 0)
+        }
+        existing.blocks = blocks
+        existing.total = blocks.reduce((sum, v) => sum + (v || 0), 0)
+      } else {
+        map.set(key, { ...s, blocks: [...(s.blocks || [])], total: s.total })
+      }
+    }
+    return [...map.values()]
+  }, [rawSchedule])
+
   const schedule = useMemo(() => {
-    if (!cascadeSort) return rawSchedule
-    return [...rawSchedule].sort((a, b) => {
+    if (!cascadeSort) return consolidatedSchedule
+    return [...consolidatedSchedule].sort((a, b) => {
       const firstA = (a.blocks || []).findIndex((v) => v > 0)
       const firstB = (b.blocks || []).findIndex((v) => v > 0)
       const startA = firstA === -1 ? 999 : firstA
@@ -625,7 +646,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
       if (mCmp !== 0) return mCmp
       return a.fraccion - b.fraccion
     })
-  }, [rawSchedule, cascadeSort])
+  }, [consolidatedSchedule, cascadeSort])
 
   const totalPares = data.total_pares || 0
   const paresAdelantados = data.pares_adelantados || 0
@@ -1075,9 +1096,140 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         <CascadeByRecurso schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} />
       )}
 
+      {/* Resumen completado por modelo */}
+      <ModelCompletionSummary schedule={schedule} weeklySchedule={weeklySchedule} dayName={dayName} />
+
       {/* Operarios no utilizados */}
       <IdleOperators schedule={schedule} dayName={dayName} allOperarios={allOperarios} />
     </div>
+  )
+}
+
+/** Model completion summary — shows per-model how many pares completed all operations vs incomplete */
+function ModelCompletionSummary({ schedule, weeklySchedule, dayName }: {
+  schedule: DailyScheduleEntry[]
+  weeklySchedule: WeeklyScheduleEntry[] | undefined
+  dayName: string
+}) {
+  const analysis = useMemo(() => {
+    // Get pares_dia per model from weekly_schedule
+    const paresDia: Record<string, number> = {}
+    if (weeklySchedule) {
+      for (const e of weeklySchedule) {
+        if (e.Dia === dayName) {
+          paresDia[e.Modelo] = (paresDia[e.Modelo] || 0) + e.Pares
+        }
+      }
+    }
+
+    // Group schedule by model, then by fraccion
+    const byModel: Record<string, Record<number, { operacion: string; recurso: string; total: number }>> = {}
+    for (const s of schedule) {
+      if (s.adelanto) continue // skip adelanto entries
+      if (!byModel[s.modelo]) byModel[s.modelo] = {}
+      const frac = s.fraccion
+      if (!byModel[s.modelo][frac]) {
+        byModel[s.modelo][frac] = { operacion: s.operacion, recurso: s.robot || s.recurso, total: 0 }
+      }
+      byModel[s.modelo][frac].total += s.total
+    }
+
+    // For each model, find the bottleneck (min pares across fracciones)
+    const results: Array<{
+      modelo: string
+      pedido: number
+      completados: number
+      bottleneckFrac: number
+      bottleneckOp: string
+      bottleneckRecurso: string
+      bottleneckPares: number
+      fracciones: Array<{ frac: number; operacion: string; recurso: string; pares: number }>
+    }> = []
+
+    for (const [modelo, fracs] of Object.entries(byModel)) {
+      const fracList = Object.entries(fracs)
+        .map(([f, v]) => ({ frac: Number(f), operacion: v.operacion, recurso: v.recurso, pares: v.total }))
+        .sort((a, b) => a.frac - b.frac)
+
+      if (fracList.length === 0) continue
+
+      // Bottleneck = fraccion with minimum pares produced
+      const bottleneck = fracList.reduce((min, f) => f.pares < min.pares ? f : min, fracList[0])
+      const pedido = paresDia[modelo] || 0
+
+      results.push({
+        modelo,
+        pedido,
+        completados: bottleneck.pares,
+        bottleneckFrac: bottleneck.frac,
+        bottleneckOp: bottleneck.operacion,
+        bottleneckRecurso: bottleneck.recurso,
+        bottleneckPares: bottleneck.pares,
+        fracciones: fracList,
+      })
+    }
+
+    return results.sort((a, b) => (a.completados - a.pedido) - (b.completados - b.pedido))
+  }, [schedule, weeklySchedule, dayName])
+
+  if (analysis.length === 0) return null
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <h3 className="text-sm font-semibold mb-3">Completado por Modelo</h3>
+        <div className="space-y-3">
+          {analysis.map((m) => {
+            const deficit = m.pedido - m.completados
+            const isComplete = deficit <= 0
+            return (
+              <div key={m.modelo} className={`rounded-md border p-3 ${isComplete ? 'border-green-500/30 bg-green-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold font-mono">{m.modelo}</span>
+                    <Badge variant="secondary" className="text-xs">Pedido: {m.pedido}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-bold ${isComplete ? 'text-green-600' : 'text-amber-600'}`}>
+                      {m.completados}p completos
+                    </span>
+                    {!isComplete && (
+                      <Badge variant="destructive" className="text-xs">−{deficit}p</Badge>
+                    )}
+                  </div>
+                </div>
+                {/* Fracciones breakdown */}
+                <div className="flex flex-wrap gap-1.5">
+                  {m.fracciones.map((f) => {
+                    const isBottleneck = f.pares === m.bottleneckPares && f.pares < m.pedido
+                    return (
+                      <div
+                        key={f.frac}
+                        className={`text-[10px] rounded px-1.5 py-0.5 border ${
+                          isBottleneck
+                            ? 'border-red-500/50 bg-red-500/10 text-red-600 dark:text-red-400 font-bold'
+                            : f.pares >= m.pedido
+                              ? 'border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-400'
+                              : 'border-border bg-muted/50'
+                        }`}
+                        title={`F${f.frac}: ${f.operacion} (${f.recurso}) = ${f.pares}p`}
+                      >
+                        <span className="font-medium">F{f.frac}</span>
+                        <span className="mx-0.5">·</span>
+                        <span className="truncate max-w-[120px] inline-block align-bottom">{f.operacion}</span>
+                        <span className="mx-0.5">·</span>
+                        <span className="font-mono">{f.pares}p</span>
+                        {isBottleneck && <span className="ml-1">⚠️</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

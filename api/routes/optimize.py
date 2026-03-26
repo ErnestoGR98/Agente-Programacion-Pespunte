@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from optimizer_weekly import optimize
-from optimizer_v2 import schedule_week
-from operator_assignment import assign_operators_week
+from optimizer_v2 import schedule_week, schedule_day
+from operator_assignment import assign_operators_week, assign_operators_day
 from constraint_compiler import compile_constraints
 from rules import TIME_BLOCKS, generate_time_blocks
 
@@ -56,6 +56,16 @@ def _sb_post(table: str, data: dict) -> dict:
     r.raise_for_status()
     result = r.json()
     return result[0] if isinstance(result, list) and result else result
+
+
+def _sb_patch(query: str, data: dict) -> None:
+    """PATCH a Supabase REST API (update parcial)."""
+    r = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{query}",
+        headers=_sb_headers(),
+        json=data,
+    )
+    r.raise_for_status()
 
 
 # --- Tipos base por categoria (mismos que en frontend types/index.ts) ---
@@ -954,6 +964,7 @@ def run_optimization(req: OptimizeRequest):
 class GenerateDailyRequest(BaseModel):
     resultado_id: str  # ID del resultado con weekly_schedule manual
     nota: str = ""
+    dia: str = ""  # Si se especifica, solo genera ese dia y hace merge parcial
 
 
 class GenerateDailyResponse(BaseModel):
@@ -1070,6 +1081,16 @@ def generate_daily(req: GenerateDailyRequest):
         if op_cap_global:
             params["operator_capacity"] = op_cap_global
 
+    # 7-11. Branching: single day vs all days
+    if req.dia:
+        return _generate_single_day(
+            req, resultado, weekly_schedule, weekly_summary,
+            base_name, pedido_items, models_for_opt, params,
+            compiled, operarios, t0,
+        )
+
+    # --- ALL DAYS ---
+
     # 7. Scheduling diario
     raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled, operarios=operarios)
 
@@ -1081,6 +1102,180 @@ def generate_daily(req: GenerateDailyRequest):
         )
 
     # 9. Aplanar resultados
+    daily_results = _flatten_daily_results(raw_daily, op_results, models_for_opt)
+
+    # 10. Actualizar weekly_summary con HC real
+    _update_weekly_hc(weekly_summary, operarios)
+
+    # 11. Guardar nuevo resultado
+    wall_time = time.time() - t0
+    weekly_summary["wall_time_s"] = round(wall_time, 2)
+
+    total_daily_pares = sum(dr.get("total_pares", 0) for dr in daily_results.values())
+    total_daily_tardiness = sum(dr.get("total_tardiness", 0) for dr in daily_results.values())
+
+    saved_as = _save_resultado(
+        base_name, weekly_schedule, weekly_summary,
+        daily_results, pedido_items, params,
+        req.nota or "Diario generado desde plan manual",
+    )
+
+    print(f"[GEN-DAILY] Guardado como '{saved_as}' en {wall_time:.1f}s")
+
+    return GenerateDailyResponse(
+        status="OK",
+        total_pares=total_daily_pares,
+        total_tardiness=total_daily_tardiness,
+        wall_time=round(wall_time, 2),
+        saved_as=saved_as,
+    )
+
+
+def _generate_single_day(req, resultado, weekly_schedule, weekly_summary,
+                          base_name, pedido_items, models_for_opt, params,
+                          compiled, operarios, t0):
+    """Genera programa diario para UN solo dia y hace merge en el resultado existente."""
+    import time
+
+    dia = req.dia
+    print(f"[GEN-DAY] Generando solo dia '{dia}'")
+
+    model_lookup = {m["codigo"]: m for m in models_for_opt}
+
+    # Filtrar weekly_schedule al dia solicitado
+    entries = [e for e in weekly_schedule if e["Dia"] == dia]
+    if not entries:
+        raise HTTPException(400, f"No hay entradas en el plan semanal para el dia '{dia}'")
+
+    # Construir models_day (misma logica que schedule_week)
+    models_day = []
+    for entry in entries:
+        modelo_code = entry["Modelo"]
+        if modelo_code not in model_lookup:
+            continue
+        model_data = model_lookup[modelo_code]
+        internal_ops = [
+            op for op in model_data["operations"]
+            if op.get("recurso") != "MAQUILA"
+        ]
+        if not internal_ops:
+            continue
+        models_day.append({
+            "codigo": modelo_code,
+            "fabrica": entry["Fabrica"],
+            "suela": entry.get("Suela", ""),
+            "pares_dia": entry["Pares"],
+            "operations": internal_ops,
+        })
+
+    if not models_day:
+        raise HTTPException(400, f"Ningun modelo con catalogo para el dia '{dia}'")
+
+    # Encontrar config del dia para plantilla
+    plantilla = params["days"][0]["plantilla"]  # default
+    for day_cfg in params["days"]:
+        if day_cfg["name"] == dia:
+            plantilla = day_cfg["plantilla"]
+            break
+
+    # Ajustes de plantilla desde restricciones
+    if compiled:
+        if dia in compiled.plantilla_overrides:
+            plantilla = compiled.plantilla_overrides[dia]
+        elif dia in compiled.plantilla_adjustments:
+            plantilla = max(1, plantilla + compiled.plantilla_adjustments[dia])
+
+    # Operator capacity por recurso para este dia
+    op_cap_by_recurso = {}
+    if operarios:
+        day_prefix = dia.split()[0] if dia else ""
+        for op in operarios:
+            if not op.get("activo", True):
+                continue
+            dias_disp = op.get("dias_disponibles", [])
+            available = not dias_disp
+            if not available:
+                for d in dias_disp:
+                    if d == dia or dia.startswith(d) or d.startswith(day_prefix):
+                        available = True
+                        break
+            if not available:
+                continue
+            for r in op.get("recursos_habilitados", []):
+                op_cap_by_recurso[r] = op_cap_by_recurso.get(r, 0) + 1
+
+    day_params = {
+        "time_blocks": params["time_blocks"],
+        "resource_capacity": params["resource_capacity"],
+        "plantilla": plantilla,
+        "lot_step": params.get("lot_step", 100),
+        "num_workers": 4,
+        "day_name": dia,
+        "lineas_post": params.get("lineas_post", 0),
+        "operator_capacity": op_cap_by_recurso,
+    }
+
+    # Copiar pesos diarios si existen
+    for wk in ("w_diario_tardiness", "w_diario_uniformity", "w_diario_hc_overflow",
+                "w_diario_idle", "w_diario_balance"):
+        if wk in params:
+            day_params[wk] = params[wk]
+
+    print(f"[GEN-DAY] plantilla={plantilla}, resource_cap={params['resource_capacity']}")
+    print(f"[GEN-DAY] op_cap_by_recurso={op_cap_by_recurso}")
+    print(f"[GEN-DAY] models_day: {[(m['codigo'], m['pares_dia'], len(m['operations'])) for m in models_day]}")
+    print(f"[GEN-DAY] time_blocks: {len(params['time_blocks'])} blocks")
+
+    # Schedule del dia
+    day_result = schedule_day(models_day, day_params, compiled)
+
+    # Asignacion de operarios
+    op_day = {}
+    if operarios and day_result.get("schedule"):
+        op_day = assign_operators_day(
+            day_result["schedule"], operarios, dia, params["time_blocks"]
+        )
+
+    # Aplanar resultado del dia
+    raw_single = {dia: day_result}
+    op_single = {dia: op_day} if op_day else {}
+    flat = _flatten_daily_results(raw_single, op_single, models_for_opt)
+    day_dict = flat.get(dia, {})
+
+    # Merge con daily_results existente del resultado
+    existing_daily = resultado.get("daily_results") or {}
+    existing_daily[dia] = day_dict
+
+    # Actualizar weekly_summary HC
+    _update_weekly_hc(weekly_summary, operarios)
+
+    wall_time = time.time() - t0
+    weekly_summary["wall_time_s"] = round(wall_time, 2)
+
+    # Actualizar resultado in-place (PATCH, no crear nueva version)
+    resultado_id = resultado["id"]
+    patch_data = {
+        "daily_results": existing_daily,
+        "weekly_summary": weekly_summary,
+    }
+    _sb_patch(f"resultados?id=eq.{resultado_id}", patch_data)
+
+    total_daily_pares = sum(dr.get("total_pares", 0) for dr in existing_daily.values())
+    total_daily_tardiness = sum(dr.get("total_tardiness", 0) for dr in existing_daily.values())
+
+    print(f"[GEN-DAY] Dia '{dia}' generado y mergeado en '{resultado['nombre']}' en {wall_time:.1f}s")
+
+    return GenerateDailyResponse(
+        status="OK",
+        total_pares=total_daily_pares,
+        total_tardiness=total_daily_tardiness,
+        wall_time=round(wall_time, 2),
+        saved_as=resultado["nombre"],
+    )
+
+
+def _flatten_daily_results(raw_daily, op_results, models_for_opt):
+    """Aplana raw_daily + op_results en el formato final de daily_results."""
     model_lookup = {m["codigo"]: m for m in models_for_opt}
     daily_results = {}
     for day_name, day_data in raw_daily.items():
@@ -1139,8 +1334,11 @@ def generate_daily(req: GenerateDailyRequest):
         if summary.get("tardiness_by_model"):
             day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
         daily_results[day_name] = day_dict
+    return daily_results
 
-    # 10. Actualizar weekly_summary con HC real
+
+def _update_weekly_hc(weekly_summary, operarios):
+    """Actualiza weekly_summary.days con HC real de operarios."""
     if operarios and weekly_summary.get("days"):
         for day_sum in weekly_summary["days"]:
             day_name = day_sum.get("dia", "")
@@ -1156,26 +1354,3 @@ def generate_daily(req: GenerateDailyRequest):
                         count += 1
                         break
             day_sum["hc_disponible"] = count
-
-    # 11. Guardar nuevo resultado
-    wall_time = time.time() - t0
-    weekly_summary["wall_time_s"] = round(wall_time, 2)
-
-    total_daily_pares = sum(dr.get("total_pares", 0) for dr in daily_results.values())
-    total_daily_tardiness = sum(dr.get("total_tardiness", 0) for dr in daily_results.values())
-
-    saved_as = _save_resultado(
-        base_name, weekly_schedule, weekly_summary,
-        daily_results, pedido_items, params,
-        req.nota or "Diario generado desde plan manual",
-    )
-
-    print(f"[GEN-DAILY] Guardado como '{saved_as}' en {wall_time:.1f}s")
-
-    return GenerateDailyResponse(
-        status="OK",
-        total_pares=total_daily_pares,
-        total_tardiness=total_daily_tardiness,
-        wall_time=round(wall_time, 2),
-        saved_as=saved_as,
-    )
