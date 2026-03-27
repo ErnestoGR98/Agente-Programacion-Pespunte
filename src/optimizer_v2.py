@@ -1170,50 +1170,43 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                           f"completed fracs {done_fracs}, {len(remaining)} remaining")
                     m["operations"] = remaining
 
-        # Cross-day pipeline cap: each fraction can't produce more across the
-        # week than the minimum of its predecessor fractions' cumulative production.
-        # Only considers INTERNAL fractions (excludes MAQUILA which are external).
+        # Cross-day pipeline cap: only cap models where SOME fractions were
+        # completed on prior days but OTHERS still remain. This prevents
+        # downstream fracs from exceeding what upstream produced.
+        # Does NOT cap models running all fractions today (intra-day cascade handles that).
         for m in models_day:
             code = m["codigo"]
             cum_prod = cumulative_produced_by_op.get(code, {})
             if not cum_prod:
-                continue  # first day for this model, no cap needed
+                continue  # first day for this model, no cap
 
-            # Get fractions that are internal (present in today's ops or previously produced)
-            # Exclude fracs with 0 production that were never scheduled (MAQUILA)
             today_fracs = set(op.get("fraccion", 0) for op in m["operations"])
-            internal_produced = {f: p for f, p in cum_prod.items() if p > 0}
-            if not internal_produced:
+            completed_fracs = cumulative_completed_fracs.get(code, set())
+
+            # Only cap if some fracs were completed on prior days (pipeline split across days)
+            if not completed_fracs:
                 continue
 
-            # Bottleneck = min production among internal fractions produced so far
-            # Only consider fracs that are predecessors (lower fraccion numbers)
-            min_today_frac = min(today_fracs) if today_fracs else 999
-            upstream_fracs = {f: p for f, p in internal_produced.items() if f < min_today_frac}
+            # Bottleneck = min production among completed upstream fracs
+            upstream_vals = [cum_prod[f] for f in completed_fracs if f in cum_prod]
+            if not upstream_vals:
+                continue
+            bottleneck = min(upstream_vals)
 
-            if not upstream_fracs:
-                continue  # no upstream fracs produced yet, no cap
-
-            bottleneck = min(upstream_fracs.values())
-
-            # How much have today's fracs already produced in prior days?
+            # How much have today's fracs already produced?
             max_downstream_done = max(
                 (cum_prod.get(f, 0) for f in today_fracs), default=0
             )
 
-            # Remaining capacity = bottleneck minus what's already done downstream
             remaining_cap = max(0, bottleneck - max_downstream_done)
 
-            # Cap pares_dia but protect weekly minimum
-            weekly_min = weekly_pares_lookup.get((code, day_name), 0)
-
             if remaining_cap < m["pares_dia"]:
-                new_pares = max(remaining_cap, weekly_min)
+                new_pares = remaining_cap
                 if new_pares < m["pares_dia"]:
                     print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
                           f"{m['pares_dia']} -> {new_pares} "
-                          f"(bottleneck={bottleneck}, upstream={upstream_fracs}, "
-                          f"downstream_done={max_downstream_done}, weekly_min={weekly_min})")
+                          f"(bottleneck={bottleneck}, completed={completed_fracs}, "
+                          f"downstream_done={max_downstream_done})")
                     m["pares_dia"] = new_pares
 
         # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico
@@ -1348,8 +1341,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             if not internal_ops:
                 continue
 
-            # Limitar pares de adelanto: maximo 30% del dia siguiente
-            max_adelanto = max(50, int(pares_available * 0.30))
+            # Sin limite fijo — adelantar todo lo que quepa en las horas ociosas
+            max_adelanto = pares_available
             # Redondear al step
             max_adelanto = (max_adelanto // step) * step
             if max_adelanto <= 0:
