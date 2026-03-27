@@ -282,18 +282,30 @@ def _load_restricciones(semana: str = None) -> list:
 
 
 def _load_avance(semana: str) -> dict:
-    """Carga avance de produccion."""
+    """Carga avance de produccion.
+
+    Returns dict con dos keys:
+      - pares: {modelo_num: {dia: pares}} — avance por dia
+      - fracciones: {modelo_num: [fraccion_nums]} — fracciones ya completadas
+    """
     av = _sb_get("avance", f"select=*&semana=eq.{semana}")
     if not av:
         return {}
     detalles = _sb_get("avance_detalle", f"select=*&avance_id=eq.{av[0]['id']}")
     modelos = {}
+    fracciones = {}
     for d in detalles:
         mn = d["modelo_num"]
         if mn not in modelos:
             modelos[mn] = {}
         modelos[mn][d["dia"]] = d["pares"]
-    return modelos
+        # Fracciones completadas (ej: preliminares hechos el dia anterior)
+        fc = d.get("fracciones_completadas") or []
+        if fc:
+            if mn not in fracciones:
+                fracciones[mn] = set()
+            fracciones[mn].update(fc)
+    return {"modelos": modelos, "fracciones_completadas": fracciones}
 
 
 _CANONICAL_RECURSOS = {"MESA", "PLANA", "POSTE", "ROBOT", "MAQUILA", "GENERAL"}
@@ -338,12 +350,14 @@ def _normalize_recurso(recurso: str) -> str:
 
 
 def _load_operarios() -> list:
-    """Carga operarios con habilidades simplificadas y deriva recursos/robots."""
+    """Carga operarios con 4 categorias de habilidad y deriva recursos."""
     rows = _sb_get("operarios", "select=*&activo=eq.true&order=nombre")
 
-    # All active robot names — used when operator has ROBOTS skill
     all_robots = _sb_get("robots", "select=nombre&estado=eq.ACTIVO")
     all_robot_names = [r["nombre"] for r in all_robots]
+
+    # Old granular pespunte skills that map to PESPUNTE
+    _PESPUNTE_SKILLS = {'PLANA_RECTA', 'ZIGZAG', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'}
 
     result = []
     for r in rows:
@@ -352,24 +366,18 @@ def _load_operarios() -> list:
         dias = _sb_get("operario_dias", f"select=dia&operario_id=eq.{op_id}")
         skills = {x["habilidad"] for x in habs}
 
-        # Derive recursos_habilitados from simplified skills
         recursos: set[str] = set()
         robots_hab: list[str] = []
 
-        if 'PRELIMINARES' in skills:
-            recursos.add('MESA')
+        # MESA: everyone can do it (scoring prefers skilled operators)
+        recursos.add('MESA')
         if 'ROBOTS' in skills:
             recursos.add('ROBOT')
-            robots_hab = list(all_robot_names)  # can operate any robot
-        if 'MAQ_COMPLEMENTARIAS' in skills:
-            recursos.add('MESA')  # complementary machines are mesa-area
-        # All flat-bed pespunte machines → PLANA
-        if skills & {'PLANA_RECTA', 'ZIGZAG', 'DOS_AGUJAS', 'RIBETE', 'CODO'}:
+            robots_hab = list(all_robot_names)
+        if 'PESPUNTE' in skills or skills & _PESPUNTE_SKILLS:
             recursos.add('PLANA')
-        if 'POSTE_CONV' in skills:
             recursos.add('POSTE')
 
-        # Pass skill+nivel pairs for operator assignment scoring
         habilidades_nivel = [
             {"habilidad": x["habilidad"], "nivel": x.get("nivel", 2)}
             for x in habs
@@ -546,9 +554,8 @@ def _inject_maquila_delivery(compiled, delivery_dates: dict, semana: str,
         if target_day is None:
             continue
 
-        # If delivery is on first day (day_idx 0), no scheduling restriction needed
-        # (material arrives at start of the week)
-        if target_day_idx == 0 and delivery_hour <= 8:
+        # If delivery is on or before first production day and early morning, skip
+        if target_day_idx <= 1 and delivery_hour <= 8:
             print(f"[OPT] MAQUILA_DELIVERY {modelo_num}: entrega {target_day} "
                   f"at start of week, no restriction")
             continue
@@ -890,6 +897,8 @@ def run_optimization(req: OptimizeRequest):
                 entry["adelanto_de"] = s.get("adelanto_de", "")
             if s.get("motivo_sin_asignar"):
                 entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+            if s.get("motivos_por_bloque"):
+                entry["motivos_por_bloque"] = s["motivos_por_bloque"]
             schedule.append(entry)
 
         day_dict = {
@@ -907,6 +916,8 @@ def run_optimization(req: OptimizeRequest):
             day_dict["pares_rezago"] = summary["pares_rezago"]
         if summary.get("tardiness_by_model"):
             day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
+        if summary.get("prelim_adelantadas"):
+            day_dict["prelim_adelantadas"] = summary["prelim_adelantadas"]
         daily_results[day_name] = day_dict
 
     # 10. Preservar dias congelados del resultado anterior (reopt_from_day)
@@ -1121,6 +1132,8 @@ def generate_daily(req: GenerateDailyRequest):
                 entry["adelanto_de"] = s.get("adelanto_de", "")
             if s.get("motivo_sin_asignar"):
                 entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+            if s.get("motivos_por_bloque"):
+                entry["motivos_por_bloque"] = s["motivos_por_bloque"]
             schedule.append(entry)
 
         day_dict = {
@@ -1138,6 +1151,8 @@ def generate_daily(req: GenerateDailyRequest):
             day_dict["pares_rezago"] = summary["pares_rezago"]
         if summary.get("tardiness_by_model"):
             day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
+        if summary.get("prelim_adelantadas"):
+            day_dict["prelim_adelantadas"] = summary["prelim_adelantadas"]
         daily_results[day_name] = day_dict
 
     # 10. Actualizar weekly_summary con HC real

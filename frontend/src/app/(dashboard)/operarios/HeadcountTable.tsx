@@ -15,7 +15,7 @@ export function HeadcountTable({
   operarios: OperarioFull[]
   dias: { nombre: string; plantilla: number }[]
 }) {
-  const resourceTypes: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE', 'MAQUILA']
+  const resourceTypes: ResourceType[] = ['MESA', 'ROBOT', 'PLANA', 'POSTE']
 
   const rows = dias.map((d) => {
     const disponibles = operarios.filter((o) => (o.dias || []).includes(d.nombre as DayName))

@@ -34,8 +34,8 @@ _W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 _W_HC_OVERFLOW = 50         # por segundo de exceso sobre plantilla/recurso por bloque
                             # (50 * 3600s = 180k por persona-bloque: fuerte pero < tardiness)
 _W_OP_CAP_OVERFLOW = 5_000  # LEGACY: kept for params override; used only if op_capacity is soft
-_W_IDLE = 500              # por segundo de capacidad ociosa (incentiva usar toda la plantilla)
-_W_BALANCE = 1             # minimizar pico de HC (spread work across all blocks)
+_W_IDLE = 1_500            # por segundo de capacidad ociosa (moderado, no domina W_EARLY)
+_W_BALANCE = 10            # minimizar pico de HC (suave)
 
 
 class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
@@ -47,7 +47,7 @@ class _EarlyStopCallback(cp_model.CpSolverSolutionCallback):
     huecos enormes en el programa.
     """
 
-    GRACE_SECONDS = 5.0  # tiempo adicional tras 0-tardiness
+    GRACE_SECONDS = 15.0  # tiempo adicional tras 0-tardiness para explorar mejor distribucion
 
     def __init__(self, tardiness_vars):
         super().__init__()
@@ -293,9 +293,31 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                 print(f"    [PREC] modelo {modelo_code} no encontrado en models_day, skip")
                 continue
 
+            pares_dia_m = models_day[target_m]["pares_dia"]
+
+            # buffer=-2 means "dia": destination ops CANNOT produce on the same
+            # day as origin ops. If origin is scheduled today, block destination.
+            # If origin was completed on a PREVIOUS day, destination is free.
+            if buffer == -2:
+                idx_orig = [frac_to_op[(target_m, f)]
+                            for f in fracs_orig if (target_m, f) in frac_to_op]
+                idx_dest = [frac_to_op[(target_m, f)]
+                            for f in fracs_dest if (target_m, f) in frac_to_op]
+                if idx_orig and idx_dest:
+                    # Origin is in today's schedule → block destination completely
+                    print(f"    [PREC-DIA] {modelo_code}: F{fracs_orig}->F{fracs_dest} buffer=1dia, "
+                          f"bloqueando destino ops {idx_dest} completamente hoy (origen presente)")
+                    for op_d in idx_dest:
+                        for b in range(num_blocks):
+                            solver_model.Add(x[target_m, op_d, b] == 0)
+                elif not idx_orig and idx_dest:
+                    # Origin NOT in today's schedule (done on previous day) → destination free
+                    print(f"    [PREC-DIA] {modelo_code}: F{fracs_orig}->F{fracs_dest} buffer=1dia, "
+                          f"origen no presente hoy → destino LIBRE")
+                continue
+
             # buffer=-1 means "todo": all origin pairs must finish before
             # any destination pair starts -> use pares_dia as buffer
-            pares_dia_m = models_day[target_m]["pares_dia"]
             effective_buffer = buffer
             if effective_buffer < 0:
                 effective_buffer = pares_dia_m
@@ -831,6 +853,26 @@ def schedule_day(models_day: list, params: dict, compiled=None,
                     # Normal: preferir bloques tempranos
                     obj_terms.append(W_EARLY * x[m_idx, op_idx, b] * b)
 
+    # Desbalance de HC entre bloques: penalizar la diferencia entre el bloque
+    # con mas HC y el bloque con menos HC. Esto incentiva distribuir el trabajo
+    # uniformemente a lo largo del dia (no concentrar todo en mañana o tarde).
+    W_BALANCE = int(params.get("w_diario_balance", _W_BALANCE))
+    if len(real_blocks) > 1:
+        block_hc_vars = []
+        for b in real_blocks:
+            hc_b = solver_model.NewIntVar(0, plantilla * 10, f"bhc_{b}")
+            block_load = []
+            for m_idx, model in enumerate(models_day):
+                for op_idx in range(len(model["operations"])):
+                    block_load.append(hc_used[m_idx, op_idx, b])
+            solver_model.Add(hc_b == sum(block_load))
+            block_hc_vars.append(hc_b)
+        # Minimize max HC across blocks (soft)
+        peak_hc = solver_model.NewIntVar(0, plantilla * 10, "peak_hc")
+        for hc_b in block_hc_vars:
+            solver_model.Add(peak_hc >= hc_b)
+        obj_terms.append(W_BALANCE * peak_hc)
+
     solver_model.Minimize(sum(obj_terms))
 
     # --- Resolver ---
@@ -839,9 +881,9 @@ def schedule_day(models_day: list, params: dict, compiled=None,
     # Timeout dinamico segun complejidad del dia
     total_pares = sum(m["pares_dia"] for m in models_day)
     total_ops = sum(len(m["operations"]) for m in models_day)
-    # Base 10s + escala con pares y operaciones, tope 30s
-    # (Render free tier tiene CPU limitada; early stop compensa)
-    timeout = min(30, max(10, 8 + total_pares // 200 + total_ops // 2))
+    # Base 15s + escala con pares y operaciones, tope 60s
+    # Mas tiempo para explorar distribuciones balanceadas de HC
+    timeout = min(60, max(15, 10 + total_pares // 150 + total_ops // 2))
     solver.parameters.max_time_in_seconds = timeout
 
     # Workers: reducir si se ejecuta en paralelo (evitar contention)
@@ -946,12 +988,24 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 continue
             model_data = model_lookup[modelo_code]
             # Excluir operaciones MAQUILA: son externas, no consumen recursos internos
+            # Excluir fracciones ya completadas (preliminares hechos dia anterior, etc.)
+            completed_fracs = set()
+            if compiled and modelo_code in getattr(compiled, 'completed_fractions', {}):
+                completed_fracs = compiled.completed_fractions[modelo_code]
+            # Also check by modelo_num (without suffix like " NE")
+            modelo_num = modelo_code.split()[0] if " " in modelo_code else modelo_code
+            if compiled and modelo_num in getattr(compiled, 'completed_fractions', {}):
+                completed_fracs = completed_fracs | compiled.completed_fractions[modelo_num]
+
             internal_ops = [
                 op for op in model_data["operations"]
                 if op.get("recurso") != "MAQUILA"
+                and op.get("fraccion") not in completed_fracs
             ]
+            if completed_fracs:
+                print(f"    [AVANCE] {modelo_code}: saltando fracciones completadas {completed_fracs}")
             if not internal_ops:
-                continue  # Modelo 100% maquila, nada que programar internamente
+                continue  # Modelo 100% maquila o completado, nada que programar
             # Detectar posicion de split: si el modelo aparece en >1 dia,
             # marcar "tail" en dias intermedios/no-ultimo (empujar a bloques tardios)
             # y "head" en dias posteriores al primero (bloques tempranos, default).
@@ -1116,42 +1170,43 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                           f"completed fracs {done_fracs}, {len(remaining)} remaining")
                     m["operations"] = remaining
 
-        # Cross-day pipeline cap: if upstream ops were completed on prior days,
-        # cap today's pares_dia so downstream can't exceed upstream cumulative total.
-        # SOLO aplicar a modelos con rezago, no a lotes frescos del weekly.
+        # Cross-day pipeline cap: each fraction can't produce more across the
+        # week than the minimum of its predecessor fractions' cumulative production.
+        # Applies to ALL models with prior-day production, not just rezago.
         for m in models_day:
             code = m["codigo"]
-            if code not in rezago_applied_today:
-                continue  # lote fresco del weekly: no aplicar cap
-            completed_fracs = cumulative_completed_fracs.get(code, set())
             cum_prod = cumulative_produced_by_op.get(code, {})
-            if not completed_fracs or not cum_prod:
+            if not cum_prod:
+                continue  # first day for this model, no cap needed
+
+            # For each operation today, check how much its predecessors produced
+            # Cap pares_dia to the bottleneck (min across all fractions so far)
+            all_fracs_produced = sorted(cum_prod.items(), key=lambda x: x[0])
+            if not all_fracs_produced:
                 continue
 
-            # Min production among all completed (removed) upstream fracs
-            upstream_vals = [cum_prod[f] for f in completed_fracs if f in cum_prod]
-            if not upstream_vals:
-                continue
-            upstream_total = min(upstream_vals)
+            # Bottleneck = minimum production across ALL fractions produced so far
+            min_upstream = min(p for _, p in all_fracs_produced)
 
-            # Max production already done by remaining (downstream) ops
-            remaining_fracs = [op.get("fraccion", 0) for op in m["operations"]]
-            downstream_already = max(
-                (cum_prod.get(f, 0) for f in remaining_fracs), default=0
+            # How much has the least-produced fraction of TODAY's ops already done?
+            today_fracs = [op.get("fraccion", 0) for op in m["operations"]]
+            max_downstream_done = max(
+                (cum_prod.get(f, 0) for f in today_fracs), default=0
             )
 
-            # Remaining capacity = what upstream produced minus what downstream already consumed
-            remaining_cap = max(0, upstream_total - downstream_already)
+            # Remaining capacity = bottleneck minus what's already done downstream
+            remaining_cap = max(0, min_upstream - max_downstream_done)
 
-            # Proteger minimo: nunca por debajo de los pares del weekly
+            # Cap pares_dia but protect weekly minimum
             weekly_min = weekly_pares_lookup.get((code, day_name), 0)
 
             if remaining_cap < m["pares_dia"]:
                 new_pares = max(remaining_cap, weekly_min)
-                print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
-                      f"{m['pares_dia']} -> {new_pares} "
-                      f"(upstream={upstream_total}, downstream_done={downstream_already}, weekly_min={weekly_min})")
-                m["pares_dia"] = new_pares
+                if new_pares < m["pares_dia"]:
+                    print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
+                          f"{m['pares_dia']} -> {new_pares} "
+                          f"(bottleneck={min_upstream}, downstream_done={max_downstream_done}, weekly_min={weekly_min})")
+                    m["pares_dia"] = new_pares
 
         # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico
         filtered_out = [m for m in models_day if m["pares_dia"] <= 0 or not m.get("operations")]
@@ -1272,22 +1327,24 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             pares_available = nm["pares_dia"] - credit
             if pares_available <= 0:
                 continue
-            # Limitar pares de adelanto: maximo 30% del dia siguiente
-            max_adelanto = max(50, int(pares_available * 0.30))
-            # Redondear al step
-            max_adelanto = (max_adelanto // step) * step
-            if max_adelanto <= 0:
-                continue
 
-            # Excluir operaciones MAQUILA
             model_data = model_lookup.get(code)
             if not model_data:
                 continue
+
+            # Excluir operaciones MAQUILA
             internal_ops = [
                 op for op in model_data["operations"]
                 if op.get("recurso") != "MAQUILA"
             ]
             if not internal_ops:
+                continue
+
+            # Limitar pares de adelanto: maximo 30% del dia siguiente
+            max_adelanto = max(50, int(pares_available * 0.30))
+            # Redondear al step
+            max_adelanto = (max_adelanto // step) * step
+            if max_adelanto <= 0:
                 continue
 
             priority = 0 if code in current_codes else 1  # primero los que ya corren hoy
@@ -1368,6 +1425,7 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                         e["total_pares"] for e in adelanto_result["schedule"]
                         if e["modelo"] == code
                     )
+
                     if produced > 0:
                         adelanto_credits[code] = adelanto_credits.get(code, 0) + produced
 

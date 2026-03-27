@@ -8,15 +8,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
-import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER, SKILL_LABELS, SKILL_GROUPS } from '@/types'
-import type { SkillType } from '@/types'
+import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER, SKILL_GROUPS, SKILL_LABELS, type SkillType } from '@/types'
 import type { DailyResult, DailyScheduleEntry, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
-
-/** Map each skill to its group color */
-const SKILL_COLOR: Record<string, string> = {}
-for (const g of Object.values(SKILL_GROUPS)) {
-  for (const s of g.skills) SKILL_COLOR[s] = g.color
-}
 import { Truck, ArrowDownWideNarrow, User, Cpu, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
@@ -534,13 +527,13 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
   const rawSchedule = data.schedule || []
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
   const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
-  const [selectedSkillGroup, setSelectedSkillGroup] = useState<string | null>(null)
   const [viewTab, setViewTab] = useState<'programa' | 'operario' | 'recurso'>('programa')
 
   // Clear selection when day changes
-  useEffect(() => { setSelectedOperario(null); setSelectedRecurso(null); setSelectedSkillGroup(null) }, [dayName])
+  useEffect(() => { setSelectedOperario(null); setSelectedRecurso(null) }, [dayName])
 
-  // Load all operarios with habilidades for skill column
+  // Load all operarios with habilidades for idle operators display
+  const _PESPUNTE_SKILLS = new Set(['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'])
   const [allOperarios, setAllOperarios] = useState<{
     nombre: string; activo: boolean; dias: string[]; habilidades: SkillType[]
   }[]>([])
@@ -562,55 +555,55 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         if (!diasMap.has(d.operario_id)) diasMap.set(d.operario_id, [])
         diasMap.get(d.operario_id)!.push(d.dia)
       }
-      const habMap = new Map<string, SkillType[]>()
+      const habMap = new Map<string, Set<SkillType>>()
       for (const h of habRes.data || []) {
-        if (!habMap.has(h.operario_id)) habMap.set(h.operario_id, [])
-        habMap.get(h.operario_id)!.push(h.habilidad as SkillType)
+        if (!habMap.has(h.operario_id)) habMap.set(h.operario_id, new Set())
+        const skill: SkillType = _PESPUNTE_SKILLS.has(h.habilidad) ? 'PESPUNTE' : h.habilidad as SkillType
+        habMap.get(h.operario_id)!.add(skill)
       }
       setAllOperarios(ops.map((o: { id: string; nombre: string; activo: boolean }) => ({
         nombre: o.nombre,
         activo: o.activo,
         dias: diasMap.get(o.id) || [],
-        habilidades: habMap.get(o.id) || [],
+        habilidades: [...(habMap.get(o.id) || [])],
       })))
     }
     load()
   }, [])
 
-  // Map: operator name → skill groups (for the HABILIDADES column)
-  const opSkillGroups = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; short: string; color: string }[]>()
-    for (const op of allOperarios) {
-      const groups: { key: string; label: string; short: string; color: string }[] = []
-      for (const [gKey, g] of Object.entries(SKILL_GROUPS)) {
-        if (g.skills.some(s => op.habilidades.includes(s))) {
-          groups.push({ key: gKey, label: g.label, short: g.short, color: g.color })
-        }
-      }
-      map.set(op.nombre, groups)
-    }
-    return map
-  }, [allOperarios])
-
-  // Operators that have a given skill group (for filter tooltip)
-  const operariosBySkillGroup = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const op of allOperarios) {
-      for (const [gKey, g] of Object.entries(SKILL_GROUPS)) {
-        if (g.skills.some(s => op.habilidades.includes(s))) {
-          if (!map.has(gKey)) map.set(gKey, [])
-          map.get(gKey)!.push(op.nombre)
-        }
-      }
-    }
-    return map
-  }, [allOperarios])
-
   // Maquila info is shown in the banner above, not as rows in the table
 
+  // Consolidate rows with same modelo+fraccion+operario+recurso into one row
+  const consolidatedSchedule = useMemo(() => {
+    const map = new Map<string, DailyScheduleEntry>()
+    for (const s of rawSchedule) {
+      const key = `${s.modelo}|${s.fraccion}|${s.operario || ''}|${s.robot || s.recurso}`
+      const existing = map.get(key)
+      if (existing) {
+        const blocks = [...(existing.blocks || [])]
+        for (let i = 0; i < (s.blocks || []).length; i++) {
+          blocks[i] = (blocks[i] || 0) + ((s.blocks || [])[i] || 0)
+        }
+        existing.blocks = blocks
+        existing.total = blocks.reduce((sum, v) => sum + (v || 0), 0)
+        // Merge motivos_por_bloque
+        if (s.motivos_por_bloque) {
+          const motivos = { ...(existing.motivos_por_bloque || {}) }
+          for (const [bi, m] of Object.entries(s.motivos_por_bloque)) {
+            if (!motivos[bi]) motivos[bi] = m as string
+          }
+          existing.motivos_por_bloque = motivos
+        }
+      } else {
+        map.set(key, { ...s, blocks: [...(s.blocks || [])], total: s.total })
+      }
+    }
+    return [...map.values()]
+  }, [rawSchedule])
+
   const schedule = useMemo(() => {
-    if (!cascadeSort) return rawSchedule
-    return [...rawSchedule].sort((a, b) => {
+    if (!cascadeSort) return consolidatedSchedule
+    return [...consolidatedSchedule].sort((a, b) => {
       const firstA = (a.blocks || []).findIndex((v) => v > 0)
       const firstB = (b.blocks || []).findIndex((v) => v > 0)
       const startA = firstA === -1 ? 999 : firstA
@@ -625,7 +618,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
       if (mCmp !== 0) return mCmp
       return a.fraccion - b.fraccion
     })
-  }, [rawSchedule, cascadeSort])
+  }, [consolidatedSchedule, cascadeSort])
 
   const totalPares = data.total_pares || 0
   const paresAdelantados = data.pares_adelantados || 0
@@ -684,7 +677,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
   // Export data for TableExport
   const exportHeaders = useMemo(
-    () => ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'HABILIDADES', 'RATE', 'HC', ...blockLabels, 'TOTAL'],
+    () => ['MODELO', 'FRACC', 'OPERACION', 'ETAPA', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLabels, 'TOTAL'],
     [blockLabels]
   )
   const exportRows = useMemo(
@@ -693,15 +686,15 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         s.modelo,
         s.fraccion,
         s.operacion,
+        s.etapa || s.input_o_proceso || '',
         s.robot || s.recurso,
         s.operario || '-',
-        (s.operario && s.operario !== 'SIN ASIGNAR' ? (opSkillGroups.get(s.operario) || []).map(g => g.short).join(', ') : ''),
         s.rate,
         s.hc,
         ...(s.blocks || []).map((v) => (v > 0 ? v : '')),
         s.total,
       ] as (string | number)[]),
-    [schedule, opSkillGroups]
+    [schedule]
   )
 
   /** Resolve color for a schedule entry using input_o_proceso from catalog */
@@ -814,6 +807,20 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
         />
       </div>
 
+      {/* Preliminares adelantadas del dia anterior */}
+      {data.prelim_adelantadas && Object.keys(data.prelim_adelantadas).length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-500/10 border border-blue-500/30 text-xs">
+          <span className="font-semibold text-blue-500">Preliminares hechas ayer:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(data.prelim_adelantadas as Record<string, number[]>).map(([modelo, fracs]) => (
+              <span key={modelo} className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono text-[10px]">
+                {modelo} F{(fracs as number[]).join(',F')}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Per-model production summary */}
       {modelSummary.length > 0 && (
         <Card>
@@ -891,28 +898,6 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
               rows={exportRows}
             />
           </div>
-          {selectedSkillGroup && (() => {
-            const g = SKILL_GROUPS[selectedSkillGroup as keyof typeof SKILL_GROUPS]
-            const ops = operariosBySkillGroup.get(selectedSkillGroup) || []
-            return (
-              <div className="flex items-center gap-2 px-3 py-1.5 mb-1 rounded text-xs" style={{ backgroundColor: g?.color + '15', borderLeft: `3px solid ${g?.color}` }}>
-                <span className="font-semibold" style={{ color: g?.color }}>{g?.label}</span>
-                <span className="text-muted-foreground">—</span>
-                <span className="flex flex-wrap gap-1">
-                  {ops.map(name => {
-                    const isWorking = schedule.some(s => s.operario === name)
-                    return (
-                      <span key={name} className={`px-1.5 py-0.5 rounded text-[10px] ${isWorking ? 'bg-primary/10 font-medium' : 'bg-muted text-muted-foreground'}`}>
-                        {name.split(' ').slice(0, 2).join(' ')}
-                        {!isWorking && <span className="ml-0.5 opacity-60">(libre)</span>}
-                      </span>
-                    )
-                  })}
-                </span>
-                <button className="ml-auto text-[10px] text-muted-foreground hover:text-foreground" onClick={() => setSelectedSkillGroup(null)}>✕</button>
-              </div>
-            )
-          })()}
           <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse min-w-[700px]">
             <thead>
@@ -920,9 +905,9 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                 <th className="px-2 py-1 text-left">MODELO</th>
                 <th className="px-2 py-1 text-left">FRACC</th>
                 <th className="px-2 py-1 text-left">OPERACION</th>
+                <th className="px-2 py-1 text-left">ETAPA</th>
                 <th className="px-2 py-1 text-left">RECURSO</th>
                 <th className="px-2 py-1 text-left">OPERARIO</th>
-                <th className="px-2 py-1 text-left">HABILIDADES</th>
                 <th className="px-2 py-1 text-right">RATE</th>
                 <th className="px-2 py-1 text-right">HC</th>
                 {blockLabels.map((b) => (
@@ -935,10 +920,8 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
               {schedule.map((s, i) => {
                 const bgColor = getEtapaColor(s)
                 const recursoKey = s.robot || s.recurso
-                const opGroups = s.operario ? opSkillGroups.get(s.operario) : undefined
-                const hasSelectedSkill = selectedSkillGroup != null && opGroups?.some(g => g.key === selectedSkillGroup)
-                const isHighlighted = (selectedOperario != null && s.operario === selectedOperario) || (selectedRecurso != null && recursoKey === selectedRecurso) || (selectedSkillGroup != null && hasSelectedSkill)
-                const isDimmed = (selectedOperario != null && s.operario !== selectedOperario) || (selectedRecurso != null && recursoKey !== selectedRecurso) || (selectedSkillGroup != null && !hasSelectedSkill)
+                const isHighlighted = (selectedOperario != null && s.operario === selectedOperario) || (selectedRecurso != null && recursoKey === selectedRecurso)
+                const isDimmed = (selectedOperario != null && s.operario !== selectedOperario) || (selectedRecurso != null && recursoKey !== selectedRecurso)
                 const isSinAsignar = s.operario === 'SIN ASIGNAR'
                 return (
                   <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''} ${isSinAsignar ? 'animate-pulse-alert bg-red-500/10 dark:bg-red-500/15' : ''}`}>
@@ -975,9 +958,14 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                       })()}
                     </td>
                     <td className="px-2 py-1">
+                      <span className="text-[9px] font-medium px-1 py-0.5 rounded" style={{ backgroundColor: `${bgColor}20`, color: bgColor }}>
+                        {s.etapa || s.input_o_proceso || ''}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1">
                       <button
                         className="cursor-pointer"
-                        onClick={() => { setSelectedOperario(null); setSelectedSkillGroup(null); setSelectedRecurso(selectedRecurso === recursoKey ? null : recursoKey) }}
+                        onClick={() => { setSelectedOperario(null); setSelectedRecurso(selectedRecurso === recursoKey ? null : recursoKey) }}
                       >
                         <Badge variant="outline" className={`text-[10px] hover:bg-accent ${selectedRecurso === recursoKey ? 'ring-1 ring-primary bg-primary/10 font-bold' : ''}`}>
                           {recursoKey}
@@ -991,35 +979,24 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                           SIN ASIGNAR
                         </span>
                       ) : s.operario ? (
-                        <button
-                          className={`text-[10px] font-medium cursor-pointer hover:underline ${selectedOperario === s.operario ? 'underline text-primary font-bold' : ''}`}
-                          onClick={() => { setSelectedRecurso(null); setSelectedSkillGroup(null); setSelectedOperario(selectedOperario === s.operario ? null : s.operario!) }}
-                        >
-                          {s.operario}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            className={`text-[10px] font-medium cursor-pointer hover:underline ${selectedOperario === s.operario ? 'underline text-primary font-bold' : ''}`}
+                            onClick={() => { setSelectedRecurso(null); setSelectedOperario(selectedOperario === s.operario ? null : s.operario!) }}
+                          >
+                            {s.operario}
+                          </button>
+                          {(allOperarios.find(o => o.nombre === s.operario)?.habilidades || []).map((h) => {
+                            const group = Object.values(SKILL_GROUPS).find(g => g.skills.includes(h))
+                            return group ? (
+                              <span key={h} className="text-[7px] px-0.5 rounded font-medium" style={{ backgroundColor: `${group.color}20`, color: group.color }}>
+                                {group.short}
+                              </span>
+                            ) : null
+                          })}
+                        </div>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">-</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1">
-                      {s.operario && s.operario !== 'SIN ASIGNAR' && (
-                        <div className="flex items-center gap-0.5 flex-wrap">
-                          {(opSkillGroups.get(s.operario) || []).map((g) => (
-                            <button
-                              key={g.key}
-                              className={`text-[8px] px-1 py-0 rounded font-medium cursor-pointer hover:opacity-80 ${selectedSkillGroup === g.key ? 'ring-1 ring-primary scale-110' : ''}`}
-                              style={{ backgroundColor: g.color + '30', color: g.color }}
-                              title={`${g.label} — click para ver operarios`}
-                              onClick={() => {
-                                setSelectedOperario(null)
-                                setSelectedRecurso(null)
-                                setSelectedSkillGroup(selectedSkillGroup === g.key ? null : g.key)
-                              }}
-                            >
-                              {g.short}
-                            </button>
-                          ))}
-                        </div>
                       )}
                     </td>
                     <td className="px-2 py-1 text-right">{s.rate}</td>
@@ -1067,7 +1044,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
       {/* Operario cascade view */}
       {viewTab === 'operario' && (
-        <CascadeByOperario schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} />
+        <CascadeByOperario schedule={schedule} blockLabels={blockLabels} getEtapaColor={getEtapaColor} dayName={dayName} allOperarios={allOperarios} />
       )}
 
       {/* Recurso cascade view */}
@@ -1082,9 +1059,15 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 }
 
 /** Cascade view grouped by OPERARIO — each row is an operator, cells show what they do per block */
-function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
+function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName, allOperarios }: {
   schedule: DailyScheduleEntry[]; blockLabels: string[]; getEtapaColor: (s: DailyScheduleEntry) => string; dayName: string
+  allOperarios: { nombre: string; habilidades: SkillType[] }[]
 }) {
+  const opSkillMap = useMemo(() => {
+    const m = new Map<string, SkillType[]>()
+    for (const op of allOperarios) m.set(op.nombre, op.habilidades)
+    return m
+  }, [allOperarios])
   const grouped = useMemo(() => {
     const map = new Map<string, { blocks: (DailyScheduleEntry | null)[] }>()
     for (const s of schedule) {
@@ -1104,10 +1087,41 @@ function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
     })
   }, [schedule, blockLabels])
 
+  const jsonData = useMemo(() => {
+    return grouped.map(([name, data]) => {
+      const row: Record<string, unknown> = {
+        operario: name,
+        habilidades: (opSkillMap.get(name) || []),
+      }
+      blockLabels.forEach((label, bi) => {
+        const s = data.blocks[bi]
+        if (s) {
+          const pares = (s.blocks || [])[bi] || 0
+          row[label] = `${s.modelo} F${s.fraccion} ${s.robot || s.recurso} ${pares}p`
+        } else {
+          row[label] = ''
+        }
+      })
+      return row
+    })
+  }, [grouped, blockLabels, opSkillMap])
+
+  const [copied, setCopied] = useState(false)
+  const handleCopyJson = () => {
+    navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
     <Card>
       <CardContent className="pt-4 overflow-x-auto">
-        <h3 className="text-sm font-semibold mb-2">Cascada por Operario — {dayName}</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Cascada por Operario — {dayName}</h3>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={handleCopyJson}>
+            {copied ? '✓ Copiado' : '{ } JSON'}
+          </Button>
+        </div>
         <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse min-w-[700px]">
           <thead>
@@ -1122,9 +1136,23 @@ function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName }: {
             {grouped.map(([name, data]) => (
               <tr key={name} className="border-b hover:bg-accent/30">
                 <td className="px-2 py-1.5 font-medium text-[10px]">
-                  {name === 'SIN ASIGNAR'
-                    ? <span className="text-destructive">{name}</span>
-                    : name}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {name === 'SIN ASIGNAR'
+                      ? <span className="text-destructive">{name}</span>
+                      : <span>{name}</span>}
+                    {name !== 'SIN ASIGNAR' && (opSkillMap.get(name) || []).map((h) => {
+                      const group = Object.values(SKILL_GROUPS).find(g => g.skills.includes(h))
+                      return group ? (
+                        <span
+                          key={h}
+                          className="text-[7px] px-0.5 rounded font-medium"
+                          style={{ backgroundColor: `${group.color}20`, color: group.color }}
+                        >
+                          {group.short}
+                        </span>
+                      ) : null
+                    })}
+                  </div>
                 </td>
                 {data.blocks.map((s, bi) => {
                   if (!s) return <td key={bi} className="px-1 py-1.5 text-center text-muted-foreground/30">—</td>
@@ -1202,7 +1230,8 @@ function IdleOperators({ schedule, dayName, allOperarios }: {
               <span className="font-medium truncate min-w-0 shrink">{op.nombre}</span>
               <div className="flex items-center gap-1 flex-wrap shrink-0">
                 {op.habilidades.map((h) => {
-                  const color = SKILL_COLOR[h] || '#94A3B8'
+                  const group = Object.values(SKILL_GROUPS).find(g => g.skills.includes(h))
+                  const color = group?.color || '#94A3B8'
                   return (
                     <span
                       key={h}

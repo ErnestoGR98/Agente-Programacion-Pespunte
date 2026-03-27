@@ -36,20 +36,30 @@ Relleno = operario libre en un bloque especifico cubre un hueco puntual.
 def _recurso_match(task_recurso: str, op_recursos: set) -> bool:
     """Check if task resource matches operator's resource set.
 
-    Handles compound resources like 'PLANA,POSTE' with OR logic:
-    an operator with PLANA *or* POSTE can take the task.
+    MESA and GENERAL: any operator can do it (no skill restriction).
+    ROBOT: requires ROBOTS skill.
+    PLANA, POSTE: requires PESPUNTE skill.
+    Compound resources like 'PLANA,POSTE': OR logic.
     """
+    # MESA and GENERAL are open to everyone
+    if task_recurso in ("MESA", "GENERAL"):
+        return True
     if "," in task_recurso:
         parts = {p.strip() for p in task_recurso.split(",")}
+        # If all parts are MESA/GENERAL, anyone can do it
+        if parts <= {"MESA", "GENERAL"}:
+            return True
         return bool(parts & op_recursos)
     return task_recurso in op_recursos
 
 
-# Mapping: skill → recurso(s) that it enables
+# Mapping: simplified skill → recurso(s) that it enables
 _SKILL_TO_RECURSO = {
     'PRELIMINARES': ['MESA'],
     'ROBOTS': ['ROBOT'],
     'MAQ_COMPLEMENTARIAS': ['MESA'],
+    'PESPUNTE': ['PLANA', 'POSTE'],
+    # Legacy granular skills (backwards compat with DB)
     'PLANA_RECTA': ['PLANA'],
     'POSTE_CONV': ['POSTE'],
     'ZIGZAG': ['PLANA'],
@@ -63,12 +73,7 @@ _NIVEL_BONUS = {1: 0, 2: 50, 3: 120}
 
 
 def _build_nivel_map(habilidades_nivel: list) -> dict:
-    """Build {recurso: max_nivel} from operator's skill+nivel list.
-
-    Each skill maps to one or more recursos. For each recurso we keep the
-    highest nivel across all skills that map to it.
-    Returns dict like {'MESA': 3, 'ROBOT': 2, 'PLANA': 1}.
-    """
+    """Build {recurso: max_nivel} from operator's skill+nivel list."""
     niveles = {}
     for hn in habilidades_nivel:
         skill = hn.get("habilidad", "")
@@ -79,13 +84,10 @@ def _build_nivel_map(habilidades_nivel: list) -> dict:
 
 
 def _get_nivel_score(op_state: dict, task_recurso: str) -> int:
-    """Get nivel bonus for an operator on a task's recurso.
-
-    For compound resources like 'PLANA,POSTE', returns the max bonus.
-    """
+    """Get nivel bonus for an operator on a task's recurso."""
     niveles = op_state.get("niveles_recurso", {})
     if not niveles:
-        return _NIVEL_BONUS.get(2, 50)  # default nivel 2 if no data
+        return _NIVEL_BONUS.get(2, 50)
 
     if "," in task_recurso:
         parts = [p.strip() for p in task_recurso.split(",")]
@@ -134,7 +136,6 @@ def assign_operators_day(day_schedule: list, operarios: list,
     op_states = {}
     for op in available:
         op_id = op.get("id", op.get("nombre", ""))
-        # Build nivel map: {recurso: max_nivel} from habilidades_nivel
         niveles_recurso = _build_nivel_map(op.get("habilidades_nivel", []))
         op_states[op_id] = {
             "id": op_id,
@@ -339,7 +340,6 @@ def _commit_operator(task, start_block, num_blocks, op_states, robot_usage,
         if op_st["prev_modelo"] == task["modelo"]:
             score += 50
         score += int(op_st["eficiencia"] * 10)
-        # Nivel bonus: priorizar operarios expertos en este recurso
         score += _get_nivel_score(op_st, recurso)
 
         # Scarcity penalty: penalizar uso de operario multi-skill en recurso abundante
@@ -527,7 +527,6 @@ def _relay_pass(tasks, op_states, num_blocks, robot_usage, op_block_map):
                 score = int(busy_st["eficiencia"] * 10)
                 if busy_st.get("prev_modelo") == task_u["modelo"]:
                     score += 50
-                # Nivel bonus: prefer busy→task_u if busy is expert at recurso_u
                 score += _get_nivel_score(busy_st, recurso_u)
                 relay_candidates.append(
                     (score, idle_id, busy_id, task_b, remaining_b))

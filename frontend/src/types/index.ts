@@ -338,6 +338,7 @@ export interface DailyResult {
   pares_adelantados?: number
   pares_rezago?: number
   tardiness_by_model?: Record<string, number>
+  prelim_adelantadas?: Record<string, number[]>
   plantilla: number
   schedule: DailyScheduleEntry[]
   operator_timelines?: Record<string, OperatorTimelineEntry[]>
@@ -541,13 +542,13 @@ export const RESOURCE_COLORS: Record<string, string> = {
   MAQUILA: '#6B7280',
 }
 
-// --- Habilidades de Operarios (11 skills en 5 categorias) ---
+// --- Habilidades de Operarios (4 categorias simplificadas) ---
 
 export type SkillType =
   | 'PRELIMINARES'
   | 'ROBOTS'
   | 'MAQ_COMPLEMENTARIAS'
-  | 'ZIGZAG' | 'PLANA_RECTA' | 'DOS_AGUJAS' | 'POSTE_CONV' | 'RIBETE' | 'CODO'
+  | 'PESPUNTE'
 
 /** Nivel de competencia: 1=puede, 2=normal, 3=experto */
 export type NivelHabilidad = 1 | 2 | 3
@@ -564,35 +565,35 @@ export const NIVEL_LABELS: Record<NivelHabilidad, string> = {
 }
 
 export const NIVEL_COLORS: Record<NivelHabilidad, string> = {
-  1: '#94A3B8', // slate
-  2: '#3B82F6', // blue
-  3: '#F59E0B', // amber/gold
+  1: '#94A3B8',
+  2: '#3B82F6',
+  3: '#F59E0B',
 }
 
 export const SKILL_GROUPS: Record<string, { label: string; short: string; color: string; skills: SkillType[] }> = {
   PRELIMINAR: {
     label: 'Preliminares',
     short: 'Prelim',
-    color: '#F59E0B', // amber
+    color: '#F59E0B',
     skills: ['PRELIMINARES'],
   },
   ROBOT: {
     label: 'Robots',
     short: 'Robots',
-    color: '#10B981', // emerald
+    color: '#10B981',
     skills: ['ROBOTS'],
   },
   MAQ_COMP: {
-    label: 'Máquinas Complementarias',
+    label: 'Máq. Complementarias',
     short: 'Compl',
-    color: '#8B5CF6', // violet
+    color: '#8B5CF6',
     skills: ['MAQ_COMPLEMENTARIAS'],
   },
   PESPUNTE: {
-    label: 'Máquinas Pespunte',
+    label: 'Pespunte',
     short: 'Pesp',
-    color: '#3B82F6', // blue
-    skills: ['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'],
+    color: '#3B82F6',
+    skills: ['PESPUNTE'],
   },
 }
 
@@ -600,22 +601,16 @@ export const SKILL_LABELS: Record<SkillType, string> = {
   PRELIMINARES: 'Preliminares',
   ROBOTS: 'Robots',
   MAQ_COMPLEMENTARIAS: 'Máq. Complementarias',
-  ZIGZAG: 'Zigzag',
-  PLANA_RECTA: 'Plana-Recta',
-  DOS_AGUJAS: '2 Agujas',
-  POSTE_CONV: 'Poste',
-  RIBETE: 'Ribete',
-  CODO: 'Codo',
+  PESPUNTE: 'Pespunte',
 }
 
-/** Derive resource types from skills (for optimizer compatibility) */
+/** Derive resource types from simplified skills */
 export function deriveRecursos(skills: SkillType[]): ResourceType[] {
   const set = new Set(skills)
   const recursos: ResourceType[] = []
   if (set.has('PRELIMINARES')) recursos.push('MESA')
   if (set.has('ROBOTS')) recursos.push('ROBOT')
-  if (set.has('PLANA_RECTA')) recursos.push('PLANA')
-  if (set.has('POSTE_CONV')) recursos.push('POSTE')
+  if (set.has('PESPUNTE')) { recursos.push('PLANA'); recursos.push('POSTE') }
   return recursos
 }
 

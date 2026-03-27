@@ -16,9 +16,9 @@ import { Trash2, Plus, X, Download, Layers, Link } from 'lucide-react'
 export interface CascadeEditorProps {
   operaciones: OperacionFull[]
   reglas: Restriccion[]
-  onConnect: (origen: number[], destino: number[], buffer: number | 'todo' | 'rate') => Promise<void>
+  onConnect: (origen: number[], destino: number[], buffer: number | 'todo' | 'rate' | 'dia') => Promise<void>
   onDeleteEdge: (reglaId: string) => Promise<void>
-  onUpdateBuffer: (reglaId: string, buffer: number | 'todo' | 'rate') => Promise<void>
+  onUpdateBuffer: (reglaId: string, buffer: number | 'todo' | 'rate' | 'dia') => Promise<void>
   /** Optional title used for the PDF export filename */
   title?: string
 }
@@ -439,7 +439,7 @@ export function CascadeEditor({
         const y1 = srcRect.top + Math.min(srcRect.height * 0.35, 28) - wrapperRect.top
         const y2 = dstRect.top + Math.min(dstRect.height * 0.35, 28) - wrapperRect.top
 
-        const label = conn.buffer === 'todo' ? 'Todo' : conn.buffer === 'rate' ? '1h rate' : `${conn.buffer || 0}p`
+        const label = conn.buffer === 'todo' ? 'Todo' : conn.buffer === 'rate' ? '1h rate' : conn.buffer === 'dia' ? '1 día' : `${conn.buffer || 0}p`
         positions.push({ key: `${conn.src}->${conn.dst}`, x1, y1, x2, y2, label, fromFrac: conn.src, toFrac: conn.dst })
       }
       setCrossArrowPositions(positions)
@@ -677,7 +677,7 @@ export function CascadeEditor({
   const [editArrow, setEditArrow] = useState<{
     mode: 'edit' | 'create'; reglaId: string | null; fromFrac: number; toFrac: number; buffer: unknown
   } | null>(null)
-  const [editType, setEditType] = useState<'todo' | 'numero' | 'rate'>('numero')
+  const [editType, setEditType] = useState<'todo' | 'numero' | 'rate' | 'dia'>('numero')
   const [editVal, setEditVal] = useState('0')
 
   // Visual connect mode: click card A → click card B → open buffer modal
@@ -835,7 +835,7 @@ export function CascadeEditor({
             title={`${b.dir === 'in' ? `F${b.fromFrac} → F${frac}` : `F${frac} → F${b.fromFrac}`} (clic para editar buffer)`}
           >
             <span className="text-[8px] font-bold">{b.dir === 'in' ? `← F${b.fromFrac}` : `→ F${b.fromFrac}`}</span>
-            <span className="text-[8px] font-bold">{b.arrow.buffer === 'todo' ? 'Todo' : b.arrow.buffer === 'rate' ? '1h rate' : `${b.arrow.buffer || 0}p`}</span>
+            <span className="text-[8px] font-bold">{b.arrow.buffer === 'todo' ? 'Todo' : b.arrow.buffer === 'rate' ? '1h rate' : b.arrow.buffer === 'dia' ? '1 día' : `${b.arrow.buffer || 0}p`}</span>
           </button>
         ))}
       </div>
@@ -900,7 +900,7 @@ export function CascadeEditor({
               onClick={() => openBufferEdit(curFrac!, nxtFrac!)}
             >
               <span className="text-[10px] font-bold whitespace-nowrap">
-                {directRule.buffer === 'todo' ? 'Todo' : directRule.buffer === 'rate' ? '1h rate' : `${directRule.buffer || 0}p`}
+                {directRule.buffer === 'todo' ? 'Todo' : directRule.buffer === 'rate' ? '1h rate' : directRule.buffer === 'dia' ? '1 día' : `${directRule.buffer || 0}p`}
               </span>
               <span className="text-sm font-bold">&rarr;</span>
             </button>
@@ -928,7 +928,7 @@ export function CascadeEditor({
             >
               <span className="text-[8px] font-semibold">{label}</span>
               <span className="text-[8px] font-bold">
-                {c.arrow.buffer === 'todo' ? 'Todo' : c.arrow.buffer === 'rate' ? '1h rate' : `${c.arrow.buffer || 0}p`}
+                {c.arrow.buffer === 'todo' ? 'Todo' : c.arrow.buffer === 'rate' ? '1h rate' : c.arrow.buffer === 'dia' ? '1 día' : `${c.arrow.buffer || 0}p`}
               </span>
             </button>
           )
@@ -1007,9 +1007,10 @@ export function CascadeEditor({
     if (arrow) {
       const isTodo = arrow.buffer === 'todo'
       const isRate = arrow.buffer === 'rate'
+      const isDia = arrow.buffer === 'dia'
       setEditArrow({ mode: 'edit', reglaId: arrow.reglaId, fromFrac, toFrac, buffer: arrow.buffer })
-      setEditType(isTodo ? 'todo' : isRate ? 'rate' : 'numero')
-      setEditVal(isTodo || isRate ? '0' : String(arrow.buffer || 0))
+      setEditType(isTodo ? 'todo' : isRate ? 'rate' : isDia ? 'dia' : 'numero')
+      setEditVal(isTodo || isRate || isDia ? '0' : String(arrow.buffer || 0))
     } else {
       setEditArrow({ mode: 'create', reglaId: null, fromFrac, toFrac, buffer: 0 })
       setEditType('numero')
@@ -1025,13 +1026,13 @@ export function CascadeEditor({
     const origFracs = (p.fracciones_origen as number[]) || []
     const destFracs = (p.fracciones_destino as number[]) || []
     if (origFracs.length <= 1 && destFracs.length <= 1) return null // not a group rule
-    const oldBuffer = p.buffer_pares === 'todo' ? ('todo' as const) : p.buffer_pares === 'rate' ? ('rate' as const) : (typeof p.buffer_pares === 'number' ? p.buffer_pares : 0)
+    const oldBuffer = p.buffer_pares === 'todo' ? ('todo' as const) : p.buffer_pares === 'rate' ? ('rate' as const) : p.buffer_pares === 'dia' ? ('dia' as const) : (typeof p.buffer_pares === 'number' ? p.buffer_pares : 0)
     return { origFracs, destFracs, oldBuffer }
   }
 
   async function saveBuffer() {
     if (!editArrow) return
-    const buffer = editType === 'todo' ? ('todo' as const) : editType === 'rate' ? ('rate' as const) : parseInt(editVal) || 0
+    const buffer = editType === 'todo' ? ('todo' as const) : editType === 'rate' ? ('rate' as const) : editType === 'dia' ? ('dia' as const) : parseInt(editVal) || 0
     try {
       if (editArrow.mode === 'create') {
         await onConnect([editArrow.fromFrac], [editArrow.toFrac], buffer)
@@ -1417,12 +1418,13 @@ export function CascadeEditor({
             </div>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs text-muted-foreground">Buffer:</span>
-              <Select value={editType} onValueChange={(v) => setEditType(v as 'todo' | 'numero' | 'rate')}>
-                <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+              <Select value={editType} onValueChange={(v) => setEditType(v as 'todo' | 'numero' | 'rate' | 'dia')}>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todo">Todo</SelectItem>
                   <SelectItem value="numero">Específico</SelectItem>
                   <SelectItem value="rate">1h de rate</SelectItem>
+                  <SelectItem value="dia">1 día laboral</SelectItem>
                 </SelectContent>
               </Select>
               {editType === 'numero' && (

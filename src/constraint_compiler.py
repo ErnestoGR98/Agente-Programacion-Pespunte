@@ -106,6 +106,9 @@ class CompiledConstraints:
     # [(codigo, day_name, block_idx, min_fraccion)] — bloque minimo en dia de entrega
     maquila_block_restriction: list = field(default_factory=list)
 
+    # {modelo_num: set(fraccion_nums)} — fracciones ya completadas (saltar en daily)
+    completed_fractions: dict = field(default_factory=dict)
+
     # Warnings generados durante compilacion
     warnings: list = field(default_factory=list)
 
@@ -160,6 +163,11 @@ def compile_constraints(restricciones: list, avance_data: dict,
     if avance_data and avance_data.get("modelos"):
         _apply_avance(cc, avance_data, model_nums, day_names, day_index,
                       reopt_from_day)
+
+    # Fracciones completadas (preliminares hechos dia anterior, etc.)
+    if avance_data and avance_data.get("fracciones_completadas"):
+        for modelo_num, fracs in avance_data["fracciones_completadas"].items():
+            cc.completed_fractions[modelo_num] = set(fracs)
 
     return cc
 
@@ -368,8 +376,11 @@ def _handle_precedencia(cc, modelo, params, day_names, day_index,
         return
 
     # "todo" = -1 sentinel → optimizer resolves to pares_dia
+    # "dia" = -2 sentinel → destination blocked entirely on same day as origin
     if buffer_pares == "todo":
         buffer_val = -1
+    elif buffer_pares == "dia":
+        buffer_val = -2
     else:
         buffer_val = max(0, int(buffer_pares))
 

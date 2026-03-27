@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
-  SKILL_GROUPS, SKILL_LABELS, NIVEL_LABELS, NIVEL_COLORS,
+  SKILL_GROUPS, NIVEL_LABELS, NIVEL_COLORS,
   type SkillType, type DayName, type NivelHabilidad, type HabilidadConNivel,
 } from '@/types'
 
@@ -32,7 +32,6 @@ export function OperarioForm({
   const [sabado, setSabado] = useState(operario?.dias?.includes('Sab') ?? false)
   const [saving, setSaving] = useState(false)
 
-  // Map of skill → nivel (only for enabled skills)
   const initNiveles = new Map<SkillType, NivelHabilidad>(
     (operario?.habilidades_nivel || []).map((hn) => [hn.habilidad, hn.nivel])
   )
@@ -43,11 +42,8 @@ export function OperarioForm({
   function toggleSkill(s: SkillType) {
     setNiveles((prev) => {
       const next = new Map(prev)
-      if (next.has(s)) {
-        next.delete(s)
-      } else {
-        next.set(s, 2) // default nivel=2 (Normal)
-      }
+      if (next.has(s)) next.delete(s)
+      else next.set(s, 2)
       return next
     })
   }
@@ -56,19 +52,6 @@ export function OperarioForm({
     setNiveles((prev) => {
       const next = new Map(prev)
       next.set(s, nivel)
-      return next
-    })
-  }
-
-  function toggleGroup(groupSkills: SkillType[]) {
-    const allSelected = groupSkills.every((s) => niveles.has(s))
-    setNiveles((prev) => {
-      const next = new Map(prev)
-      if (allSelected) {
-        groupSkills.forEach((s) => next.delete(s))
-      } else {
-        groupSkills.forEach((s) => { if (!next.has(s)) next.set(s, 2) })
-      }
       return next
     })
   }
@@ -118,8 +101,8 @@ export function OperarioForm({
           </div>
         </div>
 
-        {/* Habilidades agrupadas con nivel */}
-        <div className="space-y-3">
+        {/* Habilidades — 4 categorias con nivel */}
+        <div className="space-y-2">
           <div className="flex items-center gap-4">
             <Label className="text-xs font-semibold">Habilidades</Label>
             <div className="flex gap-2 text-[10px] text-muted-foreground">
@@ -134,16 +117,16 @@ export function OperarioForm({
               ))}
             </div>
           </div>
-          {Object.entries(SKILL_GROUPS).map(([key, group]) => {
-            const allSelected = group.skills.every((s) => niveles.has(s))
-            const someSelected = group.skills.some((s) => niveles.has(s))
-            return (
-              <div key={key} className="space-y-1">
-                <div className="flex items-center gap-2">
+          <div className="flex flex-wrap gap-4">
+            {Object.entries(SKILL_GROUPS).map(([key, group]) => {
+              const skill = group.skills[0]
+              const enabled = niveles.has(skill)
+              const nivel = niveles.get(skill) ?? 2
+              return (
+                <div key={key} className="flex items-center gap-1.5">
                   <Checkbox
-                    checked={allSelected}
-                    className={someSelected && !allSelected ? 'opacity-50' : ''}
-                    onCheckedChange={() => toggleGroup(group.skills)}
+                    checked={enabled}
+                    onCheckedChange={() => toggleSkill(skill)}
                   />
                   <span
                     className="text-xs font-medium px-1.5 py-0.5 rounded"
@@ -151,46 +134,28 @@ export function OperarioForm({
                   >
                     {group.label}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    ({group.skills.filter((s) => niveles.has(s)).length}/{group.skills.length})
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5 ml-6">
-                  {group.skills.map((s) => {
-                    const enabled = niveles.has(s)
-                    const nivel = niveles.get(s) ?? 2
-                    return (
-                      <div key={s} className="flex items-center gap-1.5">
-                        <Checkbox
-                          checked={enabled}
-                          onCheckedChange={() => toggleSkill(s)}
+                  {enabled && (
+                    <div className="flex gap-0.5">
+                      {([1, 2, 3] as NivelHabilidad[]).map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setNivel(skill, n)}
+                          className="w-4 h-4 rounded-full border transition-all"
+                          style={{
+                            backgroundColor: nivel >= n ? NIVEL_COLORS[n] : 'transparent',
+                            borderColor: NIVEL_COLORS[n],
+                            opacity: nivel >= n ? 1 : 0.3,
+                          }}
+                          title={NIVEL_LABELS[n]}
                         />
-                        <span className="text-xs min-w-[70px]">{SKILL_LABELS[s]}</span>
-                        {enabled && (
-                          <div className="flex gap-0.5">
-                            {([1, 2, 3] as NivelHabilidad[]).map((n) => (
-                              <button
-                                key={n}
-                                type="button"
-                                onClick={() => setNivel(s, n)}
-                                className="w-4 h-4 rounded-full border transition-all"
-                                style={{
-                                  backgroundColor: nivel >= n ? NIVEL_COLORS[n] : 'transparent',
-                                  borderColor: NIVEL_COLORS[n],
-                                  opacity: nivel >= n ? 1 : 0.3,
-                                }}
-                                title={NIVEL_LABELS[n]}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
 
         <div className="flex items-center gap-6">

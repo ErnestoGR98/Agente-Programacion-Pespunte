@@ -298,7 +298,7 @@ export default function SabanaPage() {
   // ── Export: PDF (one page per day with block columns) ──
   const handlePDF = useCallback(() => {
     const dayPages: SabanaDayData[] = dayNames.map((d) => {
-      const headers = ['F', 'OPERACION', 'REC', ...blockLabels as string[], 'TOT']
+      const headers = ['F', 'OPERACION', 'ETAPA', 'REC', ...blockLabels as string[], 'TOT']
       if (showOperario) headers.push('OP')
       const rows: (string | number)[][] = []
       const etapas: string[] = []
@@ -321,7 +321,7 @@ export default function SabanaPage() {
         for (const r of opRows) {
           const cell = r.days[d]
           if (!cell || cell.total === 0) continue
-          const row: (string | number)[] = [r.fraccion, r.operacion, r.recurso]
+          const row: (string | number)[] = [r.fraccion, r.operacion, r.etapa || r.input_o_proceso || '', r.recurso]
           for (let bi = 0; bi < numBlocks; bi++) {
             const v = cell.blocks[bi] || 0
             row.push(v > 0 ? v : '')
@@ -572,6 +572,7 @@ export default function SabanaPage() {
             <tr className="border-b-2">
               <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 18 }}>F</th>
               <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 90 }}>OPERACION</th>
+              <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 45 }}>ETAPA</th>
               <th className="px-1 py-0.5 text-left font-medium text-[8px] border-r-2 border-border/40" style={{ minWidth: 45 }}>REC</th>
               {dayNames.map((d) => (
                 <React.Fragment key={d}>
@@ -632,6 +633,11 @@ export default function SabanaPage() {
                             <div className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: bgColor }} />
                             <span className="truncate block">{r.operacion}</span>
                           </div>
+                        </td>
+                        <td className="px-1 py-0">
+                          <span className="text-[7px] font-medium px-0.5 rounded" style={{ backgroundColor: `${bgColor}20`, color: bgColor }}>
+                            {r.etapa || r.input_o_proceso || ''}
+                          </span>
                         </td>
                         <td className="px-1 py-0 font-mono text-[8px] border-r-2 border-border/40">{r.recurso}</td>
 

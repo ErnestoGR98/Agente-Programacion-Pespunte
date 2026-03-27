@@ -120,8 +120,8 @@ export default function OperariosPage() {
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {Object.entries(SKILL_GROUPS).map(([key, group]) => {
-                          const count = group.skills.filter((s) => op.habilidades.includes(s)).length
-                          if (count === 0) return null
+                          const has = group.skills.some((s) => op.habilidades.includes(s))
+                          if (!has) return null
                           return (
                             <Badge
                               key={key}
@@ -129,7 +129,7 @@ export default function OperariosPage() {
                               className="text-xs"
                               style={{ backgroundColor: group.color + '20', color: group.color }}
                             >
-                              {group.short} {count}/{group.skills.length}
+                              {group.short}
                             </Badge>
                           )
                         })}

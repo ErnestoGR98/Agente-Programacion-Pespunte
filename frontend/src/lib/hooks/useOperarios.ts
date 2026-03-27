@@ -13,10 +13,8 @@ export interface OperarioFull {
   eficiencia: number
   activo: boolean
   habilidades: SkillType[]
-  habilidades_nivel: HabilidadConNivel[]  // skills con nivel de competencia
+  habilidades_nivel: HabilidadConNivel[]
   recursos: ResourceType[]  // derived from habilidades
-  robots: string[]           // robot nombres (legacy, derived)
-  robot_ids: string[]        // robot ids (legacy, derived)
   dias: DayName[]
 }
 
@@ -56,16 +54,29 @@ export function useOperarios() {
     const habilidades = habRes.data || []
     const diasRels = diasRelRes.data || []
 
+    // Map old granular pespunte skills to new PESPUNTE category
+    const mapSkill = (h: string): SkillType => {
+      if (['ZIGZAG', 'PLANA_RECTA', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'].includes(h)) return 'PESPUNTE'
+      return h as SkillType
+    }
+
     const full: OperarioFull[] = ops.map((o: Record<string, unknown>) => {
       const opHabRows = habilidades
         .filter((h: { operario_id: string }) => h.operario_id === o.id)
-      const opHabs = opHabRows.map((h: { habilidad: SkillType }) => h.habilidad)
-      const opHabsNivel: HabilidadConNivel[] = opHabRows.map(
-        (h: { habilidad: SkillType; nivel?: number }) => ({
-          habilidad: h.habilidad,
-          nivel: (h.nivel ?? 2) as NivelHabilidad,
-        })
-      )
+      // Deduplicate after mapping (multiple old skills → single PESPUNTE)
+      const opHabs = [...new Set(opHabRows.map((h: { habilidad: string }) => mapSkill(h.habilidad)))]
+      // Build nivel map: for each simplified skill, take the max nivel
+      const nivelMap = new Map<SkillType, NivelHabilidad>()
+      for (const h of opHabRows) {
+        const skill = mapSkill((h as { habilidad: string }).habilidad)
+        const nivel = ((h as { nivel?: number }).nivel ?? 2) as NivelHabilidad
+        const existing = nivelMap.get(skill) ?? 0
+        if (nivel > existing) nivelMap.set(skill, nivel)
+      }
+      const opHabsNivel: HabilidadConNivel[] = opHabs.map((s) => ({
+        habilidad: s,
+        nivel: nivelMap.get(s) ?? 2 as NivelHabilidad,
+      }))
       return {
         id: o.id as string,
         nombre: o.nombre as string,
@@ -76,8 +87,6 @@ export function useOperarios() {
         habilidades: opHabs,
         habilidades_nivel: opHabsNivel,
         recursos: deriveRecursos(opHabs),
-        robots: [],
-        robot_ids: [],
         dias: diasRels
           .filter((d: { operario_id: string }) => d.operario_id === o.id)
           .map((d: { dia: DayName }) => d.dia),
@@ -135,17 +144,22 @@ export function useOperarios() {
     await supabase.from('operario_dias').delete().eq('operario_id', opId)
 
     if (data.habilidades.length > 0) {
-      // Use habilidades_nivel if provided, otherwise default nivel=2
       const nivelMap = new Map(
         (data.habilidades_nivel || []).map((hn) => [hn.habilidad, hn.nivel])
       )
-      await supabase.from('operario_habilidades').insert(
-        data.habilidades.map((h) => ({
-          operario_id: opId,
-          habilidad: h,
-          nivel: nivelMap.get(h) ?? 2,
-        }))
-      )
+      // Expand PESPUNTE back to granular skills for DB compatibility
+      const dbRows: { operario_id: string; habilidad: string; nivel: number }[] = []
+      for (const h of data.habilidades) {
+        const nivel = nivelMap.get(h) ?? 2
+        if (h === 'PESPUNTE') {
+          for (const gs of ['PLANA_RECTA', 'POSTE_CONV', 'ZIGZAG', 'DOS_AGUJAS', 'RIBETE', 'CODO']) {
+            dbRows.push({ operario_id: opId!, habilidad: gs, nivel })
+          }
+        } else {
+          dbRows.push({ operario_id: opId!, habilidad: h, nivel })
+        }
+      }
+      await supabase.from('operario_habilidades').insert(dbRows)
     }
     if (data.dias.length > 0) {
       await supabase.from('operario_dias').insert(
