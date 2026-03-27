@@ -1172,30 +1172,37 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
 
         # Cross-day pipeline cap: each fraction can't produce more across the
         # week than the minimum of its predecessor fractions' cumulative production.
-        # Applies to ALL models with prior-day production, not just rezago.
+        # Only considers INTERNAL fractions (excludes MAQUILA which are external).
         for m in models_day:
             code = m["codigo"]
             cum_prod = cumulative_produced_by_op.get(code, {})
             if not cum_prod:
                 continue  # first day for this model, no cap needed
 
-            # For each operation today, check how much its predecessors produced
-            # Cap pares_dia to the bottleneck (min across all fractions so far)
-            all_fracs_produced = sorted(cum_prod.items(), key=lambda x: x[0])
-            if not all_fracs_produced:
+            # Get fractions that are internal (present in today's ops or previously produced)
+            # Exclude fracs with 0 production that were never scheduled (MAQUILA)
+            today_fracs = set(op.get("fraccion", 0) for op in m["operations"])
+            internal_produced = {f: p for f, p in cum_prod.items() if p > 0}
+            if not internal_produced:
                 continue
 
-            # Bottleneck = minimum production across ALL fractions produced so far
-            min_upstream = min(p for _, p in all_fracs_produced)
+            # Bottleneck = min production among internal fractions produced so far
+            # Only consider fracs that are predecessors (lower fraccion numbers)
+            min_today_frac = min(today_fracs) if today_fracs else 999
+            upstream_fracs = {f: p for f, p in internal_produced.items() if f < min_today_frac}
 
-            # How much has the least-produced fraction of TODAY's ops already done?
-            today_fracs = [op.get("fraccion", 0) for op in m["operations"]]
+            if not upstream_fracs:
+                continue  # no upstream fracs produced yet, no cap
+
+            bottleneck = min(upstream_fracs.values())
+
+            # How much have today's fracs already produced in prior days?
             max_downstream_done = max(
                 (cum_prod.get(f, 0) for f in today_fracs), default=0
             )
 
             # Remaining capacity = bottleneck minus what's already done downstream
-            remaining_cap = max(0, min_upstream - max_downstream_done)
+            remaining_cap = max(0, bottleneck - max_downstream_done)
 
             # Cap pares_dia but protect weekly minimum
             weekly_min = weekly_pares_lookup.get((code, day_name), 0)
@@ -1205,7 +1212,8 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                 if new_pares < m["pares_dia"]:
                     print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
                           f"{m['pares_dia']} -> {new_pares} "
-                          f"(bottleneck={min_upstream}, downstream_done={max_downstream_done}, weekly_min={weekly_min})")
+                          f"(bottleneck={bottleneck}, upstream={upstream_fracs}, "
+                          f"downstream_done={max_downstream_done}, weekly_min={weekly_min})")
                     m["pares_dia"] = new_pares
 
         # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico

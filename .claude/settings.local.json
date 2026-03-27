@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(pip install:*)",
+      "Bash(python src/main.py:*)",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(python3:*)",
+      "Read(//c/**)",
+      "Bash(copy:*)",
+      "Bash(\"c:\\\\Users\\\\Incalza\\\\OneDrive - FASHIONKING\\\\Documentos\\\\Documentos Ernesto Gonzalez\\\\Programas\\\\Agente-Programación\\\\pespunte-agent\\\\data\\\\_analyze_catalogo.py\" << 'PYEOF'\nimport openpyxl\n\nwb = openpyxl.load_workbook\\(\n    r\"c:\\\\Users\\\\Incalza\\\\OneDrive - FASHIONKING\\\\Documentos\\\\Documentos Ernesto Gonzalez\\\\Programas\\\\Agente-Programación\\\\pespunte-agent\\\\data\\\\catalogo.xlsx\",\n    data_only=True\n\\)\n\nprint\\(\"Sheet names:\", wb.sheetnames\\)\nprint\\(\\)\n\nfor sheet_name in wb.sheetnames:\n    ws = wb[sheet_name]\n    print\\(f\"\\\\n{'='*80}\"\\)\n    print\\(f\"=== Sheet: {sheet_name} ===\"\\)\n    print\\(f\"{'='*80}\"\\)\n    print\\(f\"Dimensions: {ws.dimensions}\"\\)\n    print\\(f\"Max row: {ws.max_row}, Max col: {ws.max_column}\"\\)\n\n    # Show first 5 rows with all columns to understand headers\n    print\\(\"\\\\n--- First 5 rows \\(all columns\\) ---\"\\)\n    for row in range\\(1, min\\(6, ws.max_row + 1\\)\\):\n        vals = []\n        for col in range\\(1, min\\(ws.max_column + 1, 20\\)\\):\n            v = ws.cell\\(row=row, column=col\\).value\n            vals.append\\(f\"C{col}={v}\"\\)\n        print\\(f\"  Row {row}: {', '.join\\(vals\\)}\"\\)\n\n    # Now show rows 6-50 focusing on columns 1-16\n    print\\(\"\\\\n--- Data rows 6-50 \\(cols 1-16\\) ---\"\\)\n    for row in range\\(6, min\\(51, ws.max_row + 1\\)\\):\n        vals = []\n        for col in range\\(1, 17\\):\n            v = ws.cell\\(row=row, column=col\\).value\n            if v is not None:\n                vals.append\\(f\"C{col}={v}\"\\)\n        if vals:\n            print\\(f\"  Row {row}: {', '.join\\(vals\\)}\"\\)\n\n    # Collect ALL unique machine names from cols 8-15\n    machines = set\\(\\)\n    for row in range\\(1, ws.max_row + 1\\):\n        for col in range\\(8, 16\\):\n            v = ws.cell\\(row=row, column=col\\).value\n            if v is not None and str\\(v\\).strip\\(\\):\n                machines.add\\(str\\(v\\).strip\\(\\)\\)\n    print\\(f\"\\\\n--- Unique values in cols 8-15 ---\"\\)\n    for m in sorted\\(machines\\):\n        print\\(f\"  {m}\"\\)\n\nprint\\(\"\\\\n\\\\n\" + \"=\"*80\\)\nprint\\(\"GLOBAL SUMMARY\"\\)\nprint\\(\"=\"*80\\)\n\n# Collect ALL unique machines across all sheets\nall_machines = set\\(\\)\nfor sheet_name in wb.sheetnames:\n    ws = wb[sheet_name]\n    for row in range\\(1, ws.max_row + 1\\):\n        for col in range\\(8, 16\\):\n            v = ws.cell\\(row=row, column=col\\).value\n            if v is not None and str\\(v\\).strip\\(\\):\n                all_machines.add\\(str\\(v\\).strip\\(\\)\\)\n\nprint\\(f\"\\\\nALL unique machine/robot names across all sheets \\({len\\(all_machines\\)} total\\):\"\\)\nfor m in sorted\\(all_machines\\):\n    print\\(f\"  - {m}\"\\)\n\nwb.close\\(\\)\nPYEOF)",
+      "Bash(timeout 15 streamlit run:*)",
+      "Bash(taskkill:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ren:*)",
+      "Bash(gh:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git status:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(pip show:*)",
+      "Bash(cd:*)",
+      "Bash(du -h:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(findstr:*)",
+      "Bash(sort:*)",
+      "Bash(git --version:*)",
+      "Bash(git rm:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build)"
+    ]
+  }
+}
