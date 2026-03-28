@@ -1,0 +1,1570 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Incalza\\OneDrive - FASHIONKING\\Documentos\\Documentos Ernesto Gonzalez\\Programas\\Agente-Programación\\pespunte-agent\\src']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [44284] using WatchFiles
+INFO:     Started server process [39440]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:56570 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56571 - "OPTIONS /api/optimize HTTP/1.1" 200 OK
+[OPT] plantilla from DB: {'Lun': 19, 'Mar': 19, 'Mie': 19, 'Jue': 19, 'Vie': 19}
+[OPT] time_blocks from horarios: 10 blocks
+[OPT] resource_capacity (derived): {'ROBOT': 8, 'MESA': 7, 'PLANA': 5, 'POSTE': 4, 'MAQUILA': 5, 'GENERAL': 19}
+[OPT] dias_laborales: 6 dias
+  Sab: 300min, plantilla=0
+  Lun: 540min, plantilla=19
+  Mar: 540min, plantilla=19
+  Mie: 540min, plantilla=19
+  Jue: 540min, plantilla=19
+  Vie: 540min, plantilla=19
+[OPT] resource_capacity (derived): {'ROBOT': 8, 'MESA': 7, 'PLANA': 5, 'POSTE': 4, 'MAQUILA': 5, 'GENERAL': 19}
+[OPT] catalogo: 11 modelos
+  88186: 11 ops, 433s/par
+  68127: 13 ops, 479s/par
+  94750: 5 ops, 328s/par
+  94751: 13 ops, 549s/par
+  65568: 8 ops, 307s/par
+  65413: 7 ops, 269s/par
+  77525: 3 ops, 576s/par
+  64197: 5 ops, 191s/par
+  61747: 10 ops, 880s/par
+  61748: 11 ops, 660s/par
+  65422: 11 ops, 531s/par
+[OPT] pedido 'sem_11_2026': 9 items
+  65568 x300 (FABRICA 1)
+  65413 x1000 (FABRICA 1)
+  94750 x1500 (FABRICA 1)
+  77525 x2000 (FABRICA 1)
+  64197 x600 (FABRICA 1)
+  65422 x300 (FABRICA 2)
+  88186 x300 (FABRICA 2)
+  61748 x300 (FABRICA 2)
+  61747 x400 (FABRICA 2)
+[OPT] matched: 9 modelos cruzados
+  65568 NE: 300 pares, 8 ops, 307s/par
+  65413 NE: 1000 pares, 7 ops, 269s/par
+  94750 AA: 1500 pares, 5 ops, 328s/par
+  77525 NE: 2000 pares, 3 ops, 576s/par
+  64197 RO: 600 pares, 5 ops, 191s/par
+  65422 HU: 300 pares, 11 ops, 531s/par
+  88186 NE: 300 pares, 11 ops, 433s/par
+  61748 KR: 300 pares, 11 ops, 660s/par
+  61747 GC: 400 pares, 10 ops, 880s/par
+[OPT] MAQUILA_DELIVERY 77525: entrega Lun bloque 6 (2026-03-09 14:00:00), post-maquila fracs >= 10
+[OPT] MAQUILA_DELIVERY 94750: entrega Lun bloque 6 (2026-03-09 14:00:00), post-maquila fracs >= 2
+[OPT] maquila_earliest_day: {'77525': 1, '94750': 1}
+[OPT] maquila_block_restriction: [('77525 NE', 'Sab', 11, 10), ('77525 NE', 'Lun', 6, 10), ('94750 AA', 'Sab', 11, 2), ('94750 AA', 'Lun', 6, 2)]
+    [THROUGHPUT] 65568: bottleneck=65.0, ops=8, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.58, max_throughput=100
+    [THROUGHPUT] 65413: bottleneck=66.0, ops=7, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.64, max_throughput=100
+    [THROUGHPUT] 94750: bottleneck=60.0, ops=5, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.76, max_throughput=100
+    [THROUGHPUT] 77525: bottleneck=100.0, ops=3, hc_boost=1.0, robot_bn=False, minutes=300, cascade_eff=0.88, max_throughput=300
+    [THROUGHPUT] 64197: bottleneck=77.0, ops=5, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.76, max_throughput=200
+    [AFFINITY] 65568 & 65413: comparten {'2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '6040-M4'}
+    [AFFINITY] 65568 & 94750: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65568 & 64197: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 65568 & 65422: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65568 & 88186: comparten {'6040-M4', '2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '3020-M4', 'M049-CHACHE'}
+    [AFFINITY] 65568 & 61748: comparten {'2A-3020-M1', 'M048-CHACHE', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 65568 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65413 & 94750: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65413 & 64197: comparten {'2A-3020-M1', '6040-M5', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65413 & 65422: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65413 & 88186: comparten {'2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '6040-M4'}
+    [AFFINITY] 65413 & 61748: comparten {'M048-CHACHE', '2A-3020-M1', '6040-M5', '6040-M4'}
+    [AFFINITY] 65413 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 64197: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 65422: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 88186: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 61748: comparten {'M048-CHACHE', '2A-3020-M1'}
+    [AFFINITY] 94750 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 64197 & 65422: comparten {'2A-3020-M1', '3020-M6', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 64197 & 88186: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M5', '3020-M6', '3020-M4', '6040-M4'}
+    [AFFINITY] 64197 & 61748: comparten {'2A-3020-M1', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 64197 & 61747: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65422 & 88186: comparten {'2A-3020-M1', '3020-M6', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65422 & 61748: comparten {'2A-3020-M1', '6040-M4'}
+    [AFFINITY] 65422 & 61747: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 88186 & 61748: comparten {'2A-3020-M1', 'M048-CHACHE', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 88186 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 61748 & 61747: comparten {'M048-CHACHE', '2A-3020-M1'}
+    [AFFINITY] 28 pares de modelos con robots compartidos
+  [schedule_week] Sab: sin entries en weekly -> NO_PRODUCTION
+  [schedule_week] Lun: 5 entries: [('64197 RO', 400), ('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61748 KR', 200)]
+    [SPLIT] 64197 RO dia Lun: posicion=tail (dias=['Lun', 'Jue'])
+    [SPLIT] 65413 NE dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61748 KR dia Lun: posicion=tail (dias=['Lun', 'Mar'])
+    models_day construido: 5 modelos: [('64197 RO', 400, 5), ('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61748 KR', 200, 11)]
+    [OP_CAP] Lun: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Mar: 6 entries: [('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61748 KR', 100), ('65422 HU', 100), ('88186 NE', 200)]
+    [SPLIT] 65413 NE dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61748 KR dia Mar: posicion=head (dias=['Lun', 'Mar'])
+    [SPLIT] 65422 HU dia Mar: posicion=tail (dias=['Mar', 'Mie'])
+    [SPLIT] 88186 NE dia Mar: posicion=tail (dias=['Mar', 'Mie'])
+    models_day construido: 6 modelos: [('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61748 KR', 100, 11), ('65422 HU', 100, 11), ('88186 NE', 200, 11)]
+    [OP_CAP] Mar: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Mie: 6 entries: [('65413 NE', 200), ('65568 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('65422 HU', 200), ('88186 NE', 100)]
+    [SPLIT] 65413 NE dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65568 NE dia Mie: posicion=tail (dias=['Mie', 'Vie'])
+    [SPLIT] 77525 NE dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65422 HU dia Mie: posicion=head (dias=['Mar', 'Mie'])
+    [SPLIT] 88186 NE dia Mie: posicion=head (dias=['Mar', 'Mie'])
+    models_day construido: 6 modelos: [('65413 NE', 200, 7), ('65568 NE', 200, 8), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('65422 HU', 200, 11), ('88186 NE', 100, 11)]
+    [OP_CAP] Mie: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Jue: 5 entries: [('64197 RO', 200), ('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61747 GC', 200)]
+    [SPLIT] 64197 RO dia Jue: posicion=head (dias=['Lun', 'Jue'])
+    [SPLIT] 65413 NE dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61747 GC dia Jue: posicion=tail (dias=['Jue', 'Vie'])
+    models_day construido: 5 modelos: [('64197 RO', 200, 5), ('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61747 GC', 200, 10)]
+    [OP_CAP] Jue: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Vie: 5 entries: [('65413 NE', 200), ('65568 NE', 100), ('77525 NE', 400), ('94750 AA', 300), ('61747 GC', 200)]
+    [SPLIT] 65413 NE dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65568 NE dia Vie: posicion=head (dias=['Mie', 'Vie'])
+    [SPLIT] 77525 NE dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61747 GC dia Vie: posicion=head (dias=['Jue', 'Vie'])
+    models_day construido: 5 modelos: [('65413 NE', 200, 7), ('65568 NE', 100, 8), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61747 GC', 200, 10)]
+    [OP_CAP] Vie: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+    -> Lun: 5 modelos, 1500 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] 61748: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 61748: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op1->op2, eff_buffer=100
+    [PREC] 61748: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61748: orig_fracs=[4]->idx=[3], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op3->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[5]->idx=[4], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op4->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=0, eff_buffer=0
+      [PREC] op6->op7, eff_buffer=0
+    [PREC] 61748: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61748: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [ROBOT EXCL] 2A-3020-M1: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '61748 KR:F5']
+    [ROBOT EXCL] 2A-3020-M2: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '61748 KR:F4']
+    [ROBOT EXCL] 6040-M5: 3 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '61748 KR:F4']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['64197 RO:F1', '61748 KR:F6']
+    [ROBOT EXCL] 6040-M4: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '61748 KR:F4']
+    [ROBOT EXCL] Total constraints: 60
+    [POST] Conveyor exclusivity: 5 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Lun: 1460 pares, tardiness=400, rezago=0, status=OPTIMAL
+    [REZAGO] 64197 RO: 100p pendientes -> se pasan al siguiente dia
+    [REZAGO] 94750 AA: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 61748 KR: +160p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Lun: HC ocioso = 56.2 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Mar...
+    [ADELANTO] Mar 77525 NE: descontando 200p adelantados
+    [ADELANTO] Mar 61748 KR: descontando 100p adelantados
+    [REZAGO] Mar 94750 AA: +300p de tardiness del dia anterior
+    [REZAGO-INJECT] Mar 64197 RO: inyectando 100p pendientes (modelo no programado hoy)
+    -> Mar: 6 modelos, 1400 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=600
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=600
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] 88186: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 88186: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 88186: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 88186: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 88186: orig_fracs=[5]->idx=[4], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op4->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[2]->idx=[1], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op1->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 88186: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 10 ops compiten -> ['65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] M049-CHACHE: 2 ops compiten -> ['88186 NE:F1', '88186 NE:F7']
+    [ROBOT EXCL] 2A-3020-M2: 9 ops compiten -> ['65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5', '65422 HU:F3', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '88186 NE:F7']
+    [ROBOT EXCL] 6040-M5: 5 ops compiten -> ['65413 NE:F2', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] 3020-M6: 3 ops compiten -> ['65422 HU:F1', '88186 NE:F4', '64197 RO:F1']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['88186 NE:F4', '64197 RO:F1']
+    [ROBOT EXCL] 6040-M4: 8 ops compiten -> ['65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] Total constraints: 80
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Mar: 1500 pares, tardiness=200, rezago=400, status=OPTIMAL
+    [REZAGO] 94750 AA: 100p pendientes -> se pasan al siguiente dia
+    [REZAGO] 65422 HU: 100p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 64197 RO: +100p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Mar: HC ocioso = 80.5 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Mie...
+    [ADELANTO] Mie 77525 NE: descontando 200p adelantados
+    [REZAGO] Mie 94750 AA: +100p de tardiness del dia anterior
+    [REZAGO] Mie 65422 HU: +100p de tardiness del dia anterior
+    -> Mie: 6 modelos, 1400 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 65568: orig_fracs=[1]->idx=[0], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op0->op5, eff_buffer=100
+    [PREC] 65568: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65568: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=0, eff_buffer=0
+      [PREC] op6->op7, eff_buffer=0
+    [PREC] 65568: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op1->op2, eff_buffer=100
+    [PREC] 65568: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 65568: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] 88186: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 88186: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 88186: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 88186: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 88186: orig_fracs=[5]->idx=[4], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op4->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[2]->idx=[1], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op1->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 88186: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 10 ops compiten -> ['65413 NE:F2', '65413 NE:F3', '65568 NE:F1', '94750 AA:F5', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] M049-CHACHE: 3 ops compiten -> ['65568 NE:F5', '88186 NE:F1', '88186 NE:F7']
+    [ROBOT EXCL] 2A-3020-M2: 9 ops compiten -> ['65413 NE:F1', '65413 NE:F3', '65568 NE:F1', '94750 AA:F4', '94750 AA:F5', '65422 HU:F3', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] M048-CHACHE: 4 ops compiten -> ['65413 NE:F1', '65568 NE:F5', '94750 AA:F4', '88186 NE:F7']
+    [ROBOT EXCL] 6040-M5: 5 ops compiten -> ['65413 NE:F2', '65568 NE:F5', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] 3020-M6: 2 ops compiten -> ['65422 HU:F1', '88186 NE:F4']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['65568 NE:F1', '88186 NE:F4']
+    [ROBOT EXCL] 6040-M4: 8 ops compiten -> ['65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65568 NE:F5', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] Total constraints: 80
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Mie: 1500 pares, tardiness=300, rezago=200, status=OPTIMAL
+    [REZAGO] 65422 HU: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 65568 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Mie: HC ocioso = 74.8 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Jue...
+    [ADELANTO] Jue 64197 RO: descontando 100p adelantados
+    [ADELANTO] Jue 77525 NE: descontando 200p adelantados
+    [REZAGO-INJECT] Jue 65422 HU: inyectando 300p pendientes (modelo no programado hoy)
+    -> Jue: 6 modelos, 1300 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] 61747: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 61747: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op4->op5, eff_buffer=100
+    [PREC] 61747: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61747: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 61747: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61747: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[4]->idx=[3], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op3->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61747: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 8 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '61747 GC:F4', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8']
+    [ROBOT EXCL] 2A-3020-M2: 7 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5', '61747 GC:F4', '65422 HU:F3']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '61747 GC:F4']
+    [ROBOT EXCL] 6040-M5: 2 ops compiten -> ['64197 RO:F1', '65413 NE:F2']
+    [ROBOT EXCL] 3020-M6: 2 ops compiten -> ['64197 RO:F1', '65422 HU:F1']
+    [ROBOT EXCL] 6040-M4: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65422 HU:F8']
+    [ROBOT EXCL] Total constraints: 60
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Jue: 1300 pares, tardiness=500, rezago=300, status=OPTIMAL
+    [REZAGO] 61747 GC: 200p pendientes -> se pasan al siguiente dia
+    [REZAGO] 65422 HU: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 64197 RO: +100p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 65413 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Jue: HC ocioso = 101.2 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Vie...
+    [ADELANTO] Vie 65413 NE: descontando 200p adelantados
+    [ADELANTO] Vie 65568 NE: descontando 100p adelantados
+    [ADELANTO] Vie 77525 NE: descontando 200p adelantados
+    [REZAGO] Vie 61747 GC: +200p de tardiness del dia anterior
+    [REZAGO-INJECT] Vie 65422 HU: inyectando 300p pendientes (modelo no programado hoy)
+    -> Vie: 4 modelos, 1200 pares
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] 61747: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 61747: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op4->op5, eff_buffer=100
+    [PREC] 61747: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61747: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 61747: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61747: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[4]->idx=[3], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op3->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61747: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 5 ops compiten -> ['94750 AA:F5', '61747 GC:F4', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8']
+    [ROBOT EXCL] 2A-3020-M2: 4 ops compiten -> ['94750 AA:F4', '94750 AA:F5', '61747 GC:F4', '65422 HU:F3']
+    [ROBOT EXCL] M048-CHACHE: 2 ops compiten -> ['94750 AA:F4', '61747 GC:F4']
+    [ROBOT EXCL] Total constraints: 30
+    [POST] Conveyor exclusivity: 4 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Vie: 900 pares, tardiness=700, rezago=500, status=OPTIMAL
+[OPT] operarios loaded: 19
+  ACEVES ROBLES ALVARO: recursos=['POSTE', 'PLANA', 'MESA'], robots=[]...
+  ALANIZ GONZALEZ FABIOLA: recursos=['POSTE', 'PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  ALMA ZULEMA CISNEROS FERNANDEZ: recursos=['MESA'], robots=[]...
+  ANGUIANO DE LEON JUANA ARACELI: recursos=['PLANA', 'MESA'], robots=[]...
+  ARCOS GODINEZ ANA LIZETTE: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  BARAJAS VALLADOLID BETSY ELIZABETH: recursos=['MESA'], robots=[]...
+  CARRILLO BARAJAS AURORA JAQUELIN: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  CASTANEDA CERVANTES CARLOS ANTONIO: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  CERVANTES RUIZ MARTHA LETICIA: recursos=['MESA'], robots=[]...
+  CHAVARIN ARCE IRMA LIZETH: recursos=['MESA'], robots=[]...
+  CHAVEZ CASTRO HUGO: recursos=['POSTE', 'PLANA', 'MESA'], robots=[]...
+  ESQUIVEL VALENZUELA GUADALUPE NATALY: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  EVELIN SARAI CORNEJO HERRERA: recursos=['MESA'], robots=[]...
+  IBARRA HUERTA VICTOR HUGO: recursos=['POSTE', 'PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  MORA LUCAS AMERICO ADALID: recursos=['PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  MORALES CHAVARIN KEVIN ALEJANDRO: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  SANDOVAL MARTINEZ PEDRO SAUL: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  SUMIKI JUDITH RODRIGUEZ NOLASCO: recursos=['MESA'], robots=[]...
+  VAZQUEZ GONZALEZ LILIAN ALEXIAN: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+[OPT] hc_disponible corregido con operarios reales: [('Sab', 0), ('Lun', 19), ('Mar', 19), ('Mie', 19), ('Jue', 19), ('Vie', 19)]
+INFO:     127.0.0.1:56571 - "POST /api/optimize HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'C:\Users\Incalza\OneDrive - FASHIONKING\Documentos\Documentos Ernesto Gonzalez\Programas\Agente-Programación\pespunte-agent\src\operator_assignment.py'. Reloading...
+ INFO:     127.0.0.1:57867 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57868 - "OPTIONS /api/optimize HTTP/1.1" 200 OK
+[OPT] plantilla from DB: {'Lun': 19, 'Mar': 19, 'Mie': 19, 'Jue': 19, 'Vie': 19}
+[OPT] time_blocks from horarios: 10 blocks
+[OPT] resource_capacity (derived): {'ROBOT': 8, 'MESA': 7, 'PLANA': 5, 'POSTE': 4, 'MAQUILA': 5, 'GENERAL': 19}
+[OPT] dias_laborales: 6 dias
+  Sab: 300min, plantilla=0
+  Lun: 540min, plantilla=19
+  Mar: 540min, plantilla=19
+  Mie: 540min, plantilla=19
+  Jue: 540min, plantilla=19
+  Vie: 540min, plantilla=19
+[OPT] resource_capacity (derived): {'ROBOT': 8, 'MESA': 7, 'PLANA': 5, 'POSTE': 4, 'MAQUILA': 5, 'GENERAL': 19}
+[OPT] catalogo: 11 modelos
+  88186: 11 ops, 433s/par
+  68127: 13 ops, 479s/par
+  94750: 5 ops, 328s/par
+  94751: 13 ops, 549s/par
+  65568: 8 ops, 307s/par
+  65413: 7 ops, 269s/par
+  77525: 3 ops, 576s/par
+  64197: 5 ops, 191s/par
+  61747: 10 ops, 880s/par
+  61748: 11 ops, 660s/par
+  65422: 11 ops, 531s/par
+[OPT] pedido 'sem_11_2026': 9 items
+  65568 x300 (FABRICA 1)
+  65413 x1000 (FABRICA 1)
+  94750 x1500 (FABRICA 1)
+  77525 x2000 (FABRICA 1)
+  64197 x600 (FABRICA 1)
+  65422 x300 (FABRICA 2)
+  88186 x300 (FABRICA 2)
+  61748 x300 (FABRICA 2)
+  61747 x400 (FABRICA 2)
+[OPT] matched: 9 modelos cruzados
+  65568 NE: 300 pares, 8 ops, 307s/par
+  65413 NE: 1000 pares, 7 ops, 269s/par
+  94750 AA: 1500 pares, 5 ops, 328s/par
+  77525 NE: 2000 pares, 3 ops, 576s/par
+  64197 RO: 600 pares, 5 ops, 191s/par
+  65422 HU: 300 pares, 11 ops, 531s/par
+  88186 NE: 300 pares, 11 ops, 433s/par
+  61748 KR: 300 pares, 11 ops, 660s/par
+  61747 GC: 400 pares, 10 ops, 880s/par
+[OPT] MAQUILA_DELIVERY 77525: entrega Lun bloque 6 (2026-03-09 14:00:00), post-maquila fracs >= 10
+[OPT] MAQUILA_DELIVERY 94750: entrega Lun bloque 6 (2026-03-09 14:00:00), post-maquila fracs >= 2
+[OPT] maquila_earliest_day: {'77525': 1, '94750': 1}
+[OPT] maquila_block_restriction: [('77525 NE', 'Sab', 11, 10), ('77525 NE', 'Lun', 6, 10), ('94750 AA', 'Sab', 11, 2), ('94750 AA', 'Lun', 6, 2)]
+    [THROUGHPUT] 65568: bottleneck=65.0, ops=8, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.58, max_throughput=100
+    [THROUGHPUT] 65413: bottleneck=66.0, ops=7, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.64, max_throughput=100
+    [THROUGHPUT] 94750: bottleneck=60.0, ops=5, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.76, max_throughput=100
+    [THROUGHPUT] 77525: bottleneck=100.0, ops=3, hc_boost=1.0, robot_bn=False, minutes=300, cascade_eff=0.88, max_throughput=300
+    [THROUGHPUT] 64197: bottleneck=77.0, ops=5, hc_boost=1.0, robot_bn=True, minutes=300, cascade_eff=0.76, max_throughput=200
+    [AFFINITY] 65568 & 65413: comparten {'2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '6040-M4'}
+    [AFFINITY] 65568 & 94750: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65568 & 64197: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 65568 & 65422: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65568 & 88186: comparten {'6040-M4', '2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '3020-M4', 'M049-CHACHE'}
+    [AFFINITY] 65568 & 61748: comparten {'2A-3020-M1', 'M048-CHACHE', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 65568 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65413 & 94750: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65413 & 64197: comparten {'2A-3020-M1', '6040-M5', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65413 & 65422: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65413 & 88186: comparten {'2A-3020-M1', '2A-3020-M2', 'M048-CHACHE', '6040-M5', '6040-M4'}
+    [AFFINITY] 65413 & 61748: comparten {'M048-CHACHE', '2A-3020-M1', '6040-M5', '6040-M4'}
+    [AFFINITY] 65413 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 64197: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 65422: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 88186: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 94750 & 61748: comparten {'M048-CHACHE', '2A-3020-M1'}
+    [AFFINITY] 94750 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 64197 & 65422: comparten {'2A-3020-M1', '3020-M6', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 64197 & 88186: comparten {'2A-3020-M1', '2A-3020-M2', '6040-M5', '3020-M6', '3020-M4', '6040-M4'}
+    [AFFINITY] 64197 & 61748: comparten {'2A-3020-M1', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 64197 & 61747: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 65422 & 88186: comparten {'2A-3020-M1', '3020-M6', '2A-3020-M2', '6040-M4'}
+    [AFFINITY] 65422 & 61748: comparten {'2A-3020-M1', '6040-M4'}
+    [AFFINITY] 65422 & 61747: comparten {'2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 88186 & 61748: comparten {'2A-3020-M1', 'M048-CHACHE', '6040-M5', '3020-M4', '6040-M4'}
+    [AFFINITY] 88186 & 61747: comparten {'M048-CHACHE', '2A-3020-M1', '2A-3020-M2'}
+    [AFFINITY] 61748 & 61747: comparten {'M048-CHACHE', '2A-3020-M1'}
+    [AFFINITY] 28 pares de modelos con robots compartidos
+  [schedule_week] Sab: sin entries en weekly -> NO_PRODUCTION
+  [schedule_week] Lun: 5 entries: [('64197 RO', 400), ('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61748 KR', 200)]
+    [SPLIT] 64197 RO dia Lun: posicion=tail (dias=['Lun', 'Jue'])
+    [SPLIT] 65413 NE dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Lun: posicion=tail (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61748 KR dia Lun: posicion=tail (dias=['Lun', 'Mar'])
+    models_day construido: 5 modelos: [('64197 RO', 400, 5), ('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61748 KR', 200, 11)]
+    [OP_CAP] Lun: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Mar: 6 entries: [('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61748 KR', 100), ('65422 HU', 100), ('88186 NE', 200)]
+    [SPLIT] 65413 NE dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Mar: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61748 KR dia Mar: posicion=head (dias=['Lun', 'Mar'])
+    [SPLIT] 65422 HU dia Mar: posicion=tail (dias=['Mar', 'Mie'])
+    [SPLIT] 88186 NE dia Mar: posicion=tail (dias=['Mar', 'Mie'])
+    models_day construido: 6 modelos: [('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61748 KR', 100, 11), ('65422 HU', 100, 11), ('88186 NE', 200, 11)]
+    [OP_CAP] Mar: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Mie: 6 entries: [('65413 NE', 200), ('65568 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('65422 HU', 200), ('88186 NE', 100)]
+    [SPLIT] 65413 NE dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65568 NE dia Mie: posicion=tail (dias=['Mie', 'Vie'])
+    [SPLIT] 77525 NE dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Mie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65422 HU dia Mie: posicion=head (dias=['Mar', 'Mie'])
+    [SPLIT] 88186 NE dia Mie: posicion=head (dias=['Mar', 'Mie'])
+    models_day construido: 6 modelos: [('65413 NE', 200, 7), ('65568 NE', 200, 8), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('65422 HU', 200, 11), ('88186 NE', 100, 11)]
+    [OP_CAP] Mie: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Jue: 5 entries: [('64197 RO', 200), ('65413 NE', 200), ('77525 NE', 400), ('94750 AA', 300), ('61747 GC', 200)]
+    [SPLIT] 64197 RO dia Jue: posicion=head (dias=['Lun', 'Jue'])
+    [SPLIT] 65413 NE dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 77525 NE dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Jue: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61747 GC dia Jue: posicion=tail (dias=['Jue', 'Vie'])
+    models_day construido: 5 modelos: [('64197 RO', 200, 5), ('65413 NE', 200, 7), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61747 GC', 200, 10)]
+    [OP_CAP] Jue: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+  [schedule_week] Vie: 5 entries: [('65413 NE', 200), ('65568 NE', 100), ('77525 NE', 400), ('94750 AA', 300), ('61747 GC', 200)]
+    [SPLIT] 65413 NE dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 65568 NE dia Vie: posicion=head (dias=['Mie', 'Vie'])
+    [SPLIT] 77525 NE dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 94750 AA dia Vie: posicion=head (dias=['Lun', 'Mar', 'Mie', 'Jue', 'Vie'])
+    [SPLIT] 61747 GC dia Vie: posicion=head (dias=['Jue', 'Vie'])
+    models_day construido: 5 modelos: [('65413 NE', 200, 7), ('65568 NE', 100, 8), ('77525 NE', 400, 3), ('94750 AA', 300, 5), ('61747 GC', 200, 10)]
+    [OP_CAP] Vie: {'POSTE': 4, 'PLANA': 6, 'MESA': 19, 'ROBOT': 10}
+    -> Lun: 5 modelos, 1500 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 65422 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] 61748: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 61748: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op1->op2, eff_buffer=100
+    [PREC] 61748: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61748: orig_fracs=[4]->idx=[3], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op3->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[5]->idx=[4], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op4->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61748: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=0, eff_buffer=0
+      [PREC] op6->op7, eff_buffer=0
+    [PREC] 61748: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61748: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [ROBOT EXCL] 2A-3020-M1: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '61748 KR:F5']
+    [ROBOT EXCL] 2A-3020-M2: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '61748 KR:F4']
+    [ROBOT EXCL] 6040-M5: 3 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '61748 KR:F4']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['64197 RO:F1', '61748 KR:F6']
+    [ROBOT EXCL] 6040-M4: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '61748 KR:F4']
+    [ROBOT EXCL] Total constraints: 60
+    [POST] Conveyor exclusivity: 5 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Lun: 1460 pares, tardiness=400, rezago=0, status=OPTIMAL
+    [REZAGO] 64197 RO: 100p pendientes -> se pasan al siguiente dia
+    [REZAGO] 94750 AA: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 61748 KR: +160p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Lun: HC ocioso = 56.2 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Mar...
+    [ADELANTO] Mar 77525 NE: descontando 200p adelantados
+    [ADELANTO] Mar 61748 KR: descontando 100p adelantados
+    [REZAGO] Mar 94750 AA: +300p de tardiness del dia anterior
+    [REZAGO-INJECT] Mar 64197 RO: inyectando 100p pendientes (modelo no programado hoy)
+    -> Mar: 6 modelos, 1400 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=600
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=600
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] 88186: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 88186: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 88186: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 88186: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 88186: orig_fracs=[5]->idx=[4], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op4->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[2]->idx=[1], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op1->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 88186: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 10 ops compiten -> ['65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] M049-CHACHE: 2 ops compiten -> ['88186 NE:F1', '88186 NE:F7']
+    [ROBOT EXCL] 2A-3020-M2: 9 ops compiten -> ['65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5', '65422 HU:F3', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '88186 NE:F7']
+    [ROBOT EXCL] 6040-M5: 5 ops compiten -> ['65413 NE:F2', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] 3020-M6: 3 ops compiten -> ['65422 HU:F1', '88186 NE:F4', '64197 RO:F1']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['88186 NE:F4', '64197 RO:F1']
+    [ROBOT EXCL] 6040-M4: 8 ops compiten -> ['65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7', '64197 RO:F1']
+    [ROBOT EXCL] Total constraints: 80
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Mar: 1500 pares, tardiness=200, rezago=400, status=OPTIMAL
+    [REZAGO] 94750 AA: 100p pendientes -> se pasan al siguiente dia
+    [REZAGO] 65422 HU: 100p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 64197 RO: +100p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Mar: HC ocioso = 80.5 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Mie...
+    [ADELANTO] Mie 77525 NE: descontando 200p adelantados
+    [REZAGO] Mie 94750 AA: +100p de tardiness del dia anterior
+    [REZAGO] Mie 65422 HU: +100p de tardiness del dia anterior
+    -> Mie: 6 modelos, 1400 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=400
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 65568: orig_fracs=[1]->idx=[0], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op0->op5, eff_buffer=100
+    [PREC] 65568: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65568: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=0, eff_buffer=0
+      [PREC] op6->op7, eff_buffer=0
+    [PREC] 65568: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op1->op2, eff_buffer=100
+    [PREC] 65568: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 65568: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] modelo 61747 no encontrado en models_day, skip
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] 88186: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 88186: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 88186: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 88186: orig_fracs=[4]->idx=[3], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 88186: orig_fracs=[5]->idx=[4], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op4->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[2]->idx=[1], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op1->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 88186: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 88186: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 10 ops compiten -> ['65413 NE:F2', '65413 NE:F3', '65568 NE:F1', '94750 AA:F5', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] M049-CHACHE: 3 ops compiten -> ['65568 NE:F5', '88186 NE:F1', '88186 NE:F7']
+    [ROBOT EXCL] 2A-3020-M2: 9 ops compiten -> ['65413 NE:F1', '65413 NE:F3', '65568 NE:F1', '94750 AA:F4', '94750 AA:F5', '65422 HU:F3', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] M048-CHACHE: 4 ops compiten -> ['65413 NE:F1', '65568 NE:F5', '94750 AA:F4', '88186 NE:F7']
+    [ROBOT EXCL] 6040-M5: 5 ops compiten -> ['65413 NE:F2', '65568 NE:F5', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] 3020-M6: 2 ops compiten -> ['65422 HU:F1', '88186 NE:F4']
+    [ROBOT EXCL] 3020-M4: 2 ops compiten -> ['65568 NE:F1', '88186 NE:F4']
+    [ROBOT EXCL] 6040-M4: 8 ops compiten -> ['65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65568 NE:F5', '65422 HU:F8', '88186 NE:F1', '88186 NE:F4', '88186 NE:F7']
+    [ROBOT EXCL] Total constraints: 80
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Mie: 1500 pares, tardiness=300, rezago=200, status=OPTIMAL
+    [REZAGO] 65422 HU: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 65568 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Mie: HC ocioso = 74.8 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Jue...
+    [ADELANTO] Jue 64197 RO: descontando 100p adelantados
+    [ADELANTO] Jue 77525 NE: descontando 200p adelantados
+    [REZAGO-INJECT] Jue 65422 HU: inyectando 300p pendientes (modelo no programado hoy)
+    -> Jue: 6 modelos, 1300 pares
+    [PREC] 65413: orig_fracs=[1]->idx=[0], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op0->op3, eff_buffer=100
+    [PREC] 65413: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[3]->idx=[2], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 65413: orig_fracs=[4]->idx=[3], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op3->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op4->op5, eff_buffer=0
+    [PREC] 65413: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 64197: orig_fracs=[1]->idx=[0], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op0->op1, eff_buffer=100
+    [PREC] 64197: orig_fracs=[2]->idx=[1], dest_fracs=[3]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 64197: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=0, eff_buffer=0
+      [PREC] op2->op3, eff_buffer=0
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] 61747: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 61747: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op4->op5, eff_buffer=100
+    [PREC] 61747: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61747: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 61747: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61747: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[4]->idx=[3], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op3->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61747: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 8 ops compiten -> ['64197 RO:F1', '65413 NE:F2', '65413 NE:F3', '94750 AA:F5', '61747 GC:F4', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8']
+    [ROBOT EXCL] 2A-3020-M2: 7 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F3', '94750 AA:F4', '94750 AA:F5', '61747 GC:F4', '65422 HU:F3']
+    [ROBOT EXCL] M048-CHACHE: 3 ops compiten -> ['65413 NE:F1', '94750 AA:F4', '61747 GC:F4']
+    [ROBOT EXCL] 6040-M5: 2 ops compiten -> ['64197 RO:F1', '65413 NE:F2']
+    [ROBOT EXCL] 3020-M6: 2 ops compiten -> ['64197 RO:F1', '65422 HU:F1']
+    [ROBOT EXCL] 6040-M4: 5 ops compiten -> ['64197 RO:F1', '65413 NE:F1', '65413 NE:F2', '65413 NE:F3', '65422 HU:F8']
+    [ROBOT EXCL] Total constraints: 60
+    [POST] Conveyor exclusivity: 6 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Jue: 1300 pares, tardiness=500, rezago=300, status=OPTIMAL
+    [REZAGO] 61747 GC: 200p pendientes -> se pasan al siguiente dia
+    [REZAGO] 65422 HU: 300p pendientes -> se pasan al siguiente dia
+    [OVERPROD] 64197 RO: +100p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 65413 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [OVERPROD] 77525 NE: +200p sobreproducidos -> se descuentan del siguiente dia
+    [ADELANTO] Jue: HC ocioso = 101.2 horas-hombre
+    [ADELANTO] Intentando adelantar modelos de Vie...
+    [ADELANTO] Vie 65413 NE: descontando 200p adelantados
+    [ADELANTO] Vie 65568 NE: descontando 100p adelantados
+    [ADELANTO] Vie 77525 NE: descontando 200p adelantados
+    [REZAGO] Vie 61747 GC: +200p de tardiness del dia anterior
+    [REZAGO-INJECT] Vie 65422 HU: inyectando 300p pendientes (modelo no programado hoy)
+    -> Vie: 4 modelos, 1200 pares
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 65413 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] modelo 64197 no encontrado en models_day, skip
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[2]->idx=[0], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[1]->idx=[], dest_fracs=[3]->idx=[1], buffer=-1, eff_buffer=300
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 94750: orig_fracs=[2]->idx=[0], dest_fracs=[4]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 94750: orig_fracs=[3]->idx=[1], dest_fracs=[5]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op1->op3, eff_buffer=100
+    [PREC] 94750: orig_fracs=[4]->idx=[2], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op2->op4, eff_buffer=100
+    [PREC] 94750: orig_fracs=[5]->idx=[3], dest_fracs=[6]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op3->op4, eff_buffer=100
+    [PREC] 77525: orig_fracs=[10]->idx=[0], dest_fracs=[11]->idx=[1], buffer=0, eff_buffer=0
+      [PREC] op0->op1, eff_buffer=0
+    [PREC] 77525: orig_fracs=[11]->idx=[1], dest_fracs=[12]->idx=[2], buffer=0, eff_buffer=0
+      [PREC] op1->op2, eff_buffer=0
+    [PREC] 77525: orig_fracs=[1]->idx=[], dest_fracs=[10]->idx=[0], buffer=-1, eff_buffer=200
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[2]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[3]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[4]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[5]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[6]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[7]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[8]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] 77525: orig_fracs=[9]->idx=[], dest_fracs=[10]->idx=[0], buffer=0, eff_buffer=0
+    [PREC] skip: idx_orig o idx_dest vacio
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] modelo 65568 no encontrado en models_day, skip
+    [PREC] 61747: orig_fracs=[2]->idx=[1], dest_fracs=[5]->idx=[4], buffer=100, eff_buffer=100
+      [PREC] op1->op4, eff_buffer=100
+    [PREC] 61747: orig_fracs=[5]->idx=[4], dest_fracs=[6]->idx=[5], buffer=100, eff_buffer=100
+      [PREC] op4->op5, eff_buffer=100
+    [PREC] 61747: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=100, eff_buffer=100
+      [PREC] op5->op6, eff_buffer=100
+    [PREC] 61747: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 61747: orig_fracs=[3]->idx=[2], dest_fracs=[4]->idx=[3], buffer=100, eff_buffer=100
+      [PREC] op2->op3, eff_buffer=100
+    [PREC] 61747: orig_fracs=[7]->idx=[6], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op6->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[4]->idx=[3], dest_fracs=[8]->idx=[7], buffer=100, eff_buffer=100
+      [PREC] op3->op7, eff_buffer=100
+    [PREC] 61747: orig_fracs=[8]->idx=[7], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op7->op8, eff_buffer=0
+    [PREC] 61747: orig_fracs=[9]->idx=[8], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op8->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[1]->idx=[0], dest_fracs=[3]->idx=[2], buffer=100, eff_buffer=100
+      [PREC] op0->op2, eff_buffer=100
+    [PREC] 65422: orig_fracs=[4]->idx=[3], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op3->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[8]->idx=[7], dest_fracs=[2]->idx=[1], buffer=100, eff_buffer=100
+      [PREC] op7->op1, eff_buffer=100
+    [PREC] 65422: orig_fracs=[2]->idx=[1], dest_fracs=[9]->idx=[8], buffer=0, eff_buffer=0
+      [PREC] op1->op8, eff_buffer=0
+    [PREC] 65422: orig_fracs=[9]->idx=[8], dest_fracs=[6]->idx=[5], buffer=0, eff_buffer=0
+      [PREC] op8->op5, eff_buffer=0
+    [PREC] 65422: orig_fracs=[6]->idx=[5], dest_fracs=[7]->idx=[6], buffer=0, eff_buffer=0
+      [PREC] op5->op6, eff_buffer=0
+    [PREC] 65422: orig_fracs=[7]->idx=[6], dest_fracs=[10]->idx=[9], buffer=0, eff_buffer=0
+      [PREC] op6->op9, eff_buffer=0
+    [PREC] 65422: orig_fracs=[10]->idx=[9], dest_fracs=[11]->idx=[10], buffer=0, eff_buffer=0
+      [PREC] op9->op10, eff_buffer=0
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 88186 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [PREC] modelo 61748 no encontrado en models_day, skip
+    [ROBOT EXCL] 2A-3020-M1: 5 ops compiten -> ['94750 AA:F5', '61747 GC:F4', '65422 HU:F1', '65422 HU:F3', '65422 HU:F8']
+    [ROBOT EXCL] 2A-3020-M2: 4 ops compiten -> ['94750 AA:F4', '94750 AA:F5', '61747 GC:F4', '65422 HU:F3']
+    [ROBOT EXCL] M048-CHACHE: 2 ops compiten -> ['94750 AA:F4', '61747 GC:F4']
+    [ROBOT EXCL] Total constraints: 30
+    [POST] Conveyor exclusivity: 4 modelos POST, max 1 simultaneos por bloque
+  [ROBOT VALIDATION] OK - sin conflictos de robots
+    <- Vie: 900 pares, tardiness=700, rezago=500, status=OPTIMAL
+[OPT] operarios loaded: 19
+  ACEVES ROBLES ALVARO: recursos=['POSTE', 'PLANA', 'MESA'], robots=[]...
+  ALANIZ GONZALEZ FABIOLA: recursos=['POSTE', 'PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  ALMA ZULEMA CISNEROS FERNANDEZ: recursos=['MESA'], robots=[]...
+  ANGUIANO DE LEON JUANA ARACELI: recursos=['PLANA', 'MESA'], robots=[]...
+  ARCOS GODINEZ ANA LIZETTE: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  BARAJAS VALLADOLID BETSY ELIZABETH: recursos=['MESA'], robots=[]...
+  CARRILLO BARAJAS AURORA JAQUELIN: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  CASTANEDA CERVANTES CARLOS ANTONIO: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  CERVANTES RUIZ MARTHA LETICIA: recursos=['MESA'], robots=[]...
+  CHAVARIN ARCE IRMA LIZETH: recursos=['MESA'], robots=[]...
+  CHAVEZ CASTRO HUGO: recursos=['POSTE', 'PLANA', 'MESA'], robots=[]...
+  ESQUIVEL VALENZUELA GUADALUPE NATALY: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  EVELIN SARAI CORNEJO HERRERA: recursos=['MESA'], robots=[]...
+  IBARRA HUERTA VICTOR HUGO: recursos=['POSTE', 'PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  MORA LUCAS AMERICO ADALID: recursos=['PLANA', 'MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  MORALES CHAVARIN KEVIN ALEJANDRO: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  SANDOVAL MARTINEZ PEDRO SAUL: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+  SUMIKI JUDITH RODRIGUEZ NOLASCO: recursos=['MESA'], robots=[]...
+  VAZQUEZ GONZALEZ LILIAN ALEXIAN: recursos=['MESA', 'ROBOT'], robots=['CABINA ASPREADO 1', '3020-M4', '3020-M1']...
+[OPT] hc_disponible corregido con operarios reales: [('Sab', 0), ('Lun', 19), ('Mar', 19), ('Mie', 19), ('Jue', 19), ('Vie', 19)]
+INFO:     127.0.0.1:57868 - "POST /api/optimize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60495 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60685 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60686 - "GET /api/health HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'C:\Users\Incalza\OneDrive - FASHIONKING\Documentos\Documentos Ernesto Gonzalez\Programas\Agente-Programación\pespunte-agent\src\optimizer_v2.py', 'C:\Users\Incalza\OneDrive - FASHIONKING\Documentos\Documentos Ernesto Gonzalez\Programas\Agente-Programación\pespunte-agent\src\optimizer_weekly.py', 'C:\Users\Incalza\OneDrive - FASHIONKING\Documentos\Documentos Ernesto Gonzalez\Programas\Agente-Programación\pespunte-agent\src\operator_assignment.py'. Reloading...
+ 
