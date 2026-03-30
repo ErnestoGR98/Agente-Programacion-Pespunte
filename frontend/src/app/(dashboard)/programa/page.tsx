@@ -573,20 +573,22 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
   // Maquila info is shown in the banner above, not as rows in the table
 
-  // Consolidate rows with same modelo+fraccion+operario+recurso into one row
+  // Consolidate rows with same modelo+fraccion+operario into one row
+  // Merges blocks arrays by summing pares per block index
   const consolidatedSchedule = useMemo(() => {
+    const NB = BLOCK_LABELS.length  // fixed 10 blocks, no circular dependency
     const map = new Map<string, DailyScheduleEntry>()
     for (const s of rawSchedule) {
-      const key = `${s.modelo}|${s.fraccion}|${s.operario || ''}|${s.robot || s.recurso}`
+      const op = (s.operario || '').trim()
+      const key = `${s.modelo}|${s.fraccion}|${op}`
       const existing = map.get(key)
       if (existing) {
-        const blocks = [...(existing.blocks || [])]
-        for (let i = 0; i < (s.blocks || []).length; i++) {
-          blocks[i] = (blocks[i] || 0) + ((s.blocks || [])[i] || 0)
+        const sBlocks = s.blocks || []
+        for (let i = 0; i < NB; i++) {
+          existing.blocks[i] = (existing.blocks[i] || 0) + (sBlocks[i] || 0)
         }
-        existing.blocks = blocks
-        existing.total = blocks.reduce((sum, v) => sum + (v || 0), 0)
-        // Merge motivos_por_bloque
+        existing.total = existing.blocks.reduce((sum, v) => sum + (v || 0), 0)
+        if (!existing.robot && s.robot) existing.robot = s.robot
         if (s.motivos_por_bloque) {
           const motivos = { ...(existing.motivos_por_bloque || {}) }
           for (const [bi, m] of Object.entries(s.motivos_por_bloque)) {
@@ -595,7 +597,12 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
           existing.motivos_por_bloque = motivos
         }
       } else {
-        map.set(key, { ...s, blocks: [...(s.blocks || [])], total: s.total })
+        const initBlocks = new Array(NB).fill(0)
+        const sBlocks = s.blocks || []
+        for (let i = 0; i < sBlocks.length && i < NB; i++) {
+          initBlocks[i] = sBlocks[i] || 0
+        }
+        map.set(key, { ...s, operario: op, blocks: initBlocks, total: s.total })
       }
     }
     return [...map.values()]
