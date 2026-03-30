@@ -8,6 +8,7 @@ export interface AvanceEntry {
   modelo_num: string
   dia: DayName
   pares: number
+  fracciones_completadas?: number[] | Record<string, number>
 }
 
 export function useAvance(semana: string | null) {
@@ -43,7 +44,7 @@ export function useAvance(semana: string | null) {
     // Load detalles
     const { data: detRows } = await supabase
       .from('avance_detalle')
-      .select('modelo_num, dia, pares')
+      .select('modelo_num, dia, pares, fracciones_completadas')
       .eq('avance_id', av.id)
 
     setDetalles(
@@ -51,6 +52,7 @@ export function useAvance(semana: string | null) {
         modelo_num: d.modelo_num as string,
         dia: d.dia as DayName,
         pares: Number(d.pares),
+        fracciones_completadas: d.fracciones_completadas || [],
       }))
     )
     setLoading(false)
@@ -84,7 +86,13 @@ export function useAvance(semana: string | null) {
     // Replace all detalles
     await supabase.from('avance_detalle').delete().eq('avance_id', id)
 
-    const toInsert = entries.filter((e) => e.pares > 0)
+    const hasFracs = (fc: unknown) => {
+      if (!fc) return false
+      if (Array.isArray(fc)) return fc.length > 0
+      if (typeof fc === 'object') return Object.keys(fc as object).length > 0
+      return false
+    }
+    const toInsert = entries.filter((e) => e.pares > 0 || hasFracs(e.fracciones_completadas))
     if (toInsert.length > 0) {
       await supabase.from('avance_detalle').insert(
         toInsert.map((e) => ({
@@ -92,6 +100,7 @@ export function useAvance(semana: string | null) {
           modelo_num: e.modelo_num,
           dia: e.dia,
           pares: e.pares,
+          fracciones_completadas: e.fracciones_completadas || {},
         }))
       )
     }
@@ -104,7 +113,18 @@ export function useAvance(semana: string | null) {
     return detalles.find((d) => d.modelo_num === modelo_num && d.dia === dia)?.pares || 0
   }
 
+  // Helper: get completed fracciones for a modelo (across all dias)
+  function getFraccionesCompletadas(modelo_num: string): number[] {
+    const fracs = new Set<number>()
+    for (const d of detalles) {
+      if (d.modelo_num === modelo_num && d.fracciones_completadas) {
+        for (const f of d.fracciones_completadas) fracs.add(f)
+      }
+    }
+    return [...fracs].sort((a, b) => a - b)
+  }
+
   const totalPares = detalles.reduce((sum, d) => sum + d.pares, 0)
 
-  return { loading, detalles, totalPares, avanceId, getPares, save, reload: load }
+  return { loading, detalles, totalPares, avanceId, getPares, getFraccionesCompletadas, save, reload: load }
 }

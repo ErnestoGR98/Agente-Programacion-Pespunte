@@ -9,9 +9,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
 import { CheckCircle, Save, Loader2 } from 'lucide-react'
 import type { DayName } from '@/types'
-import { DAY_ORDER } from '@/types'
+import { DAY_ORDER, STAGE_COLORS } from '@/types'
 
 const DAYS: DayName[] = DAY_ORDER // Lun, Mar, Mie, Jue, Vie, Sab
 
@@ -27,6 +29,13 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
   const [grid, setGrid] = useState<Record<string, Record<string, number>>>({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // Fracciones con avance: {modelo_num: {fraccion: pares_hechos}}
+  // pares > 0 = parcial, pares = -1 = 100% completada
+  const [fracsDone, setFracsDone] = useState<Record<string, Record<number, number>>>({})
+  // Catalogo operaciones per modelo: {modelo_num: [{fraccion, operacion, input_o_proceso}]}
+  const [catOps, setCatOps] = useState<Record<string, { fraccion: number; operacion: string; input_o_proceso: string }[]>>({})
+  // Volumen del pedido por modelo: {modelo_num: volumen}
+  const [volumenByModelo, setVolumenByModelo] = useState<Record<string, number>>({})
 
   // Load modelos from pedido items
   useEffect(() => {
@@ -48,13 +57,96 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
       }
       const { data: items } = await supabase
         .from('pedido_items')
-        .select('modelo_num')
+        .select('modelo_num, volumen')
         .eq('pedido_id', pedidos[0].id)
       const unique = [...new Set((items || []).map((i: { modelo_num: string }) => i.modelo_num))].sort()
+      // Build volumen map
+      const vMap: Record<string, number> = {}
+      for (const it of items || []) {
+        vMap[(it as { modelo_num: string }).modelo_num] = Number((it as { volumen: number }).volumen) || 0
+      }
+      setVolumenByModelo(vMap)
       setModelos(unique)
       setLoadingModelos(false)
     })()
   }, [pedidoNombre])
+
+  // Load catalogo operations for each modelo
+  useEffect(() => {
+    if (modelos.length === 0) return
+    ;(async () => {
+      // Get modelo IDs
+      const { data: catModelos } = await supabase
+        .from('catalogo_modelos')
+        .select('id, modelo_num')
+        .in('modelo_num', modelos)
+      if (!catModelos) return
+      const idMap = new Map(catModelos.map((m: { id: string; modelo_num: string }) => [m.id, m.modelo_num]))
+      const ids = catModelos.map((m: { id: string }) => m.id)
+
+      const { data: ops } = await supabase
+        .from('catalogo_operaciones')
+        .select('modelo_id, fraccion, operacion, input_o_proceso')
+        .in('modelo_id', ids)
+        .order('fraccion')
+
+      const result: Record<string, { fraccion: number; operacion: string; input_o_proceso: string }[]> = {}
+      for (const op of ops || []) {
+        const mn = idMap.get(op.modelo_id as string)
+        if (!mn) continue
+        if (!result[mn]) result[mn] = []
+        result[mn].push({
+          fraccion: op.fraccion as number,
+          operacion: op.operacion as string,
+          input_o_proceso: (op.input_o_proceso as string) || '',
+        })
+      }
+      setCatOps(result)
+    })()
+  }, [modelos])
+
+  // Initialize fracsDone from avance data
+  useEffect(() => {
+    if (avance.loading) return
+    const fd: Record<string, Record<number, number>> = {}
+    for (const d of avance.detalles) {
+      const fc = d.fracciones_completadas
+      if (!fc) continue
+      if (!fd[d.modelo_num]) fd[d.modelo_num] = {}
+      if (Array.isArray(fc)) {
+        // Old format: [1,2,3] → 100% each
+        for (const f of fc) {
+          if (!(f in fd[d.modelo_num])) fd[d.modelo_num][f] = -1
+        }
+      } else if (typeof fc === 'object' && fc !== null) {
+        // New format: {"1": 50, "3": -1}
+        for (const [k, v] of Object.entries(fc as Record<string, number>)) {
+          fd[d.modelo_num][Number(k)] = v
+        }
+      }
+    }
+    setFracsDone(fd)
+  }, [avance.loading, avance.detalles])
+
+  function toggleFrac(modelo: string, frac: number) {
+    setFracsDone((prev) => {
+      const modeloData = { ...(prev[modelo] || {}) }
+      if (frac in modeloData) {
+        delete modeloData[frac]
+      } else {
+        modeloData[frac] = -1
+      }
+      return { ...prev, [modelo]: modeloData }
+    })
+  }
+
+  function setFracPares(modelo: string, frac: number, pares: number) {
+    setFracsDone((prev) => {
+      const modeloData = { ...(prev[modelo] || {}) }
+      modeloData[frac] = pares
+      return { ...prev, [modelo]: modeloData }
+    })
+  }
 
   // Initialize grid from avance data
   useEffect(() => {
@@ -81,17 +173,43 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
     setMessage(null)
     const entries: AvanceEntry[] = []
     for (const modelo of modelos) {
+      const fd = fracsDone[modelo] || {}
+      // Save fracciones as object {"1": 50, "3": -1} for pares tracking
+      const fracObj: Record<string, number> = {}
+      for (const [f, p] of Object.entries(fd)) {
+        fracObj[f] = p as number
+      }
+      const hasFracs = Object.keys(fracObj).length > 0
+
+      let savedForModelo = false
       for (const dia of DAYS) {
         const pares = grid[modelo]?.[dia] || 0
         if (pares > 0) {
-          entries.push({ modelo_num: modelo, dia, pares })
+          entries.push({
+            modelo_num: modelo,
+            dia,
+            pares,
+            fracciones_completadas: hasFracs ? fracObj as unknown as number[] : [],
+          })
+          savedForModelo = true
         }
+      }
+      // If has fracciones but no pares on any day, save on Lun
+      if (hasFracs && !savedForModelo) {
+        entries.push({
+          modelo_num: modelo,
+          dia: 'Lun',
+          pares: 0,
+          fracciones_completadas: fracObj as unknown as number[],
+        })
       }
     }
     await avance.save(entries)
     setSaving(false)
     setMessage('Avance guardado correctamente')
     setTimeout(() => setMessage(null), 3000)
+    // Reload to ensure fracsDone re-initializes from DB
+    await avance.reload()
   }
 
   // Computed totals
@@ -221,6 +339,106 @@ export function AvanceTab({ semana, pedidoNombre }: Props) {
               </tr>
             </tfoot>
           </table>
+          </div>
+        </CardContent>
+      </Card>
+      {/* Fracciones Completadas */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold">Fracciones Completadas</p>
+              <p className="text-xs text-muted-foreground">
+                Marca las fracciones que ya estan hechas (ej: preliminares del viernes pasado).
+                El solver las saltara al optimizar.
+              </p>
+            </div>
+            <Button onClick={handleSave} disabled={saving} size="sm">
+              {saving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Save className="mr-1 h-3 w-3" />}
+              Guardar
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {modelos.map((modelo) => {
+              const ops = catOps[modelo] || []
+              if (ops.length === 0) return null
+              const done = fracsDone[modelo] || {}
+              const doneCount = Object.keys(done).length
+
+              const maxPares = volumenByModelo[modelo] || 0
+
+              return (
+                <div key={modelo} className="border rounded-md p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-bold font-mono">{modelo}</span>
+                    <Badge variant="outline" className="text-xs font-mono">{maxPares}p</Badge>
+                    {doneCount > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {doneCount}/{ops.length} con avance
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {ops.map((op) => {
+                      const isDone = op.fraccion in done
+                      const paresDone = done[op.fraccion] ?? 0
+                      const isFullDone = paresDone === -1
+                      const color = op.input_o_proceso.includes('ROBOT') ? STAGE_COLORS.ROBOT
+                        : op.input_o_proceso.includes('POST') ? STAGE_COLORS.POST
+                        : op.input_o_proceso.includes('PRELIMINAR') ? STAGE_COLORS.PRELIMINAR
+                        : op.input_o_proceso.includes('N/A') ? STAGE_COLORS['N/A PRELIMINAR']
+                        : '#6B7280'
+                      return (
+                        <div
+                          key={op.fraccion}
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs transition-all ${
+                            isDone ? 'bg-green-500/10 border-green-500/40' : 'hover:bg-accent/30'
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isDone}
+                            onCheckedChange={() => toggleFrac(modelo, op.fraccion)}
+                          />
+                          <span className="font-mono font-medium">F{op.fraccion}</span>
+                          <span className="truncate max-w-[100px]" title={op.operacion}>{op.operacion}</span>
+                          <span
+                            className="text-[8px] px-1 rounded font-medium"
+                            style={{ backgroundColor: `${color}20`, color }}
+                          >
+                            {op.input_o_proceso}
+                          </span>
+                          {isDone && (
+                            <Input
+                              type="number"
+                              min={0}
+                              max={maxPares}
+                              placeholder={`${maxPares}`}
+                              value={isFullDone ? '' : paresDone}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value)
+                                if (isNaN(v) || v <= 0) {
+                                  setFracPares(modelo, op.fraccion, -1)
+                                } else {
+                                  setFracPares(modelo, op.fraccion, Math.min(v, maxPares))
+                                }
+                              }}
+                              className="h-6 w-16 text-center text-[10px] px-1"
+                              title={`Pares completados (max ${maxPares}, vacio = 100%)`}
+                            />
+                          )}
+                          {isDone && (
+                            <span className="text-[9px] text-muted-foreground">
+                              {isFullDone ? `${maxPares}p` : `de ${maxPares}p`}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
