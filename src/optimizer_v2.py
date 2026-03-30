@@ -1267,6 +1267,23 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                     cumulative_produced_by_op[code].get(frac, 0) + pares
                 )
 
+        # --- Enforce cascade in cumulative production ---
+        # After each day, cap downstream fracs to not exceed upstream.
+        # This prevents the pipeline cap from seeing inflated downstream
+        # numbers on the next day, which would trigger unnecessary caps.
+        for code, frac_prod in cumulative_produced_by_op.items():
+            if len(frac_prod) < 2:
+                continue
+            sorted_fracs = sorted(frac_prod.keys())
+            # Running min: each frac can't exceed the min of all previous fracs
+            running_min = float('inf')
+            for f in sorted_fracs:
+                running_min = min(running_min, frac_prod[f])
+                if frac_prod[f] > running_min:
+                    print(f"    [CASCADE-FIX] {code} F{f}: capping cumulative "
+                          f"{frac_prod[f]} -> {running_min}")
+                    frac_prod[f] = running_min
+
         # --- Overproduction: solo logear, NO convertir en adelanto_credits ---
         # La sobreproduccion es un artefacto de discretizacion del solver (completar
         # un bloque al rate exacto), no un adelanto intencional. Convertirla en
