@@ -1196,19 +1196,11 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
             # Otherwise, cap so they don't exceed bottleneck
             remaining_cap = max(0, bottleneck - max_downstream_done)
 
-            # Allow at least the weekly planned pares for this day
-            # (the intra-day cascade will enforce ordering within the day)
+            # Soft cap: allow weekly minimum, let intra-day cascade handle balance.
+            # Do NOT hard-cap to 0 — that kills models with rezago.
             weekly_min = weekly_pares_lookup.get((code, day_name), 0)
 
-            if remaining_cap < m["pares_dia"] and max_downstream_done > bottleneck:
-                # Hard cap: downstream already exceeded upstream
-                new_pares = 0
-                print(f"    [PIPELINE-CAP] {day_name} {code}: HARD cap pares_dia "
-                      f"{m['pares_dia']} -> 0 (bottleneck={bottleneck}, "
-                      f"downstream_done={max_downstream_done})")
-                m["pares_dia"] = new_pares
-            elif remaining_cap < m["pares_dia"]:
-                # Soft cap: limit but allow weekly minimum
+            if remaining_cap < m["pares_dia"]:
                 new_pares = max(remaining_cap, weekly_min)
                 if new_pares < m["pares_dia"]:
                     print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "

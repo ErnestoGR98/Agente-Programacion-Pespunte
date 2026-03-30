@@ -54,3 +54,4 @@ data/*_backup.*
 node_modules/
 .next/
 out/
+pespunte-agent/
