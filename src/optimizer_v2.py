@@ -1170,43 +1170,50 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
                           f"completed fracs {done_fracs}, {len(remaining)} remaining")
                     m["operations"] = remaining
 
-        # Cross-day pipeline cap: only cap models where SOME fractions were
-        # completed on prior days but OTHERS still remain. This prevents
-        # downstream fracs from exceeding what upstream produced.
-        # Does NOT cap models running all fractions today (intra-day cascade handles that).
+        # Cross-day pipeline cap: for models with prior-day production,
+        # ensure no fraction produces more across the week than the minimum
+        # of all fractions (bottleneck). Prevents downstream exceeding upstream.
         for m in models_day:
             code = m["codigo"]
             cum_prod = cumulative_produced_by_op.get(code, {})
             if not cum_prod:
                 continue  # first day for this model, no cap
 
+            # Find the bottleneck: min production across ALL internal fracs so far
+            internal_produced = {f: p for f, p in cum_prod.items() if p > 0}
+            if not internal_produced:
+                continue
+
+            bottleneck = min(internal_produced.values())
+
+            # How much has the most-produced of today's fracs already done?
             today_fracs = set(op.get("fraccion", 0) for op in m["operations"])
-            completed_fracs = cumulative_completed_fracs.get(code, set())
-
-            # Only cap if some fracs were completed on prior days (pipeline split across days)
-            if not completed_fracs:
-                continue
-
-            # Bottleneck = min production among completed upstream fracs
-            upstream_vals = [cum_prod[f] for f in completed_fracs if f in cum_prod]
-            if not upstream_vals:
-                continue
-            bottleneck = min(upstream_vals)
-
-            # How much have today's fracs already produced?
             max_downstream_done = max(
                 (cum_prod.get(f, 0) for f in today_fracs), default=0
             )
 
+            # If any of today's fracs already exceeds bottleneck, cap to 0
+            # Otherwise, cap so they don't exceed bottleneck
             remaining_cap = max(0, bottleneck - max_downstream_done)
 
-            if remaining_cap < m["pares_dia"]:
-                new_pares = remaining_cap
+            # Allow at least the weekly planned pares for this day
+            # (the intra-day cascade will enforce ordering within the day)
+            weekly_min = weekly_pares_lookup.get((code, day_name), 0)
+
+            if remaining_cap < m["pares_dia"] and max_downstream_done > bottleneck:
+                # Hard cap: downstream already exceeded upstream
+                new_pares = 0
+                print(f"    [PIPELINE-CAP] {day_name} {code}: HARD cap pares_dia "
+                      f"{m['pares_dia']} -> 0 (bottleneck={bottleneck}, "
+                      f"downstream_done={max_downstream_done})")
+                m["pares_dia"] = new_pares
+            elif remaining_cap < m["pares_dia"]:
+                # Soft cap: limit but allow weekly minimum
+                new_pares = max(remaining_cap, weekly_min)
                 if new_pares < m["pares_dia"]:
                     print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
                           f"{m['pares_dia']} -> {new_pares} "
-                          f"(bottleneck={bottleneck}, completed={completed_fracs}, "
-                          f"downstream_done={max_downstream_done})")
+                          f"(bottleneck={bottleneck}, downstream_done={max_downstream_done})")
                     m["pares_dia"] = new_pares
 
         # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico
@@ -1276,6 +1283,12 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         if day_over:
             for code, over in day_over.items():
                 print(f"    [OVERPROD] {code}: +{over}p sobreproducidos (no se descuentan)")
+
+        # --- Adelanto deshabilitado ---
+        # El adelanto robaba trabajo del dia siguiente sin garantizar que se completara,
+        # dejando dias posteriores vacíos. El rezago (tardiness carryover) es más confiable:
+        # cada dia produce lo que puede, lo que falta pasa al siguiente.
+        continue  # skip adelanto
 
         # --- Detectar capacidad ociosa y adelantar del dia siguiente ---
         if task_idx + 1 >= len(ordered_tasks):

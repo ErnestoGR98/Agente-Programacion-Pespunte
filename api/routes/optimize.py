@@ -350,11 +350,41 @@ def _normalize_recurso(recurso: str) -> str:
 
 
 def _load_operarios() -> list:
-    """Carga operarios con 4 categorias de habilidad y deriva recursos."""
+    """Carga operarios con 4 categorias de habilidad y deriva recursos/maquinas."""
     rows = _sb_get("operarios", "select=*&activo=eq.true&order=nombre")
 
-    all_robots = _sb_get("robots", "select=nombre&estado=eq.ACTIVO")
-    all_robot_names = [r["nombre"] for r in all_robots]
+    # Load all active machines with their tipos
+    all_robots = _sb_get("robots", "select=id,nombre&estado=eq.ACTIVO")
+    all_robot_tipos = _sb_get("robot_tipos", "select=robot_id,tipo")
+
+    # Build tipo sets per machine
+    robot_tipos_map = {}  # {robot_id: set of tipos}
+    for rt in all_robot_tipos:
+        rid = rt["robot_id"]
+        if rid not in robot_tipos_map:
+            robot_tipos_map[rid] = set()
+        robot_tipos_map[rid].add(rt["tipo"])
+
+    # Classify machines by skill required
+    _ROBOT_TIPOS = {'3020', '6040', 'CHACHE', 'DOBLE_ACCION'}
+    _PESPUNTE_TIPOS = {'PLANA', 'POSTE', '2AG', 'ZIGZAG', 'CODO'}
+    # MAQ_PINTURA, REMACH_*, PERFORADORA_JACK, CABINA_ASPREADO, DESHEBRADORA → anyone
+
+    robot_machines = []     # require ROBOTS skill
+    pespunte_machines = []  # require PESPUNTE skill
+    general_machines = []   # anyone can operate
+
+    for rob in all_robots:
+        tipos = robot_tipos_map.get(rob["id"], set())
+        if tipos & _ROBOT_TIPOS:
+            robot_machines.append(rob["nombre"])
+        elif tipos & _PESPUNTE_TIPOS:
+            pespunte_machines.append(rob["nombre"])
+        else:
+            general_machines.append(rob["nombre"])
+
+    print(f"[OPT] Machine classification: {len(robot_machines)} robots, "
+          f"{len(pespunte_machines)} pespunte, {len(general_machines)} general")
 
     # Old granular pespunte skills that map to PESPUNTE
     _PESPUNTE_SKILLS = {'PLANA_RECTA', 'ZIGZAG', 'DOS_AGUJAS', 'POSTE_CONV', 'RIBETE', 'CODO'}
@@ -367,16 +397,17 @@ def _load_operarios() -> list:
         skills = {x["habilidad"] for x in habs}
 
         recursos: set[str] = set()
-        robots_hab: list[str] = []
+        robots_hab: list[str] = list(general_machines)  # everyone gets general machines
 
-        # MESA: everyone can do it (scoring prefers skilled operators)
+        # MESA: everyone can do it
         recursos.add('MESA')
         if 'ROBOTS' in skills:
             recursos.add('ROBOT')
-            robots_hab = list(all_robot_names)
+            robots_hab.extend(robot_machines)
         if 'PESPUNTE' in skills or skills & _PESPUNTE_SKILLS:
             recursos.add('PLANA')
             recursos.add('POSTE')
+            robots_hab.extend(pespunte_machines)
 
         habilidades_nivel = [
             {"habilidad": x["habilidad"], "nivel": x.get("nivel", 2)}
