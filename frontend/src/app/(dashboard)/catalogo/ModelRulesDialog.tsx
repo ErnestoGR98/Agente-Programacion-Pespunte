@@ -212,6 +212,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
                 <ProcessFlowDiagram
                   operaciones={operaciones}
                   reglas={precedencias}
+                  modeloNum={modeloNum}
                 />
               </TabsContent>
             </Tabs>
