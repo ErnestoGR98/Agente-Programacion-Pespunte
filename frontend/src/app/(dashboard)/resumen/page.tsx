@@ -48,7 +48,10 @@ export default function ResumenPage() {
           Ejecuta una optimizacion para ver el resumen semanal.
         </div>
         {appStep >= 1 && (
-          <ManualWeeklyEditor />
+          <>
+            <DailyOptimizer />
+            <ManualWeeklyEditor />
+          </>
         )}
       </div>
     )
@@ -1068,10 +1071,11 @@ const DAY_COLOR: Record<string, string> = {
 }
 
 function DailyOptimizer() {
-  const { currentSemana, currentResult, setCurrentResult } = useAppStore()
+  const { currentSemana, currentPedidoNombre, currentResult, setCurrentResult } = useAppStore()
 
   const [selectedDay, setSelectedDay] = useState<DayName>('Lun')
   const [dias, setDias] = useState<DiaLaboral[]>([])
+  const [pedidoItems, setPedidoItems] = useState<PedidoItem[]>([])
   const [models, setModels] = useState<{ modelo: string; pares: number; fabrica: string }[]>([])
   const [loading, setLoading] = useState(false)
   const [optimizing, setOptimizing] = useState(false)
@@ -1084,18 +1088,36 @@ function DailyOptimizer() {
     return DAY_ORDER.filter((d) => dias.some((dl) => dl.nombre === d && dl.plantilla > 0)) as DayName[]
   }, [dias])
 
-  // Load dias laborales
+  // Load dias laborales + pedido items
   useEffect(() => {
     supabase.from('dias_laborales').select('*').order('orden').then(({ data }) => {
       setDias(data || [])
     })
   }, [])
 
+  useEffect(() => {
+    if (!currentPedidoNombre) return
+    async function loadPedido() {
+      const { data: pedido } = await supabase
+        .from('pedidos')
+        .select('id')
+        .eq('nombre', currentPedidoNombre!)
+        .single()
+      if (!pedido) return
+      const { data: items } = await supabase
+        .from('pedido_items')
+        .select('*')
+        .eq('pedido_id', pedido.id)
+        .order('modelo_num')
+      setPedidoItems(items || [])
+    }
+    loadPedido()
+  }, [currentPedidoNombre])
+
   // Initialize from current result
   useEffect(() => {
     if (currentResult?.id) {
       setResultadoId(currentResult.id)
-      // Mark already optimized days
       const done = new Set<string>()
       const statuses: Record<string, { pares: number; tardiness: number; status: string }> = {}
       if (currentResult.daily_results) {
@@ -1115,39 +1137,52 @@ function DailyOptimizer() {
     }
   }, [currentResult])
 
-  // Load models for selected day from weekly_schedule or pedido
+  // Load models for selected day: from weekly_schedule if available, else from pedido
   useEffect(() => {
-    if (!currentResult?.weekly_schedule) return
-    const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string }>()
-    for (const e of currentResult.weekly_schedule) {
-      if (e.Dia === selectedDay) {
-        const existing = dayModels.get(e.Modelo)
-        if (existing) {
-          existing.pares += e.Pares
-        } else {
-          dayModels.set(e.Modelo, {
-            modelo: e.Modelo,
-            pares: e.Pares,
-            fabrica: e.Fabrica || '',
-          })
+    const hasWeekly = currentResult?.weekly_schedule?.length
+    if (hasWeekly) {
+      // From existing weekly plan
+      const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string }>()
+      for (const e of currentResult!.weekly_schedule) {
+        if (e.Dia === selectedDay) {
+          const existing = dayModels.get(e.Modelo)
+          if (existing) {
+            existing.pares += e.Pares
+          } else {
+            dayModels.set(e.Modelo, {
+              modelo: e.Modelo,
+              pares: e.Pares,
+              fabrica: e.Fabrica || '',
+            })
+          }
         }
       }
+      setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
+    } else if (pedidoItems.length > 0) {
+      // From pedido directly — all models with 0 pares (user fills in)
+      setModels(
+        pedidoItems.map((it) => ({
+          modelo: `${it.modelo_num} ${it.color}`.trim(),
+          pares: 0,
+          fabrica: it.fabrica || '',
+        }))
+      )
     }
-    setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
-  }, [selectedDay, currentResult])
+  }, [selectedDay, currentResult, pedidoItems])
 
   function updatePares(modelo: string, pares: number) {
     setModels((prev) => prev.map((m) => m.modelo === modelo ? { ...m, pares } : m))
   }
 
   async function handleOptimize() {
-    if (!currentSemana || models.length === 0) return
+    const semana = currentSemana || currentPedidoNombre || ''
+    if (!semana || models.length === 0) return
     setOptimizing(true)
     setError(null)
 
     try {
       const res = await optimizeDay({
-        semana: currentSemana,
+        semana: semana,
         day_name: selectedDay,
         models_day: models.filter((m) => m.pares > 0),
         previous_resultado_id: resultadoId,
@@ -1243,28 +1278,35 @@ function DailyOptimizer() {
                 <TableRow>
                   <TableHead className="text-xs">Modelo</TableHead>
                   <TableHead className="text-xs text-center w-20">Fabrica</TableHead>
-                  <TableHead className="text-xs text-center w-24">Pares</TableHead>
+                  <TableHead className="text-xs text-center w-20">Pedido</TableHead>
+                  <TableHead className="text-xs text-center w-24">Pares Dia</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {models.map((m) => (
-                  <TableRow key={m.modelo}>
-                    <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
-                    <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
-                    <TableCell className="text-center">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={50}
-                        value={m.pares}
-                        onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
-                        className="h-7 w-20 text-xs font-mono text-center mx-auto"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {models.map((m) => {
+                  const modelNum = m.modelo.split(' ')[0]
+                  const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+                  return (
+                    <TableRow key={m.modelo}>
+                      <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
+                      <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
+                      <TableCell className="text-center text-xs text-muted-foreground font-mono">{pedido?.volumen?.toLocaleString() || '-'}</TableCell>
+                      <TableCell className="text-center">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={50}
+                          value={m.pares}
+                          onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
+                          className="h-7 w-20 text-xs font-mono text-center mx-auto"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
                 <TableRow className="bg-accent/30 font-bold">
                   <TableCell>TOTAL</TableCell>
+                  <TableCell />
                   <TableCell />
                   <TableCell className="text-center font-mono">{totalPares.toLocaleString()}</TableCell>
                 </TableRow>
