@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Trash2, Wand2, Loader2 } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CascadeEditor } from '@/components/shared/CascadeEditor'
+import { ProcessFlowDiagram } from '@/components/shared/ProcessFlowDiagram'
 
 interface Props {
   open: boolean
@@ -51,7 +53,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
   )
   const loteRegla = reglas.find((r) => r.tipo === 'LOTE_MINIMO_CUSTOM')
 
-  async function createPrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo' | 'rate') {
+  async function createPrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo' | 'rate' | 'dia') {
     await supabase.from('restricciones').insert({
       semana: null,
       tipo: 'PRECEDENCIA_OPERACION' as ConstraintType,
@@ -71,7 +73,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
     await load()
   }
 
-  async function updateBuffer(id: string, buffer: number | 'todo' | 'rate') {
+  async function updateBuffer(id: string, buffer: number | 'todo' | 'rate' | 'dia') {
     const regla = reglas.find((r) => r.id === id)
     if (!regla) return
     const parametros = { ...regla.parametros as Record<string, unknown>, buffer_pares: buffer }
@@ -190,15 +192,29 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
               </span>
             </div>
 
-            {/* CascadeEditor */}
-            <CascadeEditor
-              operaciones={operaciones}
-              reglas={precedencias}
-              onConnect={createPrecedencia}
-              onDeleteEdge={deleteRegla}
-              onUpdateBuffer={updateBuffer}
-              title={`Cascada-${modeloNum}`}
-            />
+            {/* Cascada + Flujo de Proceso */}
+            <Tabs defaultValue="cascada">
+              <TabsList>
+                <TabsTrigger value="cascada">Cascada</TabsTrigger>
+                <TabsTrigger value="flujo">Flujo de Proceso</TabsTrigger>
+              </TabsList>
+              <TabsContent value="cascada">
+                <CascadeEditor
+                  operaciones={operaciones}
+                  reglas={precedencias}
+                  onConnect={createPrecedencia}
+                  onDeleteEdge={deleteRegla}
+                  onUpdateBuffer={updateBuffer}
+                  title={`Cascada-${modeloNum}`}
+                />
+              </TabsContent>
+              <TabsContent value="flujo">
+                <ProcessFlowDiagram
+                  operaciones={operaciones}
+                  reglas={precedencias}
+                />
+              </TabsContent>
+            </Tabs>
 
             {/* Lote minimo */}
             <div>

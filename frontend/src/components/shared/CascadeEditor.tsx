@@ -1019,7 +1019,7 @@ export function CascadeEditor({
   }
 
   // Helper: check if a rule is a group rule (multiple source or dest fracs)
-  function getGroupPairs(reglaId: string): { origFracs: number[]; destFracs: number[]; oldBuffer: number | 'todo' | 'rate' } | null {
+  function getGroupPairs(reglaId: string): { origFracs: number[]; destFracs: number[]; oldBuffer: number | 'todo' | 'rate' | 'dia' } | null {
     const rule = reglas.find((r) => r.id === reglaId)
     if (!rule) return null
     const p = rule.parametros as Record<string, unknown>

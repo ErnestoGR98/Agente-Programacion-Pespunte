@@ -116,7 +116,7 @@ export function ReglasTab() {
   )
 
   // --- Graph callbacks ---
-  async function graphCreatePrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo' | 'rate') {
+  async function graphCreatePrecedencia(fracsOrig: number[], fracsDest: number[], buffer: number | 'todo' | 'rate' | 'dia') {
     await reglas.addRegla({
       tipo: 'PRECEDENCIA_OPERACION',
       modelo_num: modelo,
@@ -129,7 +129,7 @@ export function ReglasTab() {
     })
   }
 
-  async function graphUpdateBuffer(id: string, buffer: number | 'todo' | 'rate') {
+  async function graphUpdateBuffer(id: string, buffer: number | 'todo' | 'rate' | 'dia') {
     const regla = reglas.reglas.find((r) => r.id === id)
     if (!regla) return
     const parametros = { ...regla.parametros as Record<string, unknown>, buffer_pares: buffer }

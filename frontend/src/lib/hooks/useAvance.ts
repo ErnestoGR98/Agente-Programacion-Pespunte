@@ -52,7 +52,7 @@ export function useAvance(semana: string | null) {
         modelo_num: d.modelo_num as string,
         dia: d.dia as DayName,
         pares: Number(d.pares),
-        fracciones_completadas: d.fracciones_completadas || [],
+        fracciones_completadas: (d.fracciones_completadas as AvanceEntry['fracciones_completadas']) || [],
       }))
     )
     setLoading(false)
@@ -118,7 +118,12 @@ export function useAvance(semana: string | null) {
     const fracs = new Set<number>()
     for (const d of detalles) {
       if (d.modelo_num === modelo_num && d.fracciones_completadas) {
-        for (const f of d.fracciones_completadas) fracs.add(f)
+        const fc = d.fracciones_completadas
+        if (Array.isArray(fc)) {
+          for (const f of fc) fracs.add(f)
+        } else {
+          for (const f of Object.keys(fc)) fracs.add(Number(f))
+        }
       }
     }
     return [...fracs].sort((a, b) => a - b)
