@@ -59,7 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Resultados',
     items: [
-      { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 2 },
+      { href: '/resumen', label: 'Resumen Semanal', icon: CalendarDays, minStep: 1 },
       { href: '/programa', label: 'Programa Diario', icon: LayoutGrid, minStep: 2 },
       { href: '/sabana', label: 'Sabana Semanal', icon: Sheet, minStep: 2 },
       { href: '/utilizacion', label: 'Utilizacion HC', icon: BarChart3, minStep: 2 },
