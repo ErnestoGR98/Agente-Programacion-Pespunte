@@ -215,14 +215,28 @@ def schedule_day(models_day: list, params: dict, compiled=None,
             op_tardiness[m_idx, op_idx] = solver_model.NewIntVar(
                 0, model["pares_dia"], f"otard_{m_idx}_{op_idx}"
             )
-        # Model tardiness = last operation's tardiness
+        # Equal tardiness: all ops produce the same amount within the day.
+        # EXCEPTION: models with POST ops on conveyor may be bottlenecked
+        # by conveyor availability, so allow independent tardiness for those.
         tardiness[m_idx] = solver_model.NewIntVar(
             0, model["pares_dia"], f"tard_{m_idx}"
         )
-        if n_ops > 0:
-            solver_model.Add(
-                tardiness[m_idx] == op_tardiness[m_idx, n_ops - 1]
-            )
+        has_post = any(
+            op.get("input_o_proceso", "").startswith("POST")
+            for op in model["operations"]
+        )
+        if has_post and lineas_post > 0:
+            # Model with POST on conveyor: use last op's tardiness (original behavior)
+            if n_ops > 0:
+                solver_model.Add(
+                    tardiness[m_idx] == op_tardiness[m_idx, n_ops - 1]
+                )
+        else:
+            # No conveyor constraint: force equal production across all fracs
+            for op_idx in range(n_ops):
+                solver_model.Add(
+                    op_tardiness[m_idx, op_idx] == tardiness[m_idx]
+                )
 
     # --- Restricciones compiladas (block_availability + disabled_robots) ---
     day_name = params.get("day_name", "")
