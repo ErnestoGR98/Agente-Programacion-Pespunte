@@ -110,6 +110,32 @@ export async function generateDaily(req: { resultado_id: string; nota?: string }
   })
 }
 
+// ============================================================
+// OPTIMIZE SINGLE DAY
+// ============================================================
+
+export async function optimizeDay(req: {
+  semana: string
+  day_name: string
+  models_day: { modelo: string; pares: number; fabrica?: string }[]
+  previous_resultado_id?: string | null
+  nota?: string
+}): Promise<{
+  status: string
+  day_name: string
+  total_pares: number
+  tardiness: number
+  wall_time: number
+  saved_as: string
+  resultado_id: string
+  carry_over: Record<string, unknown>
+}> {
+  return fetchAPI('/api/optimize-day', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
 /** Warm up Render free tier on page load */
 export async function wakeUpAPI(): Promise<void> {
   try {

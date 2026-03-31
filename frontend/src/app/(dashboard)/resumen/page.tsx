@@ -17,11 +17,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { DAY_ORDER } from '@/types'
 import type { DayName, WeeklyScheduleEntry, DailyResult, DiaLaboral, PedidoItem, Resultado, ScenarioProposals, Scenario } from '@/types'
-import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check, Wand2, Save, RotateCcw, Play, Pencil } from 'lucide-react'
+import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check, Wand2, Save, RotateCcw, Play, Pencil, CalendarDays } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
 import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
-import { proposeScenarios, applyScenario, generateDaily } from '@/lib/api/fastapi'
+import { proposeScenarios, applyScenario, generateDaily, optimizeDay } from '@/lib/api/fastapi'
 import type { WeeklyDraftRow } from '@/lib/store/useAppStore'
 
 export default function ResumenPage() {
@@ -29,6 +29,7 @@ export default function ResumenPage() {
   const appStep = useAppStore((s) => s.appStep)
   const [maquilaFabricas, setMaquilaFabricas] = useState<Set<string>>(new Set())
   const [showEditor, setShowEditor] = useState(false)
+  const [showDailyOpt, setShowDailyOpt] = useState(false)
 
   useEffect(() => {
     supabase
@@ -65,14 +66,24 @@ export default function ResumenPage() {
             Resultado: <Badge variant="secondary">{result.nombre}</Badge>
           </p>
         </div>
-        <Button
-          variant={showEditor ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setShowEditor(!showEditor)}
-        >
-          <Pencil className="mr-1 h-4 w-4" />
-          {showEditor ? 'Ocultar Editor' : 'Editar Plan Manual'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showDailyOpt ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setShowDailyOpt(!showDailyOpt); if (!showDailyOpt) setShowEditor(false) }}
+          >
+            <CalendarDays className="mr-1 h-4 w-4" />
+            {showDailyOpt ? 'Ocultar Diario' : 'Optimizar por Dia'}
+          </Button>
+          <Button
+            variant={showEditor ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setShowEditor(!showEditor); if (!showEditor) setShowDailyOpt(false) }}
+          >
+            <Pencil className="mr-1 h-4 w-4" />
+            {showEditor ? 'Ocultar Editor' : 'Editar Plan Manual'}
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -85,6 +96,9 @@ export default function ResumenPage() {
 
       {/* Manual weekly editor (collapsible) */}
       {showEditor && <ManualWeeklyEditor />}
+
+      {/* Daily optimizer (collapsible) */}
+      {showDailyOpt && <DailyOptimizer />}
 
       {/* Scenario planner — deshabilitado temporalmente
       <ScenarioPanel resultName={result.nombre} />
@@ -1039,6 +1053,257 @@ function ModelsDetail({ summary }: { summary: { models?: Array<{ codigo: string;
             </TableRow>
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+
+// ============================================================
+// Daily Optimizer
+// ============================================================
+
+const DAY_COLOR: Record<string, string> = {
+  Lun: '#3b82f6', Mar: '#8b5cf6', Mie: '#06b6d4', Jue: '#f59e0b', Vie: '#10b981', Sab: '#ef4444',
+}
+
+function DailyOptimizer() {
+  const { currentSemana, currentResult, setCurrentResult } = useAppStore()
+
+  const [selectedDay, setSelectedDay] = useState<DayName>('Lun')
+  const [dias, setDias] = useState<DiaLaboral[]>([])
+  const [models, setModels] = useState<{ modelo: string; pares: number; fabrica: string }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [optimizing, setOptimizing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [resultadoId, setResultadoId] = useState<string | null>(null)
+  const [optimizedDays, setOptimizedDays] = useState<Set<string>>(new Set())
+  const [dayStatus, setDayStatus] = useState<Record<string, { pares: number; tardiness: number; status: string }>>({})
+
+  const activeDays = useMemo(() => {
+    return DAY_ORDER.filter((d) => dias.some((dl) => dl.nombre === d && dl.plantilla > 0)) as DayName[]
+  }, [dias])
+
+  // Load dias laborales
+  useEffect(() => {
+    supabase.from('dias_laborales').select('*').order('orden').then(({ data }) => {
+      setDias(data || [])
+    })
+  }, [])
+
+  // Initialize from current result
+  useEffect(() => {
+    if (currentResult?.id) {
+      setResultadoId(currentResult.id)
+      // Mark already optimized days
+      const done = new Set<string>()
+      const statuses: Record<string, { pares: number; tardiness: number; status: string }> = {}
+      if (currentResult.daily_results) {
+        for (const [d, dr] of Object.entries(currentResult.daily_results)) {
+          if (dr.schedule?.length > 0) {
+            done.add(d)
+            statuses[d] = {
+              pares: dr.total_pares || 0,
+              tardiness: dr.total_tardiness || 0,
+              status: dr.status || '',
+            }
+          }
+        }
+      }
+      setOptimizedDays(done)
+      setDayStatus(statuses)
+    }
+  }, [currentResult])
+
+  // Load models for selected day from weekly_schedule or pedido
+  useEffect(() => {
+    if (!currentResult?.weekly_schedule) return
+    const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string }>()
+    for (const e of currentResult.weekly_schedule) {
+      if (e.Dia === selectedDay) {
+        const existing = dayModels.get(e.Modelo)
+        if (existing) {
+          existing.pares += e.Pares
+        } else {
+          dayModels.set(e.Modelo, {
+            modelo: e.Modelo,
+            pares: e.Pares,
+            fabrica: e.Fabrica || '',
+          })
+        }
+      }
+    }
+    setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
+  }, [selectedDay, currentResult])
+
+  function updatePares(modelo: string, pares: number) {
+    setModels((prev) => prev.map((m) => m.modelo === modelo ? { ...m, pares } : m))
+  }
+
+  async function handleOptimize() {
+    if (!currentSemana || models.length === 0) return
+    setOptimizing(true)
+    setError(null)
+
+    try {
+      const res = await optimizeDay({
+        semana: currentSemana,
+        day_name: selectedDay,
+        models_day: models.filter((m) => m.pares > 0),
+        previous_resultado_id: resultadoId,
+      })
+
+      setResultadoId(res.resultado_id)
+      setOptimizedDays((prev) => new Set([...prev, selectedDay]))
+      setDayStatus((prev) => ({
+        ...prev,
+        [selectedDay]: { pares: res.total_pares, tardiness: res.tardiness, status: res.status },
+      }))
+
+      // Clear subsequent days (carry-over changed)
+      const dayIdx = activeDays.indexOf(selectedDay)
+      if (dayIdx >= 0) {
+        const laterDays = activeDays.slice(dayIdx + 1)
+        if (laterDays.length > 0) {
+          setOptimizedDays((prev) => {
+            const next = new Set(prev)
+            for (const d of laterDays) next.delete(d)
+            return next
+          })
+        }
+      }
+
+      // Reload full result
+      const { data } = await supabase
+        .from('resultados')
+        .select('*')
+        .eq('id', res.resultado_id)
+        .single()
+      if (data) {
+        setCurrentResult(data as Resultado)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error desconocido')
+    } finally {
+      setOptimizing(false)
+    }
+  }
+
+  const totalPares = models.reduce((s, m) => s + m.pares, 0)
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarDays className="h-4 w-4" />
+          Optimizacion por Dia
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Day selector */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {activeDays.map((d) => {
+            const isSelected = d === selectedDay
+            const isDone = optimizedDays.has(d)
+            const ds = dayStatus[d]
+            return (
+              <button
+                key={d}
+                onClick={() => setSelectedDay(d)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isSelected ? 'ring-2 ring-offset-1' : 'hover:bg-accent/50'
+                }`}
+                style={{
+                  borderColor: isSelected ? DAY_COLOR[d] : isDone ? `${DAY_COLOR[d]}40` : undefined,
+                  outline: isSelected ? `2px solid ${DAY_COLOR[d]}` : undefined,
+                  outlineOffset: isSelected ? 1 : undefined,
+                  backgroundColor: isDone ? `${DAY_COLOR[d]}10` : undefined,
+                }}
+              >
+                <span style={{ color: DAY_COLOR[d] }}>{d}</span>
+                {isDone && (
+                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                )}
+                {ds && (
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    {ds.pares}p
+                    {ds.tardiness > 0 && <span className="text-amber-500 ml-0.5">-{ds.tardiness}</span>}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Models table for selected day */}
+        {models.length > 0 ? (
+          <div className="rounded border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Modelo</TableHead>
+                  <TableHead className="text-xs text-center w-20">Fabrica</TableHead>
+                  <TableHead className="text-xs text-center w-24">Pares</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {models.map((m) => (
+                  <TableRow key={m.modelo}>
+                    <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
+                    <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
+                    <TableCell className="text-center">
+                      <Input
+                        type="number"
+                        min={0}
+                        step={50}
+                        value={m.pares}
+                        onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
+                        className="h-7 w-20 text-xs font-mono text-center mx-auto"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="bg-accent/30 font-bold">
+                  <TableCell>TOTAL</TableCell>
+                  <TableCell />
+                  <TableCell className="text-center font-mono">{totalPares.toLocaleString()}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground text-center py-4">
+            No hay modelos asignados a {selectedDay} en el plan semanal.
+          </div>
+        )}
+
+        {/* Optimize button + status */}
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleOptimize}
+            disabled={optimizing || totalPares === 0}
+            className="gap-1"
+          >
+            {optimizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Optimizar {selectedDay}
+          </Button>
+
+          {error && (
+            <span className="text-xs text-destructive">{error}</span>
+          )}
+
+          {dayStatus[selectedDay] && !optimizing && (
+            <div className="flex items-center gap-2 text-xs">
+              <Badge variant={dayStatus[selectedDay].status === 'OPTIMAL' ? 'default' : 'secondary'}>
+                {dayStatus[selectedDay].status}
+              </Badge>
+              <span className="font-mono">{dayStatus[selectedDay].pares}p producidos</span>
+              {dayStatus[selectedDay].tardiness > 0 && (
+                <span className="text-amber-500 font-mono">-{dayStatus[selectedDay].tardiness}p pendientes</span>
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

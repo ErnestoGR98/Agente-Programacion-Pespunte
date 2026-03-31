@@ -1225,3 +1225,340 @@ def generate_daily(req: GenerateDailyRequest):
         wall_time=round(wall_time, 2),
         saved_as=saved_as,
     )
+
+
+# ============================================================
+# Optimize Single Day
+# ============================================================
+
+from optimizer_v2 import schedule_day as _schedule_day
+
+class OptimizeDayRequest(BaseModel):
+    semana: str
+    day_name: str                           # e.g. "Lun", "Mar"
+    models_day: list                        # [{modelo: str, pares: int}, ...]
+    previous_resultado_id: Optional[str] = None  # resultado with prior days
+    nota: str = ""
+
+
+class OptimizeDayResponse(BaseModel):
+    status: str
+    day_name: str
+    total_pares: int
+    tardiness: int
+    wall_time: float
+    saved_as: str
+    resultado_id: str
+    carry_over: dict
+
+
+def _flatten_day_schedule(raw_schedule, raw_summary, op_day, model_lookup):
+    """Convierte raw schedule_day output a formato frontend DailyResult."""
+    source_schedule = op_day.get("assignments") or raw_schedule
+    schedule = []
+    for s in source_schedule:
+        modelo_code = s.get("modelo", "")
+        etapa = ""
+        input_o_proceso = ""
+        cat_model = model_lookup.get(modelo_code)
+        if cat_model:
+            for op in cat_model.get("operations", []):
+                if op["fraccion"] == s.get("fraccion"):
+                    etapa = op.get("etapa", "")
+                    input_o_proceso = op.get("input_o_proceso", "")
+                    break
+        entry = {
+            "modelo": modelo_code,
+            "fraccion": s.get("fraccion", 0),
+            "operacion": s.get("operacion", ""),
+            "recurso": s.get("recurso", ""),
+            "rate": s.get("rate", 0),
+            "hc": s.get("hc", 0),
+            "etapa": etapa,
+            "input_o_proceso": input_o_proceso,
+            "blocks": s.get("block_pares", []),
+            "total": s.get("total_pares", 0),
+            "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+            "robot_per_block": s.get("robot_per_block", []),
+            "operario": s.get("operario", ""),
+        }
+        if s.get("motivo_sin_asignar"):
+            entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+        schedule.append(entry)
+
+    return {
+        "status": raw_summary.get("status", ""),
+        "total_pares": raw_summary.get("total_pares", 0),
+        "total_tardiness": raw_summary.get("total_tardiness", 0),
+        "plantilla": raw_summary.get("plantilla", 0),
+        "schedule": schedule,
+        "operator_timelines": op_day.get("operator_timelines", {}),
+        "unassigned_ops": op_day.get("unassigned", []),
+        "tardiness_by_model": raw_summary.get("tardiness_by_model", {}),
+        "produced_by_op": raw_summary.get("produced_by_op", {}),
+        "completed_ops_by_model": raw_summary.get("completed_ops_by_model", {}),
+    }
+
+
+@router.post("/optimize-day", response_model=OptimizeDayResponse)
+def optimize_day(req: OptimizeDayRequest):
+    """Optimiza un solo dia, tomando en cuenta resultados de dias anteriores."""
+    import time
+    t0 = time.time()
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(500, "Supabase no configurado en el servidor")
+
+    day_name = req.day_name
+    print(f"[OPT-DAY] Optimizando dia '{day_name}' para semana '{req.semana}'")
+
+    # 1. Cargar datos
+    params = _load_params()
+    catalogo = _load_catalogo()
+    operarios = _load_operarios()
+    restricciones = _load_restricciones(req.semana)
+    avance_data = _load_avance(req.semana) if req.semana else {}
+
+    # Find day config
+    day_cfg = None
+    day_order_list = []
+    for d in params["days"]:
+        day_order_list.append(d["name"])
+        if d["name"] == day_name:
+            day_cfg = d
+    if not day_cfg:
+        raise HTTPException(400, f"Dia '{day_name}' no encontrado en dias laborales")
+
+    day_idx = day_order_list.index(day_name)
+
+    # 2. Match models with catalogo
+    pedido_items = []
+    for m in req.models_day:
+        modelo_str = m.get("modelo", "")
+        parts = modelo_str.split()
+        num = parts[0] if parts else modelo_str
+        color = " ".join(parts[1:]) if len(parts) > 1 else ""
+        pedido_items.append({
+            "modelo": num, "color": color,
+            "volumen": m.get("pares", 0), "fabrica": m.get("fabrica", ""),
+        })
+
+    matched = _match_models(catalogo, pedido_items)
+    if not matched:
+        raise HTTPException(400, "Ningun modelo tiene catalogo")
+
+    # 3. Compile constraints
+    compiled = compile_constraints(restricciones, avance_data, matched, params["days"])
+
+    # 4. Build models_day for schedule_day
+    models_for_day = []
+    for m in deepcopy(matched):
+        # Find pares from request
+        pares = 0
+        for rm in req.models_day:
+            if rm["modelo"] == m["codigo"]:
+                pares = rm.get("pares", 0)
+                break
+        if pares <= 0:
+            continue
+
+        # Filter out MAQUILA operations
+        internal_ops = [op for op in m["operations"] if op.get("recurso") != "MAQUILA"]
+        if not internal_ops:
+            continue
+
+        models_for_day.append({
+            "codigo": m["codigo"],
+            "fabrica": m.get("fabrica", ""),
+            "suela": m.get("suela", ""),
+            "pares_dia": pares,
+            "operations": internal_ops,
+        })
+
+    if not models_for_day:
+        raise HTTPException(400, "No hay modelos con pares > 0")
+
+    # 5. Load previous days' results for carry-over
+    carry_over = {
+        "tardiness_carryover": {},
+        "completed_fracs": {},
+        "produced_by_op": {},
+    }
+
+    if req.previous_resultado_id:
+        prev = _sb_get("resultados", f"select=daily_results&id=eq.{req.previous_resultado_id}")
+        if prev and prev[0].get("daily_results"):
+            prev_daily = prev[0]["daily_results"]
+            # Iterate through prior days in order to build carry-over
+            for prior_day in day_order_list[:day_idx]:
+                pd = prev_daily.get(prior_day)
+                if not pd:
+                    continue
+                # Accumulate tardiness
+                tard = pd.get("tardiness_by_model", {})
+                for code, t in tard.items():
+                    carry_over["tardiness_carryover"][code] = (
+                        carry_over["tardiness_carryover"].get(code, 0) + t
+                    )
+                # Accumulate produced_by_op
+                prod = pd.get("produced_by_op", {})
+                for code, frac_prod in prod.items():
+                    if code not in carry_over["produced_by_op"]:
+                        carry_over["produced_by_op"][code] = {}
+                    for frac, p in frac_prod.items():
+                        carry_over["produced_by_op"][code][frac] = (
+                            carry_over["produced_by_op"][code].get(frac, 0) + p
+                        )
+                # Accumulate completed fracs
+                completed = pd.get("completed_ops_by_model", {})
+                for code, fracs in completed.items():
+                    if code not in carry_over["completed_fracs"]:
+                        carry_over["completed_fracs"][code] = []
+                    carry_over["completed_fracs"][code].extend(fracs)
+
+            # Apply carry-over: add rezago to today's models
+            for m in models_for_day:
+                code = m["codigo"]
+                rezago = carry_over["tardiness_carryover"].get(code, 0)
+                if rezago > 0:
+                    print(f"    [OPT-DAY] {code}: +{rezago}p rezago de dias anteriores")
+                    m["pares_dia"] += rezago
+                    carry_over["tardiness_carryover"][code] = 0
+
+            print(f"[OPT-DAY] Carry-over loaded from {day_idx} prior days")
+
+    # 6. Correct plantilla with real operator count
+    params = deepcopy(params)
+    if operarios:
+        dn_prefix = day_name.split()[0] if day_name else ""
+        real_count = 0
+        for op in operarios:
+            dias = op.get("dias_disponibles", [])
+            if not dias:
+                real_count += 1
+                continue
+            for d in dias:
+                if d == day_name or day_name.startswith(d) or d.startswith(dn_prefix):
+                    real_count += 1
+                    break
+        day_cfg["plantilla"] = real_count
+        day_cfg["plantilla_ot"] = real_count
+
+        # Operator capacity
+        op_cap = {}
+        for op in operarios:
+            if not op.get("activo", True):
+                continue
+            for r in op.get("recursos_habilitados", []):
+                op_cap[r] = op_cap.get(r, 0) + 1
+        if op_cap:
+            params["operator_capacity"] = op_cap
+
+    # 7. Build day_params
+    day_params = {
+        "minutes": day_cfg["minutes"],
+        "plantilla": day_cfg["plantilla"],
+        "time_blocks": [tb for tb in params["time_blocks"] if not tb.get("is_break")],
+    }
+
+    print(f"[OPT-DAY] {len(models_for_day)} modelos, "
+          f"plantilla={day_cfg['plantilla']}, "
+          f"total_pares={sum(m['pares_dia'] for m in models_for_day)}")
+
+    # 8. Run schedule_day
+    try:
+        day_result = _schedule_day(models_for_day, day_params, compiled)
+    except Exception as e:
+        raise HTTPException(500, f"Error optimizando dia: {e}")
+
+    raw_summary = day_result.get("summary", day_result)
+    raw_schedule = day_result.get("schedule", [])
+
+    # 9. Operator assignment for this day
+    op_results = {}
+    if operarios:
+        single_day = {day_name: {"schedule": raw_schedule, "summary": raw_summary}}
+        op_results = assign_operators_week(
+            single_day, operarios, params["time_blocks"]
+        )
+
+    # 10. Flatten to frontend format
+    model_lookup = {m["codigo"]: m for m in models_for_day}
+    op_day = op_results.get(day_name, {})
+    flattened = _flatten_day_schedule(raw_schedule, raw_summary, op_day, model_lookup)
+
+    # 11. Build or update resultado
+    base_name = req.semana
+    daily_results = {}
+    weekly_schedule = []
+    weekly_summary = {}
+
+    # Load previous resultado to merge
+    if req.previous_resultado_id:
+        prev = _sb_get("resultados", f"select=*&id=eq.{req.previous_resultado_id}")
+        if prev:
+            daily_results = prev[0].get("daily_results", {}) or {}
+            weekly_schedule = prev[0].get("weekly_schedule", []) or []
+            weekly_summary = prev[0].get("weekly_summary", {}) or {}
+
+    # Update this day
+    daily_results[day_name] = flattened
+
+    # Update weekly_schedule: remove old entries for this day, add new ones
+    weekly_schedule = [e for e in weekly_schedule if e.get("Dia") != day_name]
+    for m in models_for_day:
+        weekly_schedule.append({
+            "Modelo": m["codigo"],
+            "Dia": day_name,
+            "Pares": m["pares_dia"],
+            "Fabrica": m.get("fabrica", ""),
+        })
+
+    # Update weekly_summary
+    total_pares = sum(
+        dr.get("total_pares", 0) for dr in daily_results.values()
+    )
+    total_tardiness = sum(
+        dr.get("total_tardiness", 0) for dr in daily_results.values()
+    )
+    weekly_summary["total_pares"] = total_pares
+    weekly_summary["total_tardiness"] = total_tardiness
+    weekly_summary["status"] = flattened["status"]
+
+    # Build carry-over for response
+    new_carry = {
+        "tardiness_carryover": raw_summary.get("tardiness_by_model", {}),
+        "completed_fracs": raw_summary.get("completed_ops_by_model", {}),
+        "produced_by_op": raw_summary.get("produced_by_op", {}),
+    }
+
+    # 12. Save
+    pedido_snapshot = []
+    if req.previous_resultado_id:
+        prev = _sb_get("resultados", f"select=pedido_snapshot&id=eq.{req.previous_resultado_id}")
+        if prev:
+            pedido_snapshot = prev[0].get("pedido_snapshot", [])
+
+    saved_as = _save_resultado(
+        base_name, weekly_schedule, weekly_summary,
+        daily_results, pedido_snapshot, params,
+        req.nota or f"Dia {day_name} optimizado",
+    )
+
+    wall_time = time.time() - t0
+    print(f"[OPT-DAY] Guardado como '{saved_as}' en {wall_time:.1f}s")
+
+    # Get saved resultado ID
+    saved = _sb_get("resultados", f"select=id&nombre=eq.{saved_as}")
+    resultado_id = saved[0]["id"] if saved else ""
+
+    return OptimizeDayResponse(
+        status=flattened["status"],
+        day_name=day_name,
+        total_pares=flattened["total_pares"],
+        tardiness=flattened["total_tardiness"],
+        wall_time=round(wall_time, 2),
+        saved_as=saved_as,
+        resultado_id=resultado_id,
+        carry_over=new_carry,
+    )
