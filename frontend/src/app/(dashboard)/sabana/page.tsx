@@ -63,6 +63,8 @@ export default function SabanaPage() {
   const catImages = useCatalogoImages()
   const [showOperario, setShowOperario] = useState(false)
   const [showDeficit, setShowDeficit] = useState(false)
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set())
+  const [allExpanded, setAllExpanded] = useState(false)
   const [inputProcesoMap, setInputProcesoMap] = useState<Map<string, string>>(new Map())
 
   // Load input_o_proceso from catalog for block coloring
@@ -106,7 +108,7 @@ export default function SabanaPage() {
   const blockLabels = useMemo(() => BLOCK_LABELS.slice(0, numBlocks), [numBlocks])
 
   const { modelGroups, modelWeeklyTotals } = useMemo(() => {
-    if (!result?.daily_results) return { modelGroups: [] as { modelo: string; imgUrl: string | null; rows: OpRow[] }[], modelWeeklyTotals: new Map<string, Map<string, number>>() }
+    if (!result?.daily_results) return { modelGroups: [] as { modelo: string; imgUrl: string | null; rows: OpRow[]; collapsedRows: { row: OpRow; children: OpRow[] }[] }[], modelWeeklyTotals: new Map<string, Map<string, number>>() }
 
     const makeKey = (modelo: string, fraccion: number, operacion: string, recurso: string) =>
       `${modelo}||${fraccion}||${operacion}||${recurso}`
@@ -168,7 +170,59 @@ export default function SabanaPage() {
       rows.sort((a, b) => a.fraccion - b.fraccion || a.operacion.localeCompare(b.operacion))
       const [num, ...cp] = modelo.split(' ')
       const imgUrl = getModeloImageUrl(catImages, num, cp.join(' '))
-      return { modelo, imgUrl, rows }
+
+      // Build collapsed rows: group by fraccion+operacion, sum blocks
+      const collapsedMap = new Map<string, { row: OpRow; children: OpRow[] }>()
+      for (const r of rows) {
+        const cKey = `${r.fraccion}||${r.operacion}`
+        if (!collapsedMap.has(cKey)) {
+          // Deep clone the first row as the collapsed summary
+          const summary: OpRow = {
+            ...r,
+            days: {},
+            weekTotal: 0,
+          }
+          for (const [d, cell] of Object.entries(r.days)) {
+            summary.days[d] = {
+              blocks: [...cell.blocks],
+              total: cell.total,
+              operario: cell.operario,
+              etapa: cell.etapa,
+              isSinAsignar: cell.isSinAsignar,
+              adelanto: cell.adelanto,
+            }
+          }
+          summary.weekTotal = r.weekTotal
+          collapsedMap.set(cKey, { row: summary, children: [r] })
+        } else {
+          const entry = collapsedMap.get(cKey)!
+          entry.children.push(r)
+          // Merge day data into summary
+          for (const [d, cell] of Object.entries(r.days)) {
+            if (entry.row.days[d]) {
+              const existing = entry.row.days[d]
+              for (let bi = 0; bi < cell.blocks.length; bi++) {
+                existing.blocks[bi] = (existing.blocks[bi] || 0) + (cell.blocks[bi] || 0)
+              }
+              existing.total += cell.total
+              if (cell.isSinAsignar) existing.isSinAsignar = true
+            } else {
+              entry.row.days[d] = {
+                blocks: [...cell.blocks],
+                total: cell.total,
+                operario: cell.operario,
+                etapa: cell.etapa,
+                isSinAsignar: cell.isSinAsignar,
+                adelanto: cell.adelanto,
+              }
+            }
+          }
+          entry.row.weekTotal += r.weekTotal
+        }
+      }
+      const collapsedRows = Array.from(collapsedMap.values())
+
+      return { modelo, imgUrl, rows, collapsedRows }
     })
 
     const totals = new Map<string, Map<string, number>>()
@@ -390,6 +444,25 @@ export default function SabanaPage() {
           <p className="text-sm text-muted-foreground">{result.nombre}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Toggle expand/collapse all */}
+          <Button
+            variant={allExpanded ? 'default' : 'outline'}
+            size="sm"
+            className="h-7 text-xs gap-1"
+            onClick={() => {
+              if (allExpanded) {
+                setExpandedModels(new Set())
+                setAllExpanded(false)
+              } else {
+                setExpandedModels(new Set(modelGroups.map((g) => g.modelo)))
+                setAllExpanded(true)
+              }
+            }}
+          >
+            {allExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {allExpanded ? 'Colapsar' : 'Expandir'}
+          </Button>
+
           {/* Toggle operario */}
           <Button
             variant={showOperario ? 'default' : 'outline'}
@@ -595,17 +668,46 @@ export default function SabanaPage() {
             </tr>
           </thead>
           <tbody>
-            {modelGroups.map(({ modelo, imgUrl, rows }) => {
+            {modelGroups.map(({ modelo, imgUrl, rows, collapsedRows }) => {
               const dayTotals = modelWeeklyTotals.get(modelo)
               const weekTotal = dayTotals ? Array.from(dayTotals.values()).reduce((a, b) => a + b, 0) : 0
+              const isExpanded = allExpanded || expandedModels.has(modelo)
+              const hasCollapsible = collapsedRows.some((cr) => cr.children.length > 1)
+
+              // Choose which rows to render
+              const displayRows = isExpanded
+                ? rows
+                : collapsedRows.map((cr) => cr.row)
 
               return (
                 <React.Fragment key={modelo}>
                   <tr className="border-t-2 border-foreground/20 bg-accent/40">
                     <td colSpan={fixedCols} className="px-2 py-1 border-r-2 border-border/40">
                       <div className="flex items-center gap-2">
+                        {hasCollapsible && (
+                          <button
+                            className="p-0 hover:bg-accent rounded"
+                            onClick={() => {
+                              setExpandedModels((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(modelo)) next.delete(modelo)
+                                else next.add(modelo)
+                                return next
+                              })
+                            }}
+                          >
+                            {isExpanded
+                              ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                              : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </button>
+                        )}
                         {imgUrl && <img src={imgUrl} alt="" className="h-5 w-auto rounded border object-contain bg-white shrink-0" />}
                         <span className="font-bold text-[11px]">{modelo}</span>
+                        {hasCollapsible && !isExpanded && (
+                          <span className="text-[8px] text-muted-foreground">
+                            ({rows.length} filas)
+                          </span>
+                        )}
                       </div>
                     </td>
                     {dayNames.map((d) => {
@@ -621,13 +723,25 @@ export default function SabanaPage() {
                       {weekTotal > 0 ? weekTotal.toLocaleString() : ''}
                     </td>
                   </tr>
-                  {rows.map((r, i) => {
+                  {displayRows.map((r, i) => {
                     const bgColor = getEtapaColor(r.etapa, r.input_o_proceso)
                     const hasSinAsignar = Object.values(r.days).some((d) => d.isSinAsignar)
+                    // Show merge indicator for collapsed rows with multiple children
+                    const collapsed = !isExpanded && collapsedRows[i]?.children.length > 1
+                    const childCount = !isExpanded ? collapsedRows[i]?.children.length || 1 : 1
 
                     return (
                       <tr key={i} className={`border-b border-border/20 hover:bg-accent/20 ${hasSinAsignar ? 'animate-pulse-alert bg-red-500/10' : ''}`}>
-                        <td className="px-1 py-0 font-mono">{r.fraccion}</td>
+                        <td className="px-1 py-0 font-mono">
+                          <div className="flex items-center gap-0.5">
+                            <span>{r.fraccion}</span>
+                            {collapsed && (
+                              <span className="text-[7px] text-muted-foreground bg-accent rounded px-0.5">
+                                ×{childCount}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-1 py-0 max-w-[150px]">
                           <div className="flex items-center gap-1">
                             <div className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: bgColor }} />

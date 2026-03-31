@@ -1168,59 +1168,43 @@ def schedule_week(weekly_schedule: list, matched_models: list, params: dict,
         # Multi-day pipeline: filter out ops completed on previous days
         # SOLO aplicar a modelos con rezago (tardiness de dia anterior),
         # NO a lotes frescos del weekly (cada dia es un lote independiente).
+        # IMPORTANTE: solo filtrar una fraccion si todas las fracciones
+        # posteriores tambien estan completadas. Si hay downstream pendiente,
+        # la fraccion upstream debe seguir programada para alimentarla.
         for m in models_day:
             code = m["codigo"]
             if code in cumulative_completed_fracs and code in rezago_applied_today:
                 done_fracs = cumulative_completed_fracs[code]
-                original_count = len(m["operations"])
-                # Keep only operations whose fraccion is NOT yet completed
-                remaining = [
-                    op for op in m["operations"]
-                    if op.get("fraccion") not in done_fracs
-                ]
-                if len(remaining) < original_count:
-                    skipped = original_count - len(remaining)
-                    print(f"    [PIPELINE] {day_name} {code}: skipping {skipped} "
-                          f"completed fracs {done_fracs}, {len(remaining)} remaining")
-                    m["operations"] = remaining
+                all_fracs = sorted(
+                    op.get("fraccion", i) for i, op in enumerate(m["operations"])
+                )
+                # Solo filtrar una fraccion si ella Y todas las posteriores
+                # estan completadas (no dejar downstream huerfano)
+                safe_to_skip = set()
+                for frac in all_fracs:
+                    downstream = [f for f in all_fracs if f > frac]
+                    if frac in done_fracs and all(f in done_fracs for f in downstream):
+                        safe_to_skip.add(frac)
 
-        # Cross-day pipeline cap: for models with prior-day production,
-        # ensure no fraction produces more across the week than the minimum
-        # of all fractions (bottleneck). Prevents downstream exceeding upstream.
-        for m in models_day:
-            code = m["codigo"]
-            cum_prod = cumulative_produced_by_op.get(code, {})
-            if not cum_prod:
-                continue  # first day for this model, no cap
+                if safe_to_skip:
+                    original_count = len(m["operations"])
+                    remaining = [
+                        op for op in m["operations"]
+                        if op.get("fraccion") not in safe_to_skip
+                    ]
+                    if len(remaining) < original_count:
+                        skipped = original_count - len(remaining)
+                        print(f"    [PIPELINE] {day_name} {code}: skipping {skipped} "
+                              f"completed fracs {safe_to_skip}, {len(remaining)} remaining")
+                        m["operations"] = remaining
 
-            # Find the bottleneck: min production across ALL internal fracs so far
-            internal_produced = {f: p for f, p in cum_prod.items() if p > 0}
-            if not internal_produced:
-                continue
-
-            bottleneck = min(internal_produced.values())
-
-            # How much has the most-produced of today's fracs already done?
-            today_fracs = set(op.get("fraccion", 0) for op in m["operations"])
-            max_downstream_done = max(
-                (cum_prod.get(f, 0) for f in today_fracs), default=0
-            )
-
-            # If any of today's fracs already exceeds bottleneck, cap to 0
-            # Otherwise, cap so they don't exceed bottleneck
-            remaining_cap = max(0, bottleneck - max_downstream_done)
-
-            # Soft cap: allow weekly minimum, let intra-day cascade handle balance.
-            # Do NOT hard-cap to 0 — that kills models with rezago.
-            weekly_min = weekly_pares_lookup.get((code, day_name), 0)
-
-            if remaining_cap < m["pares_dia"]:
-                new_pares = max(remaining_cap, weekly_min)
-                if new_pares < m["pares_dia"]:
-                    print(f"    [PIPELINE-CAP] {day_name} {code}: capping pares_dia "
-                          f"{m['pares_dia']} -> {new_pares} "
-                          f"(bottleneck={bottleneck}, downstream_done={max_downstream_done})")
-                    m["pares_dia"] = new_pares
+        # Cross-day pipeline cap: DESHABILITADO.
+        # La cascada intra-dia (F1 >= F2 >= F3...) ya previene que downstream
+        # exceda upstream dentro de cada dia. El cascade-fix post-dia (abajo)
+        # corrige los acumulados. El pipeline cap anterior causaba:
+        # - Modelos capados a 0 pares (mataba rezago entre dias)
+        # - F2-F5 produciendo sin F1 (pares fantasma)
+        # - Modelos sin F1 toda la semana
 
         # Filtrar modelos con 0 pares o 0 operaciones — con logging diagnostico
         filtered_out = [m for m in models_day if m["pares_dia"] <= 0 or not m.get("operations")]
