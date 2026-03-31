@@ -539,17 +539,17 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
                 return (
                   <tr
                     key={op.id}
-                    draggable={!editing}
-                    onDragStart={() => { if (!editing) setDragFrac(op.fraccion) }}
+                    draggable={editing}
+                    onDragStart={() => { if (editing) setDragFrac(op.fraccion) }}
                     onDragEnd={() => { setDragFrac(null); setDragOver(null) }}
-                    onDragOver={(e) => { if (!editing && dragFrac !== null) { e.preventDefault(); setDragOver(op.fraccion) } }}
+                    onDragOver={(e) => { if (editing && dragFrac !== null) { e.preventDefault(); setDragOver(op.fraccion) } }}
                     onDrop={async () => {
-                      if (!editing && dragFrac !== null && dragFrac !== op.fraccion) {
+                      if (editing && dragFrac !== null && dragFrac !== op.fraccion) {
                         await catalogo.reorderOperacion(modelo.id, dragFrac, op.fraccion)
                       }
                       setDragFrac(null); setDragOver(null)
                     }}
-                    className={`border-b ${editing ? 'hover:bg-accent/50' : 'hover:bg-accent/30'} ${isModified ? 'ring-1 ring-inset ring-primary/30' : ''} ${!editing ? 'cursor-grab' : ''} ${dragOver === op.fraccion && dragFrac !== op.fraccion ? 'ring-2 ring-inset ring-primary/50' : ''}`}
+                    className={`border-b ${editing ? 'hover:bg-accent/50 cursor-grab' : 'hover:bg-accent/30'} ${isModified ? 'ring-1 ring-inset ring-primary/30' : ''} ${dragOver === op.fraccion && dragFrac !== op.fraccion ? 'ring-2 ring-inset ring-primary/50' : ''}`}
                     style={{ backgroundColor: isModified ? 'rgba(59,130,246,0.06)' : dragFrac === op.fraccion ? 'rgba(59,130,246,0.15)' : `${procesoColor}15` }}
                   >
                     {/* FRACCION */}
