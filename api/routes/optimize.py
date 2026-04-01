@@ -1416,12 +1416,71 @@ def optimize_day(req: OptimizeDayRequest):
                         carry_over["completed_fracs"][code] = []
                     carry_over["completed_fracs"][code].extend(fracs)
 
-            # Apply carry-over: add rezago to today's models
+            # Apply carry-over per fraction:
+            # For repeated models, use cumulative production to determine
+            # which fractions need more pairs and which are already done.
             for m in models_for_day:
                 code = m["codigo"]
+                cum_prod = carry_over["produced_by_op"].get(code)
                 rezago = carry_over["tardiness_carryover"].get(code, 0)
-                if rezago > 0:
-                    print(f"    [OPT-DAY] {code}: +{rezago}p rezago de dias anteriores")
+
+                if cum_prod:
+                    # Calculate per-fraction needs
+                    frac_nums = [op.get("fraccion", i) for i, op in enumerate(m["operations"])]
+                    frac_produced = {}
+                    for f in frac_nums:
+                        # produced_by_op keys can be int or str
+                        frac_produced[f] = cum_prod.get(str(f), cum_prod.get(f, 0))
+
+                    # Total target = today's pares + rezago
+                    total_target = m["pares_dia"] + rezago
+                    min_produced = min(frac_produced.values()) if frac_produced else 0
+
+                    print(f"    [OPT-DAY] {code}: carry-over por fraccion (target={total_target}):")
+                    for f in sorted(frac_produced):
+                        print(f"      F{f}: {frac_produced[f]}p ya producidos")
+
+                    # Filter out fractions that already met the cumulative target
+                    # A fraction is "done" if it produced >= total cumulative needed
+                    # and ALL downstream fractions also produced >= their needs
+                    cumulative_target = total_target + min_produced  # what each frac should reach
+                    # Actually simpler: the bottleneck (min_produced) tells us how many
+                    # "complete pairs" exited the pipeline. Today we need to produce
+                    # enough to bring ALL fractions up.
+                    # pares_dia for today = what we want to produce today
+                    # The solver will handle cascade within the day.
+
+                    # Skip fractions where produced >= cumulative_target
+                    # (they don't need more production)
+                    completed_fracs = set()
+                    for f in frac_nums:
+                        if frac_produced.get(f, 0) >= cumulative_target:
+                            completed_fracs.add(f)
+
+                    if completed_fracs:
+                        original_ops = len(m["operations"])
+                        # Only skip if ALL downstream fracs are also complete
+                        safe_skip = set()
+                        for f in completed_fracs:
+                            downstream = [ff for ff in frac_nums if ff > f]
+                            if all(ff in completed_fracs for ff in downstream):
+                                safe_skip.add(f)
+                        if safe_skip:
+                            m["operations"] = [
+                                op for op in m["operations"]
+                                if op.get("fraccion") not in safe_skip
+                            ]
+                            print(f"    [OPT-DAY] {code}: skipping {len(safe_skip)} completed fracs: {safe_skip}")
+
+                    # Set pares_dia to what's still needed
+                    m["pares_dia"] = total_target
+                    print(f"    [OPT-DAY] {code}: pares_dia={total_target} "
+                          f"(hoy={total_target - rezago} + rezago={rezago})")
+                    carry_over["tardiness_carryover"][code] = 0
+
+                elif rezago > 0:
+                    # No prior production data — simple rezago add
+                    print(f"    [OPT-DAY] {code}: +{rezago}p rezago (sin datos por fraccion)")
                     m["pares_dia"] += rezago
                     carry_over["tardiness_carryover"][code] = 0
 
