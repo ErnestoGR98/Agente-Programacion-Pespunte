@@ -1197,14 +1197,24 @@ function DailyOptimizer() {
     }
   }, [currentResult])
 
-  // Load models for selected day: from weekly_schedule if available, else from pedido
-  // Also inject models with rezago from prior days
+  // Load models for selected day:
+  // 1. From weekly_schedule if this day has entries
+  // 2. Always include all pedido models (with 0 pares) for manual programming
+  // 3. Inject rezago models with pre-filled pares
   useEffect(() => {
     const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string; isRezago?: boolean }>()
 
-    const hasWeekly = currentResult?.weekly_schedule?.length
-    if (hasWeekly) {
-      for (const e of currentResult!.weekly_schedule) {
+    // Start with all pedido models (available to program any day)
+    for (const it of pedidoItems) {
+      const codigo = `${it.modelo_num} ${it.color}`.trim()
+      if (!dayModels.has(codigo)) {
+        dayModels.set(codigo, { modelo: codigo, pares: 0, fabrica: it.fabrica || '' })
+      }
+    }
+
+    // Override pares from weekly_schedule if exists for this day
+    if (currentResult?.weekly_schedule?.length) {
+      for (const e of currentResult.weekly_schedule) {
         if (e.Dia === selectedDay) {
           const existing = dayModels.get(e.Modelo)
           if (existing) {
@@ -1218,24 +1228,26 @@ function DailyOptimizer() {
           }
         }
       }
-    } else if (pedidoItems.length > 0) {
-      for (const it of pedidoItems) {
-        const codigo = `${it.modelo_num} ${it.color}`.trim()
-        dayModels.set(codigo, { modelo: codigo, pares: 0, fabrica: it.fabrica || '' })
-      }
     }
 
-    // Inject rezago models that aren't already in the list
+    // Inject rezago models with pre-filled pares
     for (const [code, tard] of Object.entries(carryOver.tardiness)) {
-      if (tard > 0 && !dayModels.has(code)) {
-        const modelNum = code.split(' ')[0]
-        const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
-        dayModels.set(code, {
-          modelo: code,
-          pares: tard,
-          fabrica: pedido?.fabrica || '',
-          isRezago: true,
-        })
+      if (tard > 0) {
+        const existing = dayModels.get(code)
+        if (existing) {
+          // Add rezago to existing pares (or set if 0)
+          if (existing.pares === 0) existing.pares = tard
+          existing.isRezago = true
+        } else {
+          const modelNum = code.split(' ')[0]
+          const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+          dayModels.set(code, {
+            modelo: code,
+            pares: tard,
+            fabrica: pedido?.fabrica || '',
+            isRezago: true,
+          })
+        }
       }
     }
 
