@@ -52,6 +52,8 @@ interface OpRow {
   recurso: string
   etapa: string
   input_o_proceso: string
+  rate: number
+  hc: number
   imgUrl: string | null
   days: Record<string, DayCell>
   weekTotal: number
@@ -136,6 +138,8 @@ export default function SabanaPage() {
             modelo, fraccion: s.fraccion, operacion: s.operacion, recurso,
             etapa: s.etapa || '',
             input_o_proceso: inputProcesoMap.get(`${modelo.split(' ')[0]}|${s.fraccion}`) || s.input_o_proceso || '',
+            rate: s.rate || 0,
+            hc: s.hc || 0,
             imgUrl, days: {}, weekTotal: 0,
           })
         }
@@ -432,7 +436,7 @@ export default function SabanaPage() {
   })
 
   const colsPerDay = numBlocks + 1 + (showOperario ? 1 : 0)
-  const fixedCols = 3
+  const fixedCols = 4
   const totalCols = fixedCols + dayNames.length * colsPerDay + 1
 
   return (
@@ -646,7 +650,8 @@ export default function SabanaPage() {
               <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 18 }}>F</th>
               <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 90 }}>OPERACION</th>
               <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 45 }}>ETAPA</th>
-              <th className="px-1 py-0.5 text-left font-medium text-[8px] border-r-2 border-border/40" style={{ minWidth: 45 }}>REC</th>
+              <th className="px-1 py-0.5 text-left font-medium text-[8px]" style={{ minWidth: 45 }}>REC</th>
+              <th className="px-1 py-0.5 text-center font-medium text-[8px] border-r-2 border-border/40" style={{ minWidth: 28 }}>RATE</th>
               {dayNames.map((d) => (
                 <React.Fragment key={d}>
                   {blockLabels.map((bl) => (
@@ -753,7 +758,8 @@ export default function SabanaPage() {
                             {r.etapa || r.input_o_proceso || ''}
                           </span>
                         </td>
-                        <td className="px-1 py-0 font-mono text-[8px] border-r-2 border-border/40">{r.recurso}</td>
+                        <td className="px-1 py-0 font-mono text-[8px]">{r.recurso}</td>
+                        <td className="px-1 py-0 font-mono text-[8px] text-center border-r-2 border-border/40">{r.rate > 0 ? r.rate : ''}</td>
 
                         {dayNames.map((d) => {
                           const cell = r.days[d]
