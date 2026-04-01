@@ -1560,14 +1560,12 @@ def optimize_day(req: OptimizeDayRequest):
                         carry_over["completed_fracs"][code] = []
                     carry_over["completed_fracs"][code].extend(fracs)
 
-            # Apply carry-over per fraction:
-            # For repeated models, determine which fractions are ahead and which behind.
-            # Remove fractions that are already at or above the max production level
-            # so the solver focuses on catching up the lagging fractions.
+            # Carry-over: log what's accumulated from prior days (for diagnostics)
+            # The frontend handles rezago selection — pares in models_day are FINAL.
+            # We only use carry-over to skip ahead fractions for rezago models.
             for m in models_for_day:
                 code = m["codigo"]
                 cum_prod = carry_over["produced_by_op"].get(code)
-                rezago = carry_over["tardiness_carryover"].get(code, 0)
 
                 if cum_prod:
                     frac_nums = [op.get("fraccion", i) for i, op in enumerate(m["operations"])]
@@ -1578,51 +1576,31 @@ def optimize_day(req: OptimizeDayRequest):
                     max_produced = max(frac_produced.values()) if frac_produced else 0
                     min_produced = min(frac_produced.values()) if frac_produced else 0
 
-                    print(f"    [OPT-DAY] {code}: carry-over por fraccion:")
+                    print(f"    [OPT-DAY] {code}: carry-over (pares_dia={m['pares_dia']}):")
                     for f in sorted(frac_produced):
                         delta = max_produced - frac_produced[f]
                         status = f"  (-{delta}p)" if delta > 0 else "  (al dia)"
                         print(f"      F{f}: {frac_produced[f]}p{status}")
-                    print(f"      max={max_produced}, min={min_produced}, rezago={rezago}")
 
-                    # Strategy: fractions at max_produced don't need to re-produce
-                    # for rezago. Only fractions below max_produced need to catch up.
-                    # The rezago pares are for completing the pipeline, not for new F1.
-                    ahead_fracs = set()
-                    for f in frac_nums:
-                        if frac_produced.get(f, 0) >= max_produced:
-                            ahead_fracs.add(f)
+                    # Skip ahead fractions so solver focuses on catching up
+                    if max_produced > min_produced:
+                        ahead_fracs = set()
+                        for f in frac_nums:
+                            if frac_produced.get(f, 0) >= max_produced:
+                                ahead_fracs.add(f)
 
-                    # Remove ahead fractions ONLY if there are behind fractions
-                    # and ONLY the ahead ones (safe: all downstream must also be ahead)
-                    if ahead_fracs and len(ahead_fracs) < len(frac_nums):
-                        safe_skip = set()
-                        for f in ahead_fracs:
-                            downstream = [ff for ff in frac_nums if ff > f]
-                            if all(ff in ahead_fracs for ff in downstream):
-                                safe_skip.add(f)
-                        if safe_skip:
-                            m["operations"] = [
-                                op for op in m["operations"]
-                                if op.get("fraccion") not in safe_skip
-                            ]
-                            print(f"    [OPT-DAY] {code}: skipping {len(safe_skip)} ahead fracs: {safe_skip}")
-
-                    # pares_dia for rezago = what the most behind fraction needs
-                    # to catch up to max_produced. For new pares, add on top.
-                    new_pares = m["pares_dia"] - rezago if rezago > 0 else m["pares_dia"]
-                    rezago_effective = max_produced - min_produced if rezago > 0 else 0
-
-                    # Total: new production + catch-up for behind fractions
-                    m["pares_dia"] = new_pares + rezago_effective
-                    print(f"    [OPT-DAY] {code}: pares_dia={m['pares_dia']} "
-                          f"(nuevos={new_pares} + rezago_catch_up={rezago_effective})")
-                    carry_over["tardiness_carryover"][code] = 0
-
-                elif rezago > 0:
-                    print(f"    [OPT-DAY] {code}: +{rezago}p rezago (sin datos por fraccion)")
-                    m["pares_dia"] += rezago
-                    carry_over["tardiness_carryover"][code] = 0
+                        if ahead_fracs and len(ahead_fracs) < len(frac_nums):
+                            safe_skip = set()
+                            for f in ahead_fracs:
+                                downstream = [ff for ff in frac_nums if ff > f]
+                                if all(ff in ahead_fracs for ff in downstream):
+                                    safe_skip.add(f)
+                            if safe_skip:
+                                m["operations"] = [
+                                    op for op in m["operations"]
+                                    if op.get("fraccion") not in safe_skip
+                                ]
+                                print(f"    [OPT-DAY] {code}: skipping {len(safe_skip)} ahead fracs: {safe_skip}")
 
             print(f"[OPT-DAY] Carry-over loaded from {day_idx} prior days")
 
