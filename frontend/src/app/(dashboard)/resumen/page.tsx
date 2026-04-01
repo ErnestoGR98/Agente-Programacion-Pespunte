@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/lib/store/useAppStore'
 import { supabase } from '@/lib/supabase/client'
 import { KpiCard } from '@/components/shared/KpiCard'
@@ -1092,7 +1092,38 @@ function DailyOptimizer() {
   const [optimizedDays, setOptimizedDays] = useState<Set<string>>(new Set())
   const [dayStatus, setDayStatus] = useState<Record<string, { pares: number; tardiness: number; status: string }>>({})
   const [search, setSearch] = useState('')
+  const [expandedRezago, setExpandedRezago] = useState<Set<string>>(new Set())
   const catImages = useCatalogoImages()
+
+  // Compute carry-over from prior optimized days
+  const carryOver = useMemo(() => {
+    if (!currentResult?.daily_results) return { tardiness: {} as Record<string, number>, produced: {} as Record<string, Record<string, number>> }
+    const dayIdx = DAY_ORDER.indexOf(selectedDay)
+    const priorDays = DAY_ORDER.slice(0, dayIdx)
+    const tardiness: Record<string, number> = {}
+    const produced: Record<string, Record<string, number>> = {}
+
+    for (const d of priorDays) {
+      const dr = currentResult.daily_results[d]
+      if (!dr || !dr.schedule?.length) continue
+      // Accumulate tardiness
+      const tard = dr.tardiness_by_model || {}
+      for (const [code, t] of Object.entries(tard)) {
+        tardiness[code] = (tardiness[code] || 0) + (t as number)
+      }
+      // Accumulate produced_by_op
+      const prod = (dr as unknown as Record<string, unknown>).produced_by_op as Record<string, Record<string, number>> | undefined
+      if (prod) {
+        for (const [code, fracProd] of Object.entries(prod)) {
+          if (!produced[code]) produced[code] = {}
+          for (const [frac, p] of Object.entries(fracProd)) {
+            produced[code][frac] = (produced[code][frac] || 0) + (p as number)
+          }
+        }
+      }
+    }
+    return { tardiness, produced }
+  }, [currentResult, selectedDay])
 
   const activeDays = useMemo(() => {
     return DAY_ORDER.filter((d) => dias.some((dl) => dl.nombre === d && dl.plantilla > 0)) as DayName[]
@@ -1148,11 +1179,12 @@ function DailyOptimizer() {
   }, [currentResult])
 
   // Load models for selected day: from weekly_schedule if available, else from pedido
+  // Also inject models with rezago from prior days
   useEffect(() => {
+    const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string; isRezago?: boolean }>()
+
     const hasWeekly = currentResult?.weekly_schedule?.length
     if (hasWeekly) {
-      // From existing weekly plan
-      const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string }>()
       for (const e of currentResult!.weekly_schedule) {
         if (e.Dia === selectedDay) {
           const existing = dayModels.get(e.Modelo)
@@ -1167,18 +1199,29 @@ function DailyOptimizer() {
           }
         }
       }
-      setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
     } else if (pedidoItems.length > 0) {
-      // From pedido directly — all models with 0 pares (user fills in)
-      setModels(
-        pedidoItems.map((it) => ({
-          modelo: `${it.modelo_num} ${it.color}`.trim(),
-          pares: 0,
-          fabrica: it.fabrica || '',
-        }))
-      )
+      for (const it of pedidoItems) {
+        const codigo = `${it.modelo_num} ${it.color}`.trim()
+        dayModels.set(codigo, { modelo: codigo, pares: 0, fabrica: it.fabrica || '' })
+      }
     }
-  }, [selectedDay, currentResult, pedidoItems])
+
+    // Inject rezago models that aren't already in the list
+    for (const [code, tard] of Object.entries(carryOver.tardiness)) {
+      if (tard > 0 && !dayModels.has(code)) {
+        const modelNum = code.split(' ')[0]
+        const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+        dayModels.set(code, {
+          modelo: code,
+          pares: tard,
+          fabrica: pedido?.fabrica || '',
+          isRezago: true,
+        })
+      }
+    }
+
+    setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
+  }, [selectedDay, currentResult, pedidoItems, carryOver])
 
   function updatePares(modelo: string, pares: number) {
     setModels((prev) => prev.map((m) => m.modelo === modelo ? { ...m, pares } : m))
@@ -1392,31 +1435,82 @@ function DailyOptimizer() {
                   const pedido = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === colorStr)
                     || pedidoItems.find((p) => p.modelo_num === modelNum)
                   const imgUrl = getModeloImageUrl(catImages, modelNum, colorStr)
+                  const rezago = carryOver.tardiness[m.modelo] || 0
+                  const hasRezago = rezago > 0
+                  const fracProduced = carryOver.produced[m.modelo]
+                  const isExpanded = expandedRezago.has(m.modelo)
+
                   return (
-                    <TableRow key={m.modelo}>
-                      <TableCell className="px-2 py-2 w-[100px]">
-                        {imgUrl ? (
-                          <div className="h-16 w-[90px] rounded border bg-white flex items-center justify-center p-1">
-                            <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
-                          </div>
-                        ) : (
-                          <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground font-mono">{pedido?.volumen?.toLocaleString() || '-'}</TableCell>
-                      <TableCell className="text-center">
-                        <Input
-                          type="number"
-                          min={0}
-                          step={50}
-                          value={m.pares}
-                          onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
-                          className="h-7 w-20 text-xs font-mono text-center mx-auto"
-                        />
-                      </TableCell>
-                    </TableRow>
+                    <React.Fragment key={m.modelo}>
+                      <TableRow className={hasRezago ? 'bg-amber-500/8' : ''}>
+                        <TableCell className="px-2 py-2 w-[100px]">
+                          {imgUrl ? (
+                            <div className="h-16 w-[90px] rounded border bg-white flex items-center justify-center p-1">
+                              <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                            </div>
+                          ) : (
+                            <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-mono text-sm font-medium">{m.modelo}</div>
+                          {hasRezago && (
+                            <button
+                              className="flex items-center gap-1 mt-1 text-[10px] text-amber-500 hover:text-amber-400"
+                              onClick={() => setExpandedRezago((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(m.modelo)) next.delete(m.modelo)
+                                else next.add(m.modelo)
+                                return next
+                              })}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              <span className="font-mono font-bold">{rezago}p pendientes</span>
+                              {fracProduced && (
+                                isExpanded
+                                  ? <ChevronDown className="h-3 w-3" />
+                                  : <ChevronRight className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground font-mono">{pedido?.volumen?.toLocaleString() || '-'}</TableCell>
+                        <TableCell className="text-center">
+                          <Input
+                            type="number"
+                            min={0}
+                            step={50}
+                            value={m.pares}
+                            onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
+                            className={`h-7 w-20 text-xs font-mono text-center mx-auto ${hasRezago ? 'border-amber-500/50' : ''}`}
+                          />
+                        </TableCell>
+                      </TableRow>
+                      {/* Expandable fraction detail */}
+                      {hasRezago && isExpanded && fracProduced && (
+                        <TableRow className="bg-amber-500/5">
+                          <TableCell />
+                          <TableCell colSpan={4}>
+                            <div className="text-[10px] py-1 space-y-0.5">
+                              <div className="font-medium text-muted-foreground mb-1">Produccion acumulada por fraccion:</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-0.5">
+                                {Object.entries(fracProduced)
+                                  .sort(([a], [b]) => Number(a) - Number(b))
+                                  .map(([frac, prod]) => (
+                                    <div key={frac} className="flex items-center justify-between font-mono">
+                                      <span className="text-muted-foreground">F{frac}:</span>
+                                      <span className={`font-semibold ${(prod as number) < (Math.max(...Object.values(fracProduced) as number[]) || 0) ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                        {(prod as number).toLocaleString()}p
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
                   )
                 })}
                 <TableRow className="bg-accent/30 font-bold">
