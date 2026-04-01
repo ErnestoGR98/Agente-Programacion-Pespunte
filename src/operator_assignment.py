@@ -278,12 +278,11 @@ def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map,
                 has_robot = True
                 break
         if not has_robot:
-            # Listar que robots estan ocupados y en que
+            # Listar que robots estan ocupados
             busy_robots = []
             for rn in robots_needed:
                 if rn in robot_usage and block in robot_usage[rn]:
-                    busy_in = robot_usage[rn][block]
-                    busy_robots.append(f"{rn}→{busy_in}")
+                    busy_robots.append(f"{rn} (ocupado)")
                 else:
                     busy_robots.append(rn)
             return f"Robots ocupados ({', '.join(busy_robots)}). Ops libres: {', '.join(free_names)}"
