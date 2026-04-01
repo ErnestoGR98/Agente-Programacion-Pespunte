@@ -10,10 +10,10 @@ import { DaySelector } from '@/components/shared/DaySelector'
 import { TableExport } from '@/components/shared/TableExport'
 import { STAGE_COLORS, BLOCK_LABELS, DAY_ORDER, SKILL_GROUPS, SKILL_LABELS, type SkillType } from '@/types'
 import type { DailyResult, DailyScheduleEntry, AsignacionMaquila, WeeklyScheduleEntry } from '@/types'
-import { Truck, ArrowDownWideNarrow, User, Cpu, UserX } from 'lucide-react'
+import { Truck, ArrowDownWideNarrow, User, Cpu, UserX, FileSpreadsheet, FileText, Braces, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { exportProgramaPDF, exportProgramaExcel, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard, type DayKpis, type ProgramaExcelDayGroup } from '@/lib/export'
+import { exportProgramaPDF, exportProgramaExcel, exportCascadaExcel, exportCascadaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard, type DayKpis, type ProgramaExcelDayGroup, type CascadaRow, type CascadaCellData } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -1317,14 +1317,43 @@ function CascadeByOperario({ schedule, blockLabels, getEtapaColor, dayName, allO
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const cascadaRows: CascadaRow[] = useMemo(() =>
+    grouped.map(([name, data]) => ({
+      label: name,
+      cells: data.blocks.map((s, bi) => {
+        if (!s) return null
+        return {
+          modelo: s.modelo,
+          fraccion: s.fraccion,
+          recurso: s.robot || s.recurso,
+          operario: s.operario || '',
+          pares: (s.blocks || [])[bi] || 0,
+          etapaColor: getEtapaColor(s),
+        } as CascadaCellData
+      }),
+    }))
+  , [grouped, getEtapaColor])
+
   return (
     <Card>
       <CardContent className="pt-4 overflow-x-auto">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold">Cascada por Operario — {dayName}</h3>
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={handleCopyJson}>
-            {copied ? '✓ Copiado' : '{ } JSON'}
-          </Button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => exportCascadaExcel(`Operarios_${dayName}`, blockLabels, cascadaRows, 'OPERARIO')}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30">
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={() => exportCascadaPDF(`Operarios_${dayName}`, blockLabels, cascadaRows, 'OPERARIO')}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <FileText className="h-3.5 w-3.5" /> PDF
+            </button>
+            <button onClick={handleCopyJson}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30">
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Braces className="h-3.5 w-3.5" />}
+              {copied ? 'Copiado' : 'JSON'}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse min-w-[700px]">
@@ -1481,10 +1510,39 @@ function CascadeByRecurso({ schedule, blockLabels, getEtapaColor, dayName }: {
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [schedule, blockLabels])
 
+  const cascadaRows: CascadaRow[] = useMemo(() =>
+    grouped.map(([name, data]) => ({
+      label: name,
+      cells: data.blocks.map((s, bi) => {
+        if (!s) return null
+        return {
+          modelo: s.modelo,
+          fraccion: s.fraccion,
+          recurso: s.robot || s.recurso,
+          operario: s.operario || '',
+          pares: (s.blocks || [])[bi] || 0,
+          etapaColor: getEtapaColor(s),
+        } as CascadaCellData
+      }),
+    }))
+  , [grouped, getEtapaColor])
+
   return (
     <Card>
       <CardContent className="pt-4 overflow-x-auto">
-        <h3 className="text-sm font-semibold mb-2">Cascada por Recurso — {dayName}</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Cascada por Recurso — {dayName}</h3>
+          <div className="flex items-center gap-1">
+            <button onClick={() => exportCascadaExcel(`Recursos_${dayName}`, blockLabels, cascadaRows, 'RECURSO')}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30">
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={() => exportCascadaPDF(`Recursos_${dayName}`, blockLabels, cascadaRows, 'RECURSO')}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <FileText className="h-3.5 w-3.5" /> PDF
+            </button>
+          </div>
+        </div>
         <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse min-w-[700px]">
           <thead>

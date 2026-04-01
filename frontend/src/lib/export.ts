@@ -1089,3 +1089,153 @@ export function exportProgramaExcel(
 
   XLSXStyle.writeFile(wb, `${title}.xlsx`)
 }
+
+
+// ============================================================
+// Cascada (Por Operario / Por Recurso) — Excel + PDF Exports
+// ============================================================
+
+export interface CascadaCellData {
+  modelo: string
+  fraccion: number
+  recurso: string
+  operario: string
+  pares: number
+  etapaColor: string
+}
+
+export interface CascadaRow {
+  label: string
+  cells: (CascadaCellData | null)[]
+}
+
+export function exportCascadaExcel(
+  title: string,
+  blockLabels: string[],
+  rows: CascadaRow[],
+  groupBy: 'OPERARIO' | 'RECURSO',
+) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSXStyle = require('xlsx-js-style')
+
+  const aoa: StyledCell[][] = []
+
+  const titleSt = {
+    fill: { fgColor: { rgb: 'FF1E293B' } },
+    font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 12 },
+    border: _thinBorder(),
+  }
+  const titleRow: StyledCell[] = [{ v: title, s: titleSt }]
+  for (let i = 1; i < blockLabels.length + 1; i++) titleRow.push({ v: '', s: titleSt })
+  aoa.push(titleRow)
+
+  const darkBg = {
+    fill: { fgColor: { rgb: 'FF1E293B' } },
+    font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 9 },
+    alignment: { horizontal: 'center' },
+    border: _thinBorder(),
+  }
+  aoa.push([
+    { v: groupBy, s: { ...darkBg, alignment: { horizontal: 'left' } } },
+    ...blockLabels.map((bl) => ({ v: bl, s: darkBg })),
+  ])
+
+  for (const row of rows) {
+    const isSin = row.label === 'SIN ASIGNAR'
+    const dataRow: StyledCell[] = [{
+      v: row.label,
+      s: { font: { bold: true, sz: 9, color: isSin ? { rgb: 'FFEF4444' } : undefined }, border: _thinBorder() },
+    }]
+
+    for (const cell of row.cells) {
+      if (!cell) {
+        dataRow.push({ v: '', s: { border: _thinBorder(), fill: { fgColor: { rgb: 'FFF8FAFC' } } } })
+        continue
+      }
+      const hex = cell.etapaColor.replace('#', '')
+      const ec = `FF${hex}`
+      const ecBg = lightenArgb(ec, 0.8)
+      dataRow.push({
+        v: `${cell.modelo} F${cell.fraccion} ${cell.pares}p`,
+        s: {
+          fill: { fgColor: { rgb: ecBg } },
+          font: { color: { rgb: ec }, sz: 8, bold: true },
+          alignment: { horizontal: 'center', wrapText: true },
+          border: _thinBorder(),
+        },
+      })
+    }
+    aoa.push(dataRow)
+  }
+
+  const ws = XLSXStyle.utils.aoa_to_sheet(aoa)
+  ws['!cols'] = [{ wch: 30 }, ...blockLabels.map(() => ({ wch: 18 }))]
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: blockLabels.length } }]
+
+  const wb = XLSXStyle.utils.book_new()
+  XLSXStyle.utils.book_append_sheet(wb, ws, title.slice(0, 31))
+  XLSXStyle.writeFile(wb, `${title}.xlsx`)
+}
+
+
+export function exportCascadaPDF(
+  title: string,
+  blockLabels: string[],
+  rows: CascadaRow[],
+  groupBy: 'OPERARIO' | 'RECURSO',
+) {
+  import('jspdf').then(({ default: jsPDF }) => {
+    import('jspdf-autotable').then((autoTableModule) => {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
+      doc.setFontSize(14)
+      doc.text(title, 14, 12)
+
+      const head = [[groupBy, ...blockLabels]]
+      const body: string[][] = []
+      const cellStyles: Record<string, { fillColor: number[]; textColor: number[] }> = {}
+
+      rows.forEach((row, ri) => {
+        const rowData = [row.label]
+        row.cells.forEach((cell, ci) => {
+          if (!cell) {
+            rowData.push('')
+          } else {
+            const sub = groupBy === 'OPERARIO' ? cell.recurso : (cell.operario || '').split(' ').slice(0, 2).join(' ')
+            rowData.push(`${cell.modelo}\nF${cell.fraccion} · ${sub}\n${cell.pares}p`)
+            const hex = cell.etapaColor.replace('#', '')
+            const r = parseInt(hex.slice(0, 2), 16)
+            const g = parseInt(hex.slice(2, 4), 16)
+            const b = parseInt(hex.slice(4, 6), 16)
+            cellStyles[`${ri}-${ci + 1}`] = {
+              fillColor: [Math.min(255, r + 180), Math.min(255, g + 180), Math.min(255, b + 180)],
+              textColor: [r, g, b],
+            }
+          }
+        })
+        body.push(rowData)
+      })
+
+      ;(autoTableModule as unknown as { default: Function }).default(doc, {
+        startY: 16,
+        head,
+        body,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 41, 59], fontSize: 7, halign: 'center' },
+        bodyStyles: { fontSize: 6, cellPadding: 1, valign: 'middle' },
+        columnStyles: { 0: { cellWidth: 35, fontStyle: 'bold', fontSize: 7 } },
+        didParseCell: (data: { section: string; row: { index: number }; column: { index: number }; cell: { styles: Record<string, unknown> } }) => {
+          if (data.section === 'body' && data.column.index > 0) {
+            const style = cellStyles[`${data.row.index}-${data.column.index}`]
+            if (style) {
+              data.cell.styles.fillColor = style.fillColor
+              data.cell.styles.textColor = style.textColor
+              data.cell.styles.fontStyle = 'bold'
+            }
+          }
+        },
+      })
+
+      doc.save(`${title}.pdf`)
+    })
+  })
+}
