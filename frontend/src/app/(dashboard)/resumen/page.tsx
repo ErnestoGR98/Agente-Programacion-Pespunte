@@ -1093,7 +1093,26 @@ function DailyOptimizer() {
   const [dayStatus, setDayStatus] = useState<Record<string, { pares: number; tardiness: number; status: string }>>({})
   const [search, setSearch] = useState('')
   const [expandedRezago, setExpandedRezago] = useState<Set<string>>(new Set())
+  const [fracNames, setFracNames] = useState<Map<string, string>>(new Map()) // key: "modelo|frac" -> operacion
   const catImages = useCatalogoImages()
+
+  // Load fraction operation names from catalog
+  useEffect(() => {
+    const modelNums = new Set(pedidoItems.map((p) => p.modelo_num))
+    if (modelNums.size === 0) return
+    supabase
+      .from('catalogo_operaciones')
+      .select('fraccion, operacion, catalogo_modelos!inner(modelo_num)')
+      .in('catalogo_modelos.modelo_num', [...modelNums])
+      .then(({ data }) => {
+        const map = new Map<string, string>()
+        for (const op of data || []) {
+          const cm = op.catalogo_modelos as unknown as { modelo_num: string }
+          map.set(`${cm.modelo_num}|${op.fraccion}`, op.operacion || '')
+        }
+        setFracNames(map)
+      })
+  }, [pedidoItems])
 
   // Compute carry-over from prior optimized days
   const carryOver = useMemo(() => {
@@ -1494,17 +1513,25 @@ function DailyOptimizer() {
                           <TableCell colSpan={4}>
                             <div className="text-[10px] py-1 space-y-0.5">
                               <div className="font-medium text-muted-foreground mb-1">Produccion acumulada por fraccion:</div>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-0.5">
+                              <div className="space-y-0.5">
                                 {Object.entries(fracProduced)
                                   .sort(([a], [b]) => Number(a) - Number(b))
-                                  .map(([frac, prod]) => (
-                                    <div key={frac} className="flex items-center justify-between font-mono">
-                                      <span className="text-muted-foreground">F{frac}:</span>
-                                      <span className={`font-semibold ${(prod as number) < (Math.max(...Object.values(fracProduced) as number[]) || 0) ? 'text-amber-500' : 'text-emerald-500'}`}>
-                                        {(prod as number).toLocaleString()}p
-                                      </span>
-                                    </div>
-                                  ))}
+                                  .map(([frac, prod]) => {
+                                    const opName = fracNames.get(`${modelNum}|${frac}`) || ''
+                                    const maxProd = Math.max(...Object.values(fracProduced) as number[])
+                                    const isLow = (prod as number) < maxProd
+                                    return (
+                                      <div key={frac} className="flex items-center gap-2 font-mono">
+                                        <span className="text-muted-foreground w-6 text-right">F{frac}</span>
+                                        <span className="text-[9px] text-muted-foreground truncate flex-1 max-w-[250px]" title={opName}>
+                                          {opName}
+                                        </span>
+                                        <span className={`font-semibold ${isLow ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                          {(prod as number).toLocaleString()}p
+                                        </span>
+                                      </div>
+                                    )
+                                  })}
                               </div>
                             </div>
                           </TableCell>
