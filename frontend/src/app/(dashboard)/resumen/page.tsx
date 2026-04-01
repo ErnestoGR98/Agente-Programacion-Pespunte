@@ -1197,14 +1197,42 @@ function DailyOptimizer() {
     }
   }, [currentResult])
 
-  // Load models for selected day:
-  // 1. From weekly_schedule if this day has entries
-  // 2. Always include all pedido models (with 0 pares) for manual programming
-  // 3. Inject rezago models with pre-filled pares
-  useEffect(() => {
-    const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string; isRezago?: boolean }>()
+  // Compute rezago models (non-editable, per-fraction detail)
+  const rezagoModels = useMemo(() => {
+    const result: { modelo: string; fabrica: string; totalPendiente: number; fracciones: { frac: string; nombre: string; producido: number; max: number; pendiente: number }[] }[] = []
+    for (const [code, tard] of Object.entries(carryOver.tardiness)) {
+      if (tard <= 0) continue
+      const modelNum = code.split(' ')[0]
+      const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+      const produced = carryOver.produced[code] || {}
 
-    // Start with all pedido models (available to program any day)
+      // Build per-fraction detail
+      const fracs: { frac: string; nombre: string; producido: number; max: number; pendiente: number }[] = []
+      const maxProd = Math.max(...Object.values(produced).map(Number), 0)
+      for (const [frac, prod] of Object.entries(produced)) {
+        const nombre = fracNames.get(`${modelNum}|${frac}`) || ''
+        const pendiente = maxProd - Number(prod)
+        if (pendiente > 0) {
+          fracs.push({ frac, nombre, producido: Number(prod), max: maxProd, pendiente })
+        }
+      }
+      fracs.sort((a, b) => Number(a.frac) - Number(b.frac))
+
+      result.push({
+        modelo: code,
+        fabrica: pedido?.fabrica || '',
+        totalPendiente: tard,
+        fracciones: fracs,
+      })
+    }
+    return result
+  }, [carryOver, pedidoItems, fracNames])
+
+  // Load NEW models for selected day (editable, separate from rezago)
+  useEffect(() => {
+    const dayModels = new Map<string, { modelo: string; pares: number; fabrica: string }>()
+
+    // All pedido models available to program
     for (const it of pedidoItems) {
       const codigo = `${it.modelo_num} ${it.color}`.trim()
       if (!dayModels.has(codigo)) {
@@ -1220,39 +1248,14 @@ function DailyOptimizer() {
           if (existing) {
             existing.pares += e.Pares
           } else {
-            dayModels.set(e.Modelo, {
-              modelo: e.Modelo,
-              pares: e.Pares,
-              fabrica: e.Fabrica || '',
-            })
+            dayModels.set(e.Modelo, { modelo: e.Modelo, pares: e.Pares, fabrica: e.Fabrica || '' })
           }
         }
       }
     }
 
-    // Inject rezago models with pre-filled pares
-    for (const [code, tard] of Object.entries(carryOver.tardiness)) {
-      if (tard > 0) {
-        const existing = dayModels.get(code)
-        if (existing) {
-          // Add rezago to existing pares (or set if 0)
-          if (existing.pares === 0) existing.pares = tard
-          existing.isRezago = true
-        } else {
-          const modelNum = code.split(' ')[0]
-          const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
-          dayModels.set(code, {
-            modelo: code,
-            pares: tard,
-            fabrica: pedido?.fabrica || '',
-            isRezago: true,
-          })
-        }
-      }
-    }
-
     setModels(Array.from(dayModels.values()).sort((a, b) => a.modelo.localeCompare(b.modelo)))
-  }, [selectedDay, currentResult, pedidoItems, carryOver])
+  }, [selectedDay, currentResult, pedidoItems])
 
   function updatePares(modelo: string, pares: number) {
     setModels((prev) => prev.map((m) => m.modelo === modelo ? { ...m, pares } : m))
@@ -1260,15 +1263,38 @@ function DailyOptimizer() {
 
   async function handleOptimize() {
     const semana = currentSemana || currentPedidoNombre || ''
-    if (!semana || models.length === 0) return
+    if (!semana) return
     setOptimizing(true)
     setError(null)
 
     try {
+      // Combine new models + rezago models
+      const allModels = new Map<string, { modelo: string; pares: number; fabrica?: string }>()
+
+      // New models (user-edited)
+      for (const m of models) {
+        if (m.pares > 0) {
+          allModels.set(m.modelo, { modelo: m.modelo, pares: m.pares, fabrica: m.fabrica })
+        }
+      }
+
+      // Rezago models (add to existing or create new)
+      for (const rz of rezagoModels) {
+        const existing = allModels.get(rz.modelo)
+        if (existing) {
+          existing.pares += rz.totalPendiente
+        } else {
+          allModels.set(rz.modelo, { modelo: rz.modelo, pares: rz.totalPendiente, fabrica: rz.fabrica })
+        }
+      }
+
+      const modelsToSend = Array.from(allModels.values())
+      if (modelsToSend.length === 0) return
+
       const res = await optimizeDay({
         semana: semana,
         day_name: selectedDay,
-        models_day: models.filter((m) => m.pares > 0),
+        models_day: modelsToSend,
         previous_resultado_id: resultadoId,
       })
 
@@ -1308,7 +1334,9 @@ function DailyOptimizer() {
     }
   }
 
-  const totalPares = models.reduce((s, m) => s + m.pares, 0)
+  const totalNewPares = models.reduce((s, m) => s + m.pares, 0)
+  const totalRezagoPares = rezagoModels.reduce((s, m) => s + m.totalPendiente, 0)
+  const totalPares = totalNewPares + totalRezagoPares
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) return models
@@ -1436,6 +1464,67 @@ function DailyOptimizer() {
           })}
         </div>
 
+        {/* Rezago section — non-editable, per-fraction detail */}
+        {rezagoModels.length > 0 && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <span className="text-sm font-semibold text-amber-500">
+                Rezago de dias anteriores — {totalRezagoPares.toLocaleString()}p pendientes
+              </span>
+              <span className="text-[10px] text-muted-foreground">(se agrega automaticamente al optimizar)</span>
+            </div>
+            {rezagoModels.map((rz) => {
+              const [modelNum, ...cp] = rz.modelo.split(' ')
+              const imgUrl = getModeloImageUrl(catImages, modelNum, cp.join(' '))
+              const isExp = expandedRezago.has(rz.modelo)
+              return (
+                <div key={rz.modelo} className="rounded border border-amber-500/20 bg-card p-2">
+                  <button
+                    className="flex items-center gap-2 w-full text-left"
+                    onClick={() => setExpandedRezago((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(rz.modelo)) next.delete(rz.modelo)
+                      else next.add(rz.modelo)
+                      return next
+                    })}
+                  >
+                    {imgUrl ? (
+                      <div className="h-10 w-14 rounded border bg-white flex items-center justify-center p-0.5 flex-shrink-0">
+                        <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="h-10 w-14 rounded border bg-muted flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <span className="font-mono text-sm font-medium">{rz.modelo}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{rz.fabrica}</span>
+                    </div>
+                    <span className="font-mono font-bold text-amber-500">{rz.totalPendiente}p</span>
+                    {rz.fracciones.length > 0 && (
+                      isExp ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  {isExp && rz.fracciones.length > 0 && (
+                    <div className="mt-2 pl-16 space-y-0.5">
+                      {rz.fracciones.map((f) => (
+                        <div key={f.frac} className="flex items-center gap-2 text-[10px] font-mono">
+                          <span className="text-muted-foreground w-6 text-right">F{f.frac}</span>
+                          <span className="text-muted-foreground truncate flex-1 max-w-[200px] text-[9px]">{f.nombre}</span>
+                          <span className="text-emerald-500">{f.producido}p</span>
+                          <span className="text-muted-foreground">/</span>
+                          <span>{f.max}p</span>
+                          <span className="text-amber-500 font-bold">-{f.pendiente}p</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {/* Search bar */}
         {models.length > 0 && (
           <Input
@@ -1463,101 +1552,58 @@ function DailyOptimizer() {
                 {filteredModels.map((m) => {
                   const [modelNum, ...colorParts] = m.modelo.split(' ')
                   const colorStr = colorParts.join(' ')
-                  const pedido = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === colorStr)
+                  const ped = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === colorStr)
                     || pedidoItems.find((p) => p.modelo_num === modelNum)
                   const imgUrl = getModeloImageUrl(catImages, modelNum, colorStr)
-                  const rezago = carryOver.tardiness[m.modelo] || 0
-                  const hasRezago = rezago > 0
-                  const fracProduced = carryOver.produced[m.modelo]
-                  const isExpanded = expandedRezago.has(m.modelo)
-
                   return (
-                    <React.Fragment key={m.modelo}>
-                      <TableRow className={hasRezago ? 'bg-amber-500/8' : ''}>
-                        <TableCell className="px-2 py-2 w-[100px]">
-                          {imgUrl ? (
-                            <div className="h-16 w-[90px] rounded border bg-white flex items-center justify-center p-1">
-                              <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
-                            </div>
-                          ) : (
-                            <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-mono text-sm font-medium">{m.modelo}</div>
-                          {hasRezago && (
-                            <button
-                              className="flex items-center gap-1 mt-1 text-[10px] text-amber-500 hover:text-amber-400"
-                              onClick={() => setExpandedRezago((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(m.modelo)) next.delete(m.modelo)
-                                else next.add(m.modelo)
-                                return next
-                              })}
-                            >
-                              <AlertTriangle className="h-3 w-3" />
-                              <span className="font-mono font-bold">{rezago}p pendientes</span>
-                              {fracProduced && (
-                                isExpanded
-                                  ? <ChevronDown className="h-3 w-3" />
-                                  : <ChevronRight className="h-3 w-3" />
-                              )}
-                            </button>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
-                        <TableCell className="text-center text-xs text-muted-foreground font-mono">{pedido?.volumen?.toLocaleString() || '-'}</TableCell>
-                        <TableCell className="text-center">
-                          <Input
-                            type="number"
-                            min={0}
-                            step={50}
-                            value={m.pares}
-                            onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
-                            className={`h-7 w-20 text-xs font-mono text-center mx-auto ${hasRezago ? 'border-amber-500/50' : ''}`}
-                          />
-                        </TableCell>
-                      </TableRow>
-                      {/* Expandable fraction detail */}
-                      {hasRezago && isExpanded && fracProduced && (
-                        <TableRow className="bg-amber-500/5">
-                          <TableCell />
-                          <TableCell colSpan={4}>
-                            <div className="text-[10px] py-1 space-y-0.5">
-                              <div className="font-medium text-muted-foreground mb-1">Produccion acumulada por fraccion:</div>
-                              <div className="space-y-0.5">
-                                {Object.entries(fracProduced)
-                                  .sort(([a], [b]) => Number(a) - Number(b))
-                                  .map(([frac, prod]) => {
-                                    const opName = fracNames.get(`${modelNum}|${frac}`) || ''
-                                    const maxProd = Math.max(...Object.values(fracProduced) as number[])
-                                    const isLow = (prod as number) < maxProd
-                                    return (
-                                      <div key={frac} className="flex items-center gap-2 font-mono">
-                                        <span className="text-muted-foreground w-6 text-right">F{frac}</span>
-                                        <span className="text-[9px] text-muted-foreground truncate flex-1 max-w-[250px]" title={opName}>
-                                          {opName}
-                                        </span>
-                                        <span className={`font-semibold ${isLow ? 'text-amber-500' : 'text-emerald-500'}`}>
-                                          {(prod as number).toLocaleString()}p
-                                        </span>
-                                      </div>
-                                    )
-                                  })}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </React.Fragment>
+                    <TableRow key={m.modelo}>
+                      <TableCell className="px-2 py-2 w-[100px]">
+                        {imgUrl ? (
+                          <div className="h-16 w-[90px] rounded border bg-white flex items-center justify-center p-1">
+                            <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                          </div>
+                        ) : (
+                          <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
+                      <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
+                      <TableCell className="text-center text-xs text-muted-foreground font-mono">{ped?.volumen?.toLocaleString() || '-'}</TableCell>
+                      <TableCell className="text-center">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={50}
+                          value={m.pares}
+                          onChange={(e) => updatePares(m.modelo, parseInt(e.target.value) || 0)}
+                          className="h-7 w-20 text-xs font-mono text-center mx-auto"
+                        />
+                      </TableCell>
+                    </TableRow>
                   )
                 })}
                 <TableRow className="bg-accent/30 font-bold">
                   <TableCell />
-                  <TableCell>TOTAL</TableCell>
+                  <TableCell>NUEVOS</TableCell>
                   <TableCell />
                   <TableCell />
-                  <TableCell className="text-center font-mono">{totalPares.toLocaleString()}</TableCell>
+                  <TableCell className="text-center font-mono">{totalNewPares.toLocaleString()}</TableCell>
+                </TableRow>
+                {totalRezagoPares > 0 && (
+                  <TableRow className="bg-amber-500/10 font-bold">
+                    <TableCell />
+                    <TableCell className="text-amber-500">+ REZAGO</TableCell>
+                    <TableCell />
+                    <TableCell />
+                    <TableCell className="text-center font-mono text-amber-500">{totalRezagoPares.toLocaleString()}</TableCell>
+                  </TableRow>
+                )}
+                <TableRow className="bg-primary/10 font-bold border-t-2">
+                  <TableCell />
+                  <TableCell className="text-primary">TOTAL DIA</TableCell>
+                  <TableCell />
+                  <TableCell />
+                  <TableCell className="text-center font-mono text-primary">{totalPares.toLocaleString()}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
