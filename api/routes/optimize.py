@@ -1459,6 +1459,9 @@ def optimize_day(req: OptimizeDayRequest):
         "minutes": day_cfg["minutes"],
         "plantilla": day_cfg["plantilla"],
         "time_blocks": [tb for tb in params["time_blocks"] if not tb.get("is_break")],
+        "resource_capacity": params.get("resource_capacity", {}),
+        "operator_capacity": params.get("operator_capacity", {}),
+        "lineas_post": params.get("lineas_post", 0),
     }
 
     print(f"[OPT-DAY] {len(models_for_day)} modelos, "
