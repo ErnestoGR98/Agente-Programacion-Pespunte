@@ -1448,7 +1448,7 @@ function OperarioSelector({
 
   return (
     <div className="relative">
-      <div className="absolute z-50 top-0 left-0 w-72 max-h-60 overflow-y-auto rounded-lg border bg-card shadow-lg p-1">
+      <div className="absolute z-50 top-0 left-0 w-80 max-h-60 overflow-y-auto rounded-lg border bg-popover shadow-xl p-1" style={{ backgroundColor: 'var(--popover)' }}>
         <div className="text-[9px] text-muted-foreground px-2 py-1 border-b mb-1">
           {entry.recurso} · Bloques: {activeBlocks.map((b) => blockLabels[b.idx]).join(', ')}
         </div>
