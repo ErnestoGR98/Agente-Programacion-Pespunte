@@ -716,6 +716,7 @@ export interface SabanaExcelRow {
   fraccion: number
   operacion: string
   recurso: string
+  rate?: number
   etapa: string
   days: Record<string, {
     blocks: number[]
@@ -786,7 +787,7 @@ export function exportSabanaExcel(
 
   const numBlocks = blockLabels.length
   const colsPerDay = numBlocks + 1 + (showOperario ? 1 : 0)
-  const fixedCols = 4
+  const fixedCols = 5
 
   const aoa: StyledCell[][] = []
 
@@ -815,7 +816,7 @@ export function exportSabanaExcel(
     border: _thinBorder(),
   })
   const headerRow2: StyledCell[] = [
-    { v: 'MODELO', s: subSt() }, { v: 'F', s: subSt() }, { v: 'OPERACION', s: subSt() }, { v: 'REC', s: subSt() },
+    { v: 'MODELO', s: subSt() }, { v: 'F', s: subSt() }, { v: 'OPERACION', s: subSt() }, { v: 'REC', s: subSt() }, { v: 'RATE', s: subSt() },
   ]
   for (const d of dayNames) {
     const dc = DAY_EXCEL_COLORS[d] || 'FFFFFFFF'
@@ -831,7 +832,7 @@ export function exportSabanaExcel(
   for (const mg of modelGroups) {
     const modelSt = { fill: { fgColor: { rgb: 'FFE8E8E8' } }, font: { bold: true, sz: 10 }, border: _thinBorder() }
     const modelRow: StyledCell[] = [
-      { v: mg.modelo, s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt },
+      { v: mg.modelo, s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt }, { v: '', s: modelSt },
     ]
     for (const d of dayNames) {
       const p = mg.dayTotals[d] || 0
@@ -851,6 +852,7 @@ export function exportSabanaExcel(
         { v: r.fraccion, s: { alignment: { horizontal: 'center' }, border: _thinBorder() } },
         { v: r.operacion, s: { font: { color: { rgb: ec } }, border: _thinBorder() } },
         { v: r.recurso, s: { font: { sz: 8 }, border: _thinBorder() } },
+        { v: r.rate || '', s: { font: { sz: 8 }, alignment: { horizontal: 'center' }, border: _thinBorder() } },
       ]
 
       for (const d of dayNames) {

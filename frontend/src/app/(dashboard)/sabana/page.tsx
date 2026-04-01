@@ -308,6 +308,7 @@ export default function SabanaPage() {
           fraccion: r.fraccion,
           operacion: r.operacion,
           recurso: r.recurso,
+          rate: r.rate,
           etapa: r.input_o_proceso || r.etapa,
           days: Object.fromEntries(dayNames.map((d) => {
             const cell = r.days[d]
@@ -330,6 +331,7 @@ export default function SabanaPage() {
         fraccion: r.fraccion,
         operacion: r.operacion,
         recurso: r.recurso,
+        rate: r.rate,
         etapa: r.etapa,
         weekTotal: r.weekTotal,
         dias: Object.fromEntries(
@@ -356,7 +358,7 @@ export default function SabanaPage() {
   // ── Export: PDF (one page per day with block columns) ──
   const handlePDF = useCallback(() => {
     const dayPages: SabanaDayData[] = dayNames.map((d) => {
-      const headers = ['F', 'OPERACION', 'ETAPA', 'REC', ...blockLabels as string[], 'TOT']
+      const headers = ['F', 'OPERACION', 'ETAPA', 'REC', 'RATE', ...blockLabels as string[], 'TOT']
       if (showOperario) headers.push('OP')
       const rows: (string | number)[][] = []
       const etapas: string[] = []
@@ -368,7 +370,7 @@ export default function SabanaPage() {
 
         // Model header row
         modelHeaders.push({ rowIdx: rows.length, modelo, total: `${dayTot}p` })
-        const mRow: (string | number)[] = [modelo, '', '']
+        const mRow: (string | number)[] = [modelo, '', '', '']
         for (let i = 0; i < numBlocks; i++) mRow.push('')
         mRow.push(dayTot)
         if (showOperario) mRow.push('')
@@ -379,7 +381,7 @@ export default function SabanaPage() {
         for (const r of opRows) {
           const cell = r.days[d]
           if (!cell || cell.total === 0) continue
-          const row: (string | number)[] = [r.fraccion, r.operacion, r.etapa || r.input_o_proceso || '', r.recurso]
+          const row: (string | number)[] = [r.fraccion, r.operacion, r.etapa || r.input_o_proceso || '', r.recurso, r.rate || '']
           for (let bi = 0; bi < numBlocks; bi++) {
             const v = cell.blocks[bi] || 0
             row.push(v > 0 ? v : '')
