@@ -1566,7 +1566,12 @@ function DailyOptimizer() {
                           <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
+                      <TableCell>
+                        <div className="font-mono text-sm font-medium">{m.modelo}</div>
+                        {(carryOver.tardiness[m.modelo] || 0) > 0 && (
+                          <span className="text-[9px] text-amber-500">+ {carryOver.tardiness[m.modelo]}p rezago arriba</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
                       <TableCell className="text-center text-xs text-muted-foreground font-mono">{ped?.volumen?.toLocaleString() || '-'}</TableCell>
                       <TableCell className="text-center">
