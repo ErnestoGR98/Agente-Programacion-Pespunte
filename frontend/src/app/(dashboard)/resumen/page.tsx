@@ -1083,6 +1083,8 @@ function DailyOptimizer() {
   const [resultadoId, setResultadoId] = useState<string | null>(null)
   const [optimizedDays, setOptimizedDays] = useState<Set<string>>(new Set())
   const [dayStatus, setDayStatus] = useState<Record<string, { pares: number; tardiness: number; status: string }>>({})
+  const [search, setSearch] = useState('')
+  const catImages = useCatalogoImages()
 
   const activeDays = useMemo(() => {
     return DAY_ORDER.filter((d) => dias.some((dl) => dl.nombre === d && dl.plantilla > 0)) as DayName[]
@@ -1226,6 +1228,12 @@ function DailyOptimizer() {
 
   const totalPares = models.reduce((s, m) => s + m.pares, 0)
 
+  const filteredModels = useMemo(() => {
+    if (!search.trim()) return models
+    const q = search.toLowerCase()
+    return models.filter((m) => m.modelo.toLowerCase().includes(q) || m.fabrica.toLowerCase().includes(q))
+  }, [models, search])
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -1270,12 +1278,23 @@ function DailyOptimizer() {
           })}
         </div>
 
+        {/* Search bar */}
+        {models.length > 0 && (
+          <Input
+            placeholder="Buscar modelo..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8 max-w-xs text-sm"
+          />
+        )}
+
         {/* Models table for selected day */}
         {models.length > 0 ? (
           <div className="rounded border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="text-xs w-10"></TableHead>
                   <TableHead className="text-xs">Modelo</TableHead>
                   <TableHead className="text-xs text-center w-20">Fabrica</TableHead>
                   <TableHead className="text-xs text-center w-20">Pedido</TableHead>
@@ -1283,11 +1302,20 @@ function DailyOptimizer() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {models.map((m) => {
-                  const modelNum = m.modelo.split(' ')[0]
+                {filteredModels.map((m) => {
+                  const [modelNum, ...colorParts] = m.modelo.split(' ')
+                  const colorStr = colorParts.join(' ')
                   const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+                  const imgUrl = getModeloImageUrl(catImages, modelNum, colorStr)
                   return (
                     <TableRow key={m.modelo}>
+                      <TableCell className="px-2 py-1">
+                        {imgUrl ? (
+                          <img src={imgUrl} alt="" className="h-7 w-auto rounded border object-contain bg-white" />
+                        ) : (
+                          <div className="h-7 w-10 rounded border bg-muted flex items-center justify-center text-[8px] text-muted-foreground">?</div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
                       <TableCell className="text-center text-xs text-muted-foreground">{m.fabrica || '-'}</TableCell>
                       <TableCell className="text-center text-xs text-muted-foreground font-mono">{pedido?.volumen?.toLocaleString() || '-'}</TableCell>
@@ -1305,6 +1333,7 @@ function DailyOptimizer() {
                   )
                 })}
                 <TableRow className="bg-accent/30 font-bold">
+                  <TableCell />
                   <TableCell>TOTAL</TableCell>
                   <TableCell />
                   <TableCell />
