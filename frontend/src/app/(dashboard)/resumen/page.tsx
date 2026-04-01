@@ -17,7 +17,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { DAY_ORDER } from '@/types'
 import type { DayName, WeeklyScheduleEntry, DailyResult, DiaLaboral, PedidoItem, Resultado, ScenarioProposals, Scenario } from '@/types'
-import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check, Wand2, Save, RotateCcw, Play, Pencil, CalendarDays } from 'lucide-react'
+import { Truck, AlertTriangle, Lightbulb, Clock, Factory, Calendar, ChevronDown, ChevronRight, Loader2, Check, Wand2, Save, RotateCcw, Play, Pencil, CalendarDays, Download, FileText, Braces } from 'lucide-react'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
 import { TableExport } from '@/components/shared/TableExport'
 import { preloadModeloImages, exportTableWithImagesPDF } from '@/lib/export'
@@ -1234,13 +1234,89 @@ function DailyOptimizer() {
     return models.filter((m) => m.modelo.toLowerCase().includes(q) || m.fabrica.toLowerCase().includes(q))
   }, [models, search])
 
+  const [jsonCopied2, setJsonCopied2] = useState(false)
+
+  function handleExportJSON() {
+    const data = {
+      semana: currentSemana || currentPedidoNombre || '',
+      dia: selectedDay,
+      modelos: models.map((m) => {
+        const [modelNum, ...cp] = m.modelo.split(' ')
+        const pedido = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === cp.join(' '))
+          || pedidoItems.find((p) => p.modelo_num === modelNum)
+        return { modelo: m.modelo, fabrica: m.fabrica, pedido_total: pedido?.volumen || 0, pares_dia: m.pares }
+      }),
+      total_pares_dia: totalPares,
+    }
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+      setJsonCopied2(true)
+      setTimeout(() => setJsonCopied2(false), 2000)
+    })
+  }
+
+  function handleExportPDF() {
+    // Use jspdf-autotable for a clean table PDF
+    import('jspdf').then(({ default: jsPDF }) => {
+      import('jspdf-autotable').then((autoTableModule) => {
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+        const title = `Programa Diario — ${selectedDay} — ${currentSemana || ''}`
+        doc.setFontSize(14)
+        doc.text(title, 14, 15)
+        doc.setFontSize(10)
+        doc.text(`Total pares: ${totalPares.toLocaleString()}`, 14, 22)
+
+        const head = [['#', 'Modelo', 'Fabrica', 'Pedido', 'Pares Dia']]
+        const body = models
+          .filter((m) => m.pares > 0 || true)
+          .map((m, i) => {
+            const [modelNum, ...cp] = m.modelo.split(' ')
+            const pedido = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === cp.join(' '))
+              || pedidoItems.find((p) => p.modelo_num === modelNum)
+            return [i + 1, m.modelo, m.fabrica || '-', pedido?.volumen?.toLocaleString() || '-', m.pares > 0 ? m.pares.toLocaleString() : '-']
+          })
+        body.push(['', 'TOTAL', '', '', totalPares.toLocaleString()])
+
+        ;(autoTableModule as unknown as { default: Function }).default(doc, {
+          startY: 28,
+          head,
+          body,
+          theme: 'grid',
+          headStyles: { fillColor: [59, 130, 246], fontSize: 9 },
+          bodyStyles: { fontSize: 8 },
+          columnStyles: { 0: { halign: 'center', cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
+        })
+
+        doc.save(`diario_${selectedDay}_${currentSemana || 'plan'}.pdf`)
+      })
+    })
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <CalendarDays className="h-4 w-4" />
-          Optimizacion por Dia
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarDays className="h-4 w-4" />
+            Optimizacion por Dia
+          </CardTitle>
+          <div className="flex items-center gap-1 rounded-md border px-1 py-0.5">
+            <Download className="h-3.5 w-3.5 text-muted-foreground mr-0.5" />
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              PDF
+            </button>
+            <button
+              onClick={handleExportJSON}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+            >
+              {jsonCopied2 ? <Check className="h-3.5 w-3.5" /> : <Braces className="h-3.5 w-3.5" />}
+              {jsonCopied2 ? 'Copiado' : 'JSON'}
+            </button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Day selector */}
