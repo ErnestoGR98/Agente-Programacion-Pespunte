@@ -929,3 +929,163 @@ export function exportSabanaExcel(
   XLSXStyle.utils.book_append_sheet(wb, ws, title.slice(0, 31))
   XLSXStyle.writeFile(wb, `${title}.xlsx`)
 }
+
+
+// ============================================================
+// Programa Diario — Excel Export (styled, one sheet per day)
+// ============================================================
+
+export interface ProgramaExcelDayGroup {
+  day: string
+  rows: {
+    modelo: string
+    fraccion: number
+    operacion: string
+    etapa: string
+    recurso: string
+    operario: string
+    rate: number
+    hc: number
+    blocks: number[]
+    total: number
+    isSinAsignar: boolean
+    inputProceso: string
+  }[]
+}
+
+export function exportProgramaExcel(
+  title: string,
+  blockLabels: string[],
+  groups: ProgramaExcelDayGroup[],
+) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSXStyle = require('xlsx-js-style')
+
+  const wb = XLSXStyle.utils.book_new()
+
+  for (const group of groups) {
+    if (group.rows.length === 0) continue
+
+    const aoa: StyledCell[][] = []
+    const numBlocks = blockLabels.length
+
+    // Header styles
+    const darkBg = {
+      fill: { fgColor: { rgb: 'FF1E293B' } },
+      font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 9 },
+      alignment: { horizontal: 'center' },
+      border: _thinBorder(),
+    }
+    const dayColor = DAY_EXCEL_COLORS[group.day] || 'FF666666'
+
+    // Title row
+    const titleSt = {
+      fill: { fgColor: { rgb: dayColor } },
+      font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 12 },
+      alignment: { horizontal: 'left' },
+      border: _thinBorder(),
+    }
+    const titleRow: StyledCell[] = [{ v: `${group.day} — ${title}`, s: titleSt }]
+    for (let i = 1; i < 8 + numBlocks + 1; i++) titleRow.push({ v: '', s: titleSt })
+    aoa.push(titleRow)
+
+    // Header row
+    const headers = ['MODELO', 'F', 'OPERACION', 'ETAPA', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLabels, 'TOTAL']
+    aoa.push(headers.map((h) => ({ v: h, s: darkBg })))
+
+    // Track current model for grouping
+    let currentModelo = ''
+
+    for (const r of group.rows) {
+      const ec = getEtapaExcelColor(r.inputProceso || r.etapa)
+      const ecBg = lightenArgb(ec, 0.85)
+      const isSin = r.isSinAsignar
+
+      // Model separator row
+      if (r.modelo !== currentModelo) {
+        currentModelo = r.modelo
+        const modelSt = {
+          fill: { fgColor: { rgb: 'FFE2E8F0' } },
+          font: { bold: true, sz: 10, color: { rgb: 'FF1E293B' } },
+          border: _thinBorder(),
+        }
+        const mRow: StyledCell[] = [{ v: r.modelo, s: modelSt }]
+        for (let i = 1; i < headers.length; i++) mRow.push({ v: '', s: modelSt })
+        aoa.push(mRow)
+      }
+
+      // Data row
+      const row: StyledCell[] = [
+        { v: '', s: { border: _thinBorder() } },
+        { v: r.fraccion, s: { alignment: { horizontal: 'center' }, font: { bold: true }, border: _thinBorder() } },
+        { v: r.operacion, s: { font: { color: { rgb: ec }, sz: 9 }, border: _thinBorder() } },
+        { v: r.etapa || r.inputProceso, s: { font: { color: { rgb: ec }, sz: 8, bold: true }, fill: { fgColor: { rgb: ecBg } }, alignment: { horizontal: 'center' }, border: _thinBorder() } },
+        { v: r.recurso, s: { font: { sz: 8 }, border: _thinBorder() } },
+        {
+          v: r.operario || '-',
+          s: isSin
+            ? { font: { bold: true, color: { rgb: 'FFEF4444' }, sz: 8 }, fill: { fgColor: { rgb: 'FFFECACA' } }, border: _thinBorder() }
+            : { font: { sz: 8 }, border: _thinBorder() },
+        },
+        { v: r.rate, s: { alignment: { horizontal: 'center' }, font: { sz: 8 }, border: _thinBorder() } },
+        { v: r.hc, s: { alignment: { horizontal: 'center' }, font: { sz: 8 }, border: _thinBorder() } },
+      ]
+
+      // Block cells — colored by etapa
+      for (let bi = 0; bi < numBlocks; bi++) {
+        const val = r.blocks[bi] || 0
+        if (val > 0) {
+          row.push({
+            v: val,
+            s: {
+              fill: { fgColor: { rgb: isSin ? 'FFFECACA' : ecBg } },
+              font: { bold: true, color: { rgb: isSin ? 'FFEF4444' : ec }, sz: 9 },
+              alignment: { horizontal: 'center' },
+              border: _thinBorder(),
+            },
+          })
+        } else {
+          row.push({ v: '', s: { border: _thinBorder() } })
+        }
+      }
+
+      // Total
+      row.push({
+        v: r.total,
+        s: {
+          font: { bold: true, sz: 10 },
+          alignment: { horizontal: 'center' },
+          border: _thinBorder(),
+        },
+      })
+
+      aoa.push(row)
+    }
+
+    // Create sheet
+    const ws = XLSXStyle.utils.aoa_to_sheet(aoa)
+
+    // Column widths
+    const colWidths = [
+      { wch: 16 }, // MODELO
+      { wch: 4 },  // F
+      { wch: 30 }, // OPERACION
+      { wch: 14 }, // ETAPA
+      { wch: 14 }, // RECURSO
+      { wch: 25 }, // OPERARIO
+      { wch: 6 },  // RATE
+      { wch: 4 },  // HC
+      ...blockLabels.map(() => ({ wch: 6 })),
+      { wch: 7 },  // TOTAL
+    ]
+    ws['!cols'] = colWidths
+
+    // Merge title row
+    const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }]
+    ws['!merges'] = merges
+
+    XLSXStyle.utils.book_append_sheet(wb, ws, group.day.slice(0, 31))
+  }
+
+  XLSXStyle.writeFile(wb, `${title}.xlsx`)
+}

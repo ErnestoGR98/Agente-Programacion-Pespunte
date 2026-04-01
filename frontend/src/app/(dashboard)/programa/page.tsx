@@ -13,7 +13,7 @@ import type { DailyResult, DailyScheduleEntry, AsignacionMaquila, WeeklySchedule
 import { Truck, ArrowDownWideNarrow, User, Cpu, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCatalogoImages, getModeloImageUrl } from '@/lib/hooks/useCatalogoImages'
-import { exportProgramaPDF, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard, type DayKpis } from '@/lib/export'
+import { exportProgramaPDF, exportProgramaExcel, preloadModeloImages, type ProgramaDayGroup, type MaquilaCard, type DayKpis, type ProgramaExcelDayGroup } from '@/lib/export'
 
 interface MaquilaEntry {
   modelo: string
@@ -403,6 +403,43 @@ export default function ProgramaPage() {
     exportProgramaPDF(`programa_completo${suffix}`, headers, groups, imgMap)
   }
 
+  function handleGlobalExcel() {
+    if (!result?.daily_results) return
+    const maxBlocks = dayNames.reduce((max, d) => {
+      const sched = result.daily_results![d]?.schedule || []
+      return sched.reduce((m, s) => Math.max(m, s.blocks?.length || 0), max)
+    }, 0)
+    const blockLbls = BLOCK_LABELS.slice(0, maxBlocks || 10)
+
+    const groups: ProgramaExcelDayGroup[] = dayNames.map((d) => {
+      const sched = result.daily_results![d]?.schedule || []
+      return {
+        day: d,
+        rows: sched.map((s) => {
+          const modeloNum = s.modelo.split(' ')[0]
+          const ip = inputProcesoMap.get(`${modeloNum}|${s.fraccion}`) || s.input_o_proceso || ''
+          return {
+            modelo: s.modelo,
+            fraccion: s.fraccion,
+            operacion: s.operacion,
+            etapa: s.etapa || '',
+            recurso: s.robot || s.recurso,
+            operario: s.operario || '-',
+            rate: s.rate,
+            hc: s.hc,
+            blocks: s.blocks || [],
+            total: s.total,
+            isSinAsignar: s.operario === 'SIN ASIGNAR',
+            inputProceso: ip,
+          }
+        }),
+      }
+    })
+
+    const suffix = cascadeSort ? '_cascada' : ''
+    exportProgramaExcel(`programa${suffix}_${result.nombre}`, blockLbls, groups)
+  }
+
   const day = selectedDay || dayNames[0] || ''
   const dayData = result?.daily_results?.[day]
 
@@ -422,7 +459,7 @@ export default function ProgramaPage() {
           <p className="text-sm text-muted-foreground">{result.nombre}</p>
         </div>
         <div className="flex items-center gap-3">
-          <TableExport title="programa_completo" headers={globalExport.headers} rows={globalExport.rows} onCustomPDF={handleGlobalPDF} />
+          <TableExport title="programa_completo" headers={globalExport.headers} rows={globalExport.rows} onCustomPDF={handleGlobalPDF} onCustomExcel={handleGlobalExcel} />
           <DaySelector dayNames={dayNames} selectedDay={day} onDayChange={setSelectedDay} />
         </div>
       </div>

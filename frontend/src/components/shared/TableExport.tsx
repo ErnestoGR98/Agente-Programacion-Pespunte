@@ -9,9 +9,10 @@ interface TableExportProps {
   headers: string[]
   rows: (string | number)[][]
   onCustomPDF?: () => void | Promise<void>
+  onCustomExcel?: () => void | Promise<void>
 }
 
-export function TableExport({ title, headers, rows, onCustomPDF }: TableExportProps) {
+export function TableExport({ title, headers, rows, onCustomPDF, onCustomExcel }: TableExportProps) {
   const [copied, setCopied] = useState(false)
 
   async function handleCopyJSON() {
@@ -27,7 +28,7 @@ export function TableExport({ title, headers, rows, onCustomPDF }: TableExportPr
   return (
     <div className="flex items-center gap-1">
       <button
-        onClick={() => exportToExcel(title, headers, rows)}
+        onClick={() => onCustomExcel ? onCustomExcel() : exportToExcel(title, headers, rows)}
         className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
         title="Exportar Excel"
       >
