@@ -931,7 +931,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                 const isDimmed = (selectedOperario != null && s.operario !== selectedOperario) || (selectedRecurso != null && recursoKey !== selectedRecurso)
                 const isSinAsignar = s.operario === 'SIN ASIGNAR'
                 return (
-                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''} ${isSinAsignar ? 'animate-pulse-alert bg-red-500/10 dark:bg-red-500/15' : ''}`}>
+                  <tr key={i} className={`border-b hover:bg-accent/30 transition-opacity ${isHighlighted ? 'bg-primary/10 ring-1 ring-primary/30' : ''} ${isDimmed ? 'opacity-25' : ''} ${isSinAsignar ? 'bg-red-500/10 dark:bg-red-500/15' : ''}`}>
                     <td className="px-2 py-1 font-mono font-medium">
                       <span className="flex items-center gap-1">
                         {(() => { const [num, ...c] = s.modelo.split(' '); const u = getModeloImageUrl(catImages, num, c.join(' ')); return u ? <img src={u} alt={s.modelo} className="h-6 w-auto rounded border object-contain bg-white" /> : null })()}
