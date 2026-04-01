@@ -1305,7 +1305,8 @@ function DailyOptimizer() {
                 {filteredModels.map((m) => {
                   const [modelNum, ...colorParts] = m.modelo.split(' ')
                   const colorStr = colorParts.join(' ')
-                  const pedido = pedidoItems.find((p) => p.modelo_num === modelNum)
+                  const pedido = pedidoItems.find((p) => p.modelo_num === modelNum && p.color === colorStr)
+                    || pedidoItems.find((p) => p.modelo_num === modelNum)
                   const imgUrl = getModeloImageUrl(catImages, modelNum, colorStr)
                   return (
                     <TableRow key={m.modelo}>
