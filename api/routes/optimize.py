@@ -1495,16 +1495,31 @@ def optimize_day(req: OptimizeDayRequest):
     compiled = compile_constraints(restricciones, avance_data, matched, params["days"])
 
     # 4. Build models_day for schedule_day
-    # Sum pares per model (may have separate entries for new + rezago)
-    pares_by_model = {}
+    # Separate new pares vs rezago pares per model
+    # Frontend sends them as separate entries — DO NOT sum them.
+    # New pares = all fractions. Rezago pares = only behind fractions.
+    new_pares_by_model = {}
+    rezago_pares_by_model = {}
+    seen_models = set()
     for rm in req.models_day:
         code = rm["modelo"]
-        pares_by_model[code] = pares_by_model.get(code, 0) + rm.get("pares", 0)
+        pares = rm.get("pares", 0)
+        if pares <= 0:
+            continue
+        if code in seen_models:
+            # Second entry for same model = rezago
+            rezago_pares_by_model[code] = rezago_pares_by_model.get(code, 0) + pares
+        else:
+            new_pares_by_model[code] = pares
+            seen_models.add(code)
 
     models_for_day = []
     for m in deepcopy(matched):
-        pares = pares_by_model.get(m["codigo"], 0)
-        if pares <= 0:
+        code = m["codigo"]
+        new_pares = new_pares_by_model.get(code, 0)
+        rez_pares = rezago_pares_by_model.get(code, 0)
+
+        if new_pares <= 0 and rez_pares <= 0:
             continue
 
         # Filter out MAQUILA operations
@@ -1512,13 +1527,46 @@ def optimize_day(req: OptimizeDayRequest):
         if not internal_ops:
             continue
 
-        models_for_day.append({
-            "codigo": m["codigo"],
-            "fabrica": m.get("fabrica", ""),
-            "suela": m.get("suela", ""),
-            "pares_dia": pares,
-            "operations": internal_ops,
-        })
+        if new_pares > 0 and rez_pares > 0:
+            # BOTH new + rezago: create two entries
+            # Entry 1: new pares with ALL fractions
+            models_for_day.append({
+                "codigo": code,
+                "fabrica": m.get("fabrica", ""),
+                "suela": m.get("suela", ""),
+                "pares_dia": new_pares,
+                "operations": deepcopy(internal_ops),
+            })
+            # Entry 2: rezago pares with ONLY behind fractions
+            # (ahead fractions are filtered in the carry-over section below)
+            models_for_day.append({
+                "codigo": code,
+                "fabrica": m.get("fabrica", ""),
+                "suela": m.get("suela", ""),
+                "pares_dia": rez_pares,
+                "operations": deepcopy(internal_ops),
+                "_is_rezago": True,  # marker for carry-over processing
+            })
+            print(f"    [OPT-DAY] {code}: {new_pares}p nuevos + {rez_pares}p rezago (entries separadas)")
+        elif new_pares > 0:
+            models_for_day.append({
+                "codigo": code,
+                "fabrica": m.get("fabrica", ""),
+                "suela": m.get("suela", ""),
+                "pares_dia": new_pares,
+                "operations": internal_ops,
+            })
+        else:
+            # Only rezago
+            models_for_day.append({
+                "codigo": code,
+                "fabrica": m.get("fabrica", ""),
+                "suela": m.get("suela", ""),
+                "pares_dia": rez_pares,
+                "operations": internal_ops,
+                "_is_rezago": True,
+            })
+            print(f"    [OPT-DAY] {code}: {rez_pares}p rezago only")
 
     if not models_for_day:
         raise HTTPException(400, "No hay modelos con pares > 0")
@@ -1561,47 +1609,61 @@ def optimize_day(req: OptimizeDayRequest):
                         carry_over["completed_fracs"][code] = []
                     carry_over["completed_fracs"][code].extend(fracs)
 
-            # Carry-over: log what's accumulated from prior days (for diagnostics)
-            # The frontend handles rezago selection — pares in models_day are FINAL.
-            # We only use carry-over to skip ahead fractions for rezago models.
+            # Carry-over: for REZAGO entries, filter out ahead fractions
+            # so the solver only works on fractions that need to catch up.
+            # NEW entries keep ALL fractions (they start from scratch).
             for m in models_for_day:
+                if not m.get("_is_rezago"):
+                    continue  # new entries: keep all fractions
+
                 code = m["codigo"]
                 cum_prod = carry_over["produced_by_op"].get(code)
+                if not cum_prod:
+                    continue
 
-                if cum_prod:
-                    frac_nums = [op.get("fraccion", i) for i, op in enumerate(m["operations"])]
-                    frac_produced = {}
-                    for f in frac_nums:
-                        frac_produced[f] = cum_prod.get(str(f), cum_prod.get(f, 0))
+                frac_nums = [op.get("fraccion", i) for i, op in enumerate(m["operations"])]
+                frac_produced = {}
+                for f in frac_nums:
+                    frac_produced[f] = cum_prod.get(str(f), cum_prod.get(f, 0))
 
-                    max_produced = max(frac_produced.values()) if frac_produced else 0
-                    min_produced = min(frac_produced.values()) if frac_produced else 0
+                max_produced = max(frac_produced.values()) if frac_produced else 0
+                min_produced = min(frac_produced.values()) if frac_produced else 0
 
-                    print(f"    [OPT-DAY] {code}: carry-over (pares_dia={m['pares_dia']}):")
-                    for f in sorted(frac_produced):
-                        delta = max_produced - frac_produced[f]
-                        status = f"  (-{delta}p)" if delta > 0 else "  (al dia)"
-                        print(f"      F{f}: {frac_produced[f]}p{status}")
+                print(f"    [OPT-DAY] {code} REZAGO: fracciones pendientes:")
+                for f in sorted(frac_produced):
+                    delta = max_produced - frac_produced[f]
+                    if delta > 0:
+                        print(f"      F{f}: {frac_produced[f]}p / {max_produced}p  (faltan {delta}p)")
 
-                    # Skip ahead fractions so solver focuses on catching up
-                    if max_produced > min_produced:
-                        ahead_fracs = set()
-                        for f in frac_nums:
-                            if frac_produced.get(f, 0) >= max_produced:
-                                ahead_fracs.add(f)
+                # Remove fractions that are already at max (ahead)
+                ahead_fracs = set()
+                for f in frac_nums:
+                    if frac_produced.get(f, 0) >= max_produced:
+                        ahead_fracs.add(f)
 
-                        if ahead_fracs and len(ahead_fracs) < len(frac_nums):
-                            safe_skip = set()
-                            for f in ahead_fracs:
-                                downstream = [ff for ff in frac_nums if ff > f]
-                                if all(ff in ahead_fracs for ff in downstream):
-                                    safe_skip.add(f)
-                            if safe_skip:
-                                m["operations"] = [
-                                    op for op in m["operations"]
-                                    if op.get("fraccion") not in safe_skip
-                                ]
-                                print(f"    [OPT-DAY] {code}: skipping {len(safe_skip)} ahead fracs: {safe_skip}")
+                if ahead_fracs and len(ahead_fracs) < len(frac_nums):
+                    safe_skip = set()
+                    for f in ahead_fracs:
+                        downstream = [ff for ff in frac_nums if ff > f]
+                        if all(ff in ahead_fracs for ff in downstream):
+                            safe_skip.add(f)
+                    if safe_skip:
+                        m["operations"] = [
+                            op for op in m["operations"]
+                            if op.get("fraccion") not in safe_skip
+                        ]
+                        remaining = [op.get("fraccion") for op in m["operations"]]
+                        print(f"    [OPT-DAY] {code} REZAGO: skip {safe_skip}, remaining fracs: {remaining}")
+
+                # Adjust pares_dia to what the most behind fraction needs
+                rezago_needed = max_produced - min_produced
+                if rezago_needed < m["pares_dia"]:
+                    print(f"    [OPT-DAY] {code} REZAGO: ajustando pares {m['pares_dia']} -> {rezago_needed}")
+                    m["pares_dia"] = rezago_needed
+
+            # Clean up _is_rezago markers
+            for m in models_for_day:
+                m.pop("_is_rezago", None)
 
             print(f"[OPT-DAY] Carry-over loaded from {day_idx} prior days")
 
