@@ -981,10 +981,41 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     </td>
                     <td className="px-2 py-1">
                       {s.operario === 'SIN ASIGNAR' ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-500 dark:text-red-400 ring-1 ring-red-500/40 cursor-help" title={s.motivo_sin_asignar || ''}>
-                          <UserX className="h-3 w-3" />
-                          SIN ASIGNAR
-                        </span>
+                        <OperarioSelector
+                          entry={s}
+                          entryIndex={i}
+                          schedule={schedule}
+                          allOperarios={allOperarios}
+                          dayName={dayName}
+                          blockLabels={blockLabels}
+                          onAssign={async (operario) => {
+                            // Update in the current result's daily_results
+                            const currentResult = useAppStore.getState().currentResult
+                            if (!currentResult) return
+                            const dr = { ...currentResult.daily_results }
+                            const dayData = dr[dayName]
+                            if (!dayData) return
+                            const newSchedule = [...dayData.schedule]
+                            // Find and update this specific entry
+                            const target = newSchedule.find((e, idx) =>
+                              e.modelo === s.modelo && e.fraccion === s.fraccion &&
+                              e.operario === 'SIN ASIGNAR' && idx === i
+                            )
+                            if (target) {
+                              target.operario = operario
+                              delete (target as unknown as Record<string, unknown>).motivo_sin_asignar
+                              delete (target as unknown as Record<string, unknown>).motivos_por_bloque
+                            }
+                            const newDaily = { ...dr, [dayName]: { ...dayData, schedule: newSchedule } }
+                            // Save to Supabase
+                            await supabase
+                              .from('resultados')
+                              .update({ daily_results: newDaily })
+                              .eq('id', currentResult.id)
+                            // Update local state
+                            useAppStore.getState().setCurrentResult({ ...currentResult, daily_results: newDaily })
+                          }}
+                        />
                       ) : s.operario ? (
                         <div className="flex items-center gap-1">
                           <button
@@ -1333,5 +1364,120 @@ function CascadeByRecurso({ schedule, blockLabels, getEtapaColor, dayName }: {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+
+// ============================================================
+// Operario Selector — dropdown para asignar manualmente
+// ============================================================
+
+function OperarioSelector({
+  entry, schedule, allOperarios, dayName, blockLabels, onAssign,
+}: {
+  entry: DailyScheduleEntry
+  entryIndex: number
+  schedule: DailyScheduleEntry[]
+  allOperarios: { nombre: string; activo: boolean; dias: string[]; habilidades: SkillType[] }[]
+  dayName: string
+  blockLabels: string[]
+  onAssign: (operario: string) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [assigning, setAssigning] = useState(false)
+
+  const activeBlocks = (entry.blocks || []).map((v, i) => ({ idx: i, pares: v })).filter((b) => b.pares > 0)
+
+  const busyInBlocks = useMemo(() => {
+    const busy = new Map<string, Set<number>>()
+    for (const s of schedule) {
+      if (!s.operario || s.operario === 'SIN ASIGNAR') continue
+      for (let bi = 0; bi < (s.blocks || []).length; bi++) {
+        if ((s.blocks || [])[bi] > 0) {
+          if (!busy.has(s.operario)) busy.set(s.operario, new Set())
+          busy.get(s.operario)!.add(bi)
+        }
+      }
+    }
+    return busy
+  }, [schedule])
+
+  const dayPrefix = dayName.split(' ')[0] || dayName
+  const available = useMemo(() => {
+    return allOperarios
+      .filter((op) => op.activo)
+      .filter((op) => {
+        if (op.dias.length === 0) return true
+        return op.dias.some((d) => d === dayName || d.startsWith(dayPrefix) || dayName.startsWith(d))
+      })
+      .map((op) => {
+        const busyBlocks = busyInBlocks.get(op.nombre) || new Set()
+        const conflictBlocks = activeBlocks.filter((b) => busyBlocks.has(b.idx))
+        const isFree = conflictBlocks.length === 0
+        return { ...op, isFree, conflictBlocks }
+      })
+      .sort((a, b) => {
+        if (a.isFree && !b.isFree) return -1
+        if (!a.isFree && b.isFree) return 1
+        return a.nombre.localeCompare(b.nombre)
+      })
+  }, [allOperarios, busyInBlocks, activeBlocks, dayName, dayPrefix])
+
+  async function handleSelect(nombre: string) {
+    setAssigning(true)
+    try {
+      await onAssign(nombre)
+    } finally {
+      setAssigning(false)
+      setOpen(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-500 dark:text-red-400 ring-1 ring-red-500/40 hover:bg-red-500/30 transition-colors"
+        title={entry.motivo_sin_asignar || 'Click para asignar operario'}
+      >
+        <UserX className="h-3 w-3" />
+        SIN ASIGNAR
+      </button>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <div className="absolute z-50 top-0 left-0 w-72 max-h-60 overflow-y-auto rounded-lg border bg-card shadow-lg p-1">
+        <div className="text-[9px] text-muted-foreground px-2 py-1 border-b mb-1">
+          {entry.recurso} · Bloques: {activeBlocks.map((b) => blockLabels[b.idx]).join(', ')}
+        </div>
+        {available.map((op) => (
+          <button
+            key={op.nombre}
+            disabled={!op.isFree || assigning}
+            onClick={() => handleSelect(op.nombre)}
+            className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between gap-1 ${
+              op.isFree
+                ? 'hover:bg-accent cursor-pointer'
+                : 'opacity-40 cursor-not-allowed'
+            }`}
+          >
+            <span className="truncate font-medium">{op.nombre}</span>
+            {!op.isFree && (
+              <span className="text-[8px] text-red-400 whitespace-nowrap">
+                Ocupado {op.conflictBlocks.map((b) => blockLabels[b.idx]).join(',')}
+              </span>
+            )}
+          </button>
+        ))}
+        <button
+          onClick={() => setOpen(false)}
+          className="w-full text-center text-[9px] text-muted-foreground hover:text-foreground py-1 mt-1 border-t"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
   )
 }
