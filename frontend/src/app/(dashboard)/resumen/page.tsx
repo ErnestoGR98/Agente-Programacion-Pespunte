@@ -820,9 +820,17 @@ function ScenarioPanel({ resultName }: { resultName: string }) {
 
 function PivotTable({ schedule, maquilaFabricas }: { schedule: WeeklyScheduleEntry[]; maquilaFabricas: Set<string> }) {
   const catImages = useCatalogoImages()
+  const [allDays, setAllDays] = useState<string[]>([])
+
+  // Load all active days from dias_laborales
+  useEffect(() => {
+    supabase.from('dias_laborales').select('nombre').order('orden').then(({ data }) => {
+      if (data) setAllDays(DAY_ORDER.filter((d) => data.some((dl: { nombre: string }) => dl.nombre === d)))
+    })
+  }, [])
+
   const pivot = useMemo(() => {
-    const rawDays = [...new Set(schedule.map((e) => e.Dia))]
-    const days = DAY_ORDER.filter((d) => rawDays.includes(d))
+    const days = allDays.length > 0 ? allDays : DAY_ORDER.filter((d) => [...new Set(schedule.map((e) => e.Dia))].includes(d))
     const models = [...new Set(schedule.map((e) => `${e.Fabrica}|${e.Modelo}`))]
 
     const data = models.map((key) => {
