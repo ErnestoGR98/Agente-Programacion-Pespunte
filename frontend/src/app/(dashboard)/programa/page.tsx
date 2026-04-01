@@ -1009,8 +1009,8 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                     <td className="px-2 py-1 text-right">{s.rate}</td>
                     <td className="px-2 py-1 text-right">{s.hc}</td>
                     {(s.blocks || []).map((val, bi) => {
-                      const blockMotivo = isSinAsignar && val > 0 && s.motivos_por_bloque?.[String(bi)]
-                        ? s.motivos_por_bloque[String(bi)]
+                      const blockMotivo = isSinAsignar && val > 0
+                        ? (s.motivos_por_bloque?.[String(bi)] || s.motivo_sin_asignar || 'Sin operario disponible')
                         : undefined
                       return (
                         <td
