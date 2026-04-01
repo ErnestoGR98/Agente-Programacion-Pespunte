@@ -1093,6 +1093,7 @@ function DailyOptimizer() {
   const [dayStatus, setDayStatus] = useState<Record<string, { pares: number; tardiness: number; status: string }>>({})
   const [search, setSearch] = useState('')
   const [expandedRezago, setExpandedRezago] = useState<Set<string>>(new Set())
+  const [enabledRezago, setEnabledRezago] = useState<Set<string>>(new Set())
   const [fracNames, setFracNames] = useState<Map<string, string>>(new Map()) // key: "modelo|frac" -> operacion
   const catImages = useCatalogoImages()
 
@@ -1241,9 +1242,11 @@ function DailyOptimizer() {
     }
 
     // Override pares from weekly_schedule if exists for this day
+    // BUT skip models that have rezago — their pares are in the rezago section
+    const rezagoModelos = new Set(Object.keys(carryOver.tardiness).filter((k) => (carryOver.tardiness[k] || 0) > 0))
     if (currentResult?.weekly_schedule?.length) {
       for (const e of currentResult.weekly_schedule) {
-        if (e.Dia === selectedDay) {
+        if (e.Dia === selectedDay && !rezagoModelos.has(e.Modelo)) {
           const existing = dayModels.get(e.Modelo)
           if (existing) {
             existing.pares += e.Pares
@@ -1278,8 +1281,9 @@ function DailyOptimizer() {
         }
       }
 
-      // Rezago models (add to existing or create new)
+      // Rezago models — only enabled ones
       for (const rz of rezagoModels) {
+        if (!enabledRezago.has(rz.modelo)) continue
         const existing = allModels.get(rz.modelo)
         if (existing) {
           existing.pares += rz.totalPendiente
@@ -1335,7 +1339,7 @@ function DailyOptimizer() {
   }
 
   const totalNewPares = models.reduce((s, m) => s + m.pares, 0)
-  const totalRezagoPares = rezagoModels.reduce((s, m) => s + m.totalPendiente, 0)
+  const totalRezagoPares = rezagoModels.filter((rz) => enabledRezago.has(rz.modelo)).reduce((s, m) => s + m.totalPendiente, 0)
   const totalPares = totalNewPares + totalRezagoPares
 
   const filteredModels = useMemo(() => {
@@ -1472,7 +1476,7 @@ function DailyOptimizer() {
               <span className="text-sm font-semibold text-amber-500">
                 Rezago de dias anteriores — {totalRezagoPares.toLocaleString()}p pendientes
               </span>
-              <span className="text-[10px] text-muted-foreground">(se agrega automaticamente al optimizar)</span>
+              <span className="text-[10px] text-muted-foreground">(selecciona cuales incluir en la optimizacion)</span>
             </div>
             {rezagoModels.map((rz) => {
               const [modelNum, ...cp] = rz.modelo.split(' ')
@@ -1480,31 +1484,48 @@ function DailyOptimizer() {
               const isExp = expandedRezago.has(rz.modelo)
               return (
                 <div key={rz.modelo} className="rounded border border-amber-500/20 bg-card p-2">
-                  <button
-                    className="flex items-center gap-2 w-full text-left"
-                    onClick={() => setExpandedRezago((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(rz.modelo)) next.delete(rz.modelo)
-                      else next.add(rz.modelo)
-                      return next
-                    })}
-                  >
-                    {imgUrl ? (
-                      <div className="h-10 w-14 rounded border bg-white flex items-center justify-center p-0.5 flex-shrink-0">
-                        <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                  <div className="flex items-center gap-2 w-full">
+                    <input
+                      type="checkbox"
+                      checked={enabledRezago.has(rz.modelo)}
+                      onChange={(e) => {
+                        setEnabledRezago((prev) => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(rz.modelo)
+                          else next.delete(rz.modelo)
+                          return next
+                        })
+                      }}
+                      className="h-4 w-4 rounded border-amber-500 text-amber-500 flex-shrink-0"
+                    />
+                    <button
+                      className="flex items-center gap-2 flex-1 text-left"
+                      onClick={() => setExpandedRezago((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(rz.modelo)) next.delete(rz.modelo)
+                        else next.add(rz.modelo)
+                        return next
+                      })}
+                    >
+                      {imgUrl ? (
+                        <div className="h-10 w-14 rounded border bg-white flex items-center justify-center p-0.5 flex-shrink-0">
+                          <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                        </div>
+                      ) : (
+                        <div className="h-10 w-14 rounded border bg-muted flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="font-mono text-sm font-medium">{rz.modelo}</span>
+                        <span className="text-xs text-muted-foreground ml-2">{rz.fabrica}</span>
                       </div>
-                    ) : (
-                      <div className="h-10 w-14 rounded border bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <span className="font-mono text-sm font-medium">{rz.modelo}</span>
-                      <span className="text-xs text-muted-foreground ml-2">{rz.fabrica}</span>
-                    </div>
-                    <span className="font-mono font-bold text-amber-500">{rz.totalPendiente}p</span>
-                    {rz.fracciones.length > 0 && (
-                      isExp ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </button>
+                      <span className={`font-mono font-bold ${enabledRezago.has(rz.modelo) ? 'text-amber-500' : 'text-muted-foreground line-through'}`}>
+                        {rz.totalPendiente}p
+                      </span>
+                      {rz.fracciones.length > 0 && (
+                        isExp ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                    </button>
+                  </div>
                   {isExp && rz.fracciones.length > 0 && (
                     <div className="mt-2 pl-16 space-y-0.5">
                       {rz.fracciones.map((f) => (
