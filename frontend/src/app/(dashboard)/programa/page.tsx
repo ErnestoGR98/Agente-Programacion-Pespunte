@@ -1447,37 +1447,46 @@ function OperarioSelector({
   }
 
   return (
-    <div className="relative">
-      <div className="fixed z-[100] w-80 max-h-60 overflow-y-auto rounded-lg border-2 shadow-2xl p-1" style={{ backgroundColor: 'hsl(var(--card))', top: '30%', left: '40%' }}>
-        <div className="text-[9px] text-muted-foreground px-2 py-1 border-b mb-1">
-          {entry.recurso} · Bloques: {activeBlocks.map((b) => blockLabels[b.idx]).join(', ')}
+    <>
+      {/* Overlay */}
+      <div className="fixed inset-0 z-[99] bg-black/50" onClick={() => setOpen(false)} />
+      {/* Modal */}
+      <div className="fixed z-[100] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 max-h-80 overflow-y-auto rounded-xl border shadow-2xl p-3 bg-zinc-900 text-white">
+        <div className="text-xs font-semibold mb-2">Asignar Operario</div>
+        <div className="text-[10px] text-zinc-400 mb-2 pb-2 border-b border-zinc-700">
+          {entry.modelo} · F{entry.fraccion} · {entry.recurso} · Bloques: {activeBlocks.map((b) => blockLabels[b.idx]).join(', ')}
         </div>
-        {available.map((op) => (
-          <button
-            key={op.nombre}
-            disabled={!op.isFree || assigning}
-            onClick={() => handleSelect(op.nombre)}
-            className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between gap-1 ${
-              op.isFree
-                ? 'hover:bg-accent cursor-pointer'
-                : 'opacity-40 cursor-not-allowed'
-            }`}
-          >
-            <span className="truncate font-medium">{op.nombre}</span>
-            {!op.isFree && (
-              <span className="text-[8px] text-red-400 whitespace-nowrap">
-                Ocupado {op.conflictBlocks.map((b) => blockLabels[b.idx]).join(',')}
-              </span>
-            )}
-          </button>
-        ))}
+        <div className="space-y-0.5">
+          {available.map((op) => (
+            <button
+              key={op.nombre}
+              disabled={!op.isFree || assigning}
+              onClick={() => handleSelect(op.nombre)}
+              className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                op.isFree
+                  ? 'hover:bg-zinc-700 cursor-pointer'
+                  : 'opacity-30 cursor-not-allowed'
+              }`}
+            >
+              <span className="truncate font-medium">{op.nombre}</span>
+              {!op.isFree && (
+                <span className="text-[9px] text-red-400 whitespace-nowrap flex-shrink-0">
+                  Ocupado {op.conflictBlocks.map((b) => blockLabels[b.idx]).join(', ')}
+                </span>
+              )}
+              {op.isFree && (
+                <span className="text-[9px] text-emerald-400 flex-shrink-0">Disponible</span>
+              )}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => setOpen(false)}
-          className="w-full text-center text-[9px] text-muted-foreground hover:text-foreground py-1 mt-1 border-t"
+          className="w-full text-center text-xs text-zinc-400 hover:text-white py-2 mt-2 border-t border-zinc-700"
         >
           Cancelar
         </button>
       </div>
-    </div>
+    </>
   )
 }
