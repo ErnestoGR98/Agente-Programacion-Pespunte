@@ -1495,14 +1495,15 @@ def optimize_day(req: OptimizeDayRequest):
     compiled = compile_constraints(restricciones, avance_data, matched, params["days"])
 
     # 4. Build models_day for schedule_day
+    # Sum pares per model (may have separate entries for new + rezago)
+    pares_by_model = {}
+    for rm in req.models_day:
+        code = rm["modelo"]
+        pares_by_model[code] = pares_by_model.get(code, 0) + rm.get("pares", 0)
+
     models_for_day = []
     for m in deepcopy(matched):
-        # Find pares from request
-        pares = 0
-        for rm in req.models_day:
-            if rm["modelo"] == m["codigo"]:
-                pares = rm.get("pares", 0)
-                break
+        pares = pares_by_model.get(m["codigo"], 0)
         if pares <= 0:
             continue
 

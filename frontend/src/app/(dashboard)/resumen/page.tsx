@@ -1271,28 +1271,22 @@ function DailyOptimizer() {
     setError(null)
 
     try {
-      // Combine new models + rezago models
-      const allModels = new Map<string, { modelo: string; pares: number; fabrica?: string }>()
+      // Send new models and rezago models as SEPARATE entries
+      const modelsToSend: { modelo: string; pares: number; fabrica?: string }[] = []
 
       // New models (user-edited)
       for (const m of models) {
         if (m.pares > 0) {
-          allModels.set(m.modelo, { modelo: m.modelo, pares: m.pares, fabrica: m.fabrica })
+          modelsToSend.push({ modelo: m.modelo, pares: m.pares, fabrica: m.fabrica })
         }
       }
 
-      // Rezago models — only enabled ones
+      // Rezago models — only enabled ones, as separate entries
       for (const rz of rezagoModels) {
         if (!enabledRezago.has(rz.modelo)) continue
-        const existing = allModels.get(rz.modelo)
-        if (existing) {
-          existing.pares += rz.totalPendiente
-        } else {
-          allModels.set(rz.modelo, { modelo: rz.modelo, pares: rz.totalPendiente, fabrica: rz.fabrica })
-        }
+        modelsToSend.push({ modelo: rz.modelo, pares: rz.totalPendiente, fabrica: rz.fabrica })
       }
 
-      const modelsToSend = Array.from(allModels.values())
       if (modelsToSend.length === 0) return
 
       const res = await optimizeDay({
