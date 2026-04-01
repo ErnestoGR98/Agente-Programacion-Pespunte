@@ -742,6 +742,69 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
     [schedule]
   )
 
+  // Custom styled PDF for this day
+  async function handleDayPDF() {
+    const headers = ['MODELO', 'FRACC', 'OPERACION', 'RECURSO', 'OPERARIO', 'RATE', 'HC', ...blockLabels, 'TOTAL']
+    const etapas = schedule.map((s) => {
+      const modeloNum = s.modelo.split(' ')[0]
+      return inputProcesoMap.get(`${modeloNum}|${s.fraccion}`) || s.input_o_proceso || s.etapa || ''
+    })
+    const rows = schedule.map((s) => [
+      s.modelo, s.fraccion, s.operacion, s.robot || s.recurso,
+      s.operario || '-', s.rate, s.hc,
+      ...(s.blocks || []).map((v) => (v > 0 ? v : '')),
+      s.total,
+    ] as (string | number)[])
+
+    const modelos = [...new Set(schedule.map((s) => s.modelo))]
+    const imgMap = await preloadModeloImages(modelos, catImages, (num, color) =>
+      getModeloImageUrl(catImages, num, color)
+    )
+
+    const groups: ProgramaDayGroup[] = [{
+      day: dayName,
+      rows,
+      etapas,
+      kpis: {
+        totalPares: schedule.reduce((s, e) => s + e.total, 0),
+        weeklyPares: 0,
+        paresAdelantados: 0,
+        paresRezago: 0,
+        tardiness: data.total_tardiness || 0,
+        maxHc: Math.max(...schedule.map((s) => s.hc || 0), 0),
+        plantilla: data.plantilla || 0,
+        status: data.status || '',
+        unassignedCount: schedule.filter((s) => s.operario === 'SIN ASIGNAR').length,
+      },
+    }]
+
+    exportProgramaPDF(`Programa_${dayName}`, headers, groups, imgMap)
+  }
+
+  // Custom styled Excel for this day
+  function handleDayExcel() {
+    const excelRows = schedule.map((s) => {
+      const modeloNum = s.modelo.split(' ')[0]
+      const ip = inputProcesoMap.get(`${modeloNum}|${s.fraccion}`) || s.input_o_proceso || ''
+      return {
+        modelo: s.modelo,
+        fraccion: s.fraccion,
+        operacion: s.operacion,
+        etapa: s.etapa || '',
+        recurso: s.robot || s.recurso,
+        operario: s.operario || '-',
+        rate: s.rate,
+        hc: s.hc,
+        blocks: s.blocks || [],
+        total: s.total,
+        isSinAsignar: s.operario === 'SIN ASIGNAR',
+        inputProceso: ip,
+      }
+    })
+    const groups: ProgramaExcelDayGroup[] = [{ day: dayName, rows: excelRows }]
+    exportProgramaExcel(`Programa_${dayName}`, blockLabels, groups)
+  }
+
   /** Resolve color for a schedule entry using input_o_proceso from catalog */
   const getEtapaColor = useMemo(() => {
     function colorFromProceso(ip: string): string {
@@ -941,6 +1004,8 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
               title={`Programa_${dayName}`}
               headers={exportHeaders}
               rows={exportRows}
+              onCustomPDF={handleDayPDF}
+              onCustomExcel={handleDayExcel}
             />
           </div>
           <div className="overflow-x-auto">
