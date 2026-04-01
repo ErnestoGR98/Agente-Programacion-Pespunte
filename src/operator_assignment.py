@@ -270,15 +270,29 @@ def _diagnose_unassigned(task, block, op_states, robot_usage, op_block_map,
 
     # Paso 3: si necesita robot, hay robot disponible?
     if robots_needed:
+        free_names = [op_st["nombre"].split()[0] for op_st in free_in_block]
+        has_robot = False
         for op_st in free_in_block:
             robot = _find_robot(op_st, robots_needed, robot_usage, [block])
             if robot is not None:
-                return "Conflicto de asignacion"
-        robots_list = list(robots_needed)
-        return f"Robot no disponible ({', '.join(robots_list)})"
+                has_robot = True
+                break
+        if not has_robot:
+            # Listar que robots estan ocupados y en que
+            busy_robots = []
+            for rn in robots_needed:
+                if rn in robot_usage and block in robot_usage[rn]:
+                    busy_in = robot_usage[rn][block]
+                    busy_robots.append(f"{rn}→{busy_in}")
+                else:
+                    busy_robots.append(rn)
+            return f"Robots ocupados ({', '.join(busy_robots)}). Ops libres: {', '.join(free_names)}"
+        # Operario libre + robot disponible pero no asignado (MRV o prioridad lo descarto)
+        return f"Operarios libres ({', '.join(free_names)}) con robot disponible, pero no asignados (prioridad MRV)"
 
     # Operario libre con recurso existe pero no fue asignado
-    return "Ocupados en otra tarea"
+    free_names = [op_st["nombre"].split()[0] for op_st in free_in_block]
+    return f"Ops libres con {recurso} ({', '.join(free_names)}) pero no asignados (prioridad MRV)"
 
 
 # ---------------------------------------------------------------------------
