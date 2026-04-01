@@ -989,31 +989,29 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                           dayName={dayName}
                           blockLabels={blockLabels}
                           onAssign={async (operario) => {
-                            // Update in the current result's daily_results
-                            const currentResult = useAppStore.getState().currentResult
-                            if (!currentResult) return
-                            const dr = { ...currentResult.daily_results }
+                            const cr = useAppStore.getState().currentResult
+                            if (!cr) return
+                            const dr = JSON.parse(JSON.stringify(cr.daily_results))
                             const dayData = dr[dayName]
-                            if (!dayData) return
-                            const newSchedule = [...dayData.schedule]
-                            // Find and update this specific entry
-                            const target = newSchedule.find((e, idx) =>
-                              e.modelo === s.modelo && e.fraccion === s.fraccion &&
-                              e.operario === 'SIN ASIGNAR' && idx === i
-                            )
-                            if (target) {
-                              target.operario = operario
-                              delete (target as unknown as Record<string, unknown>).motivo_sin_asignar
-                              delete (target as unknown as Record<string, unknown>).motivos_por_bloque
+                            if (!dayData?.schedule) return
+                            // Update ALL matching SIN ASIGNAR entries for this modelo+fraccion
+                            let updated = false
+                            for (const e of dayData.schedule) {
+                              if (e.modelo === s.modelo && e.fraccion === s.fraccion && e.operario === 'SIN ASIGNAR') {
+                                e.operario = operario
+                                delete e.motivo_sin_asignar
+                                delete e.motivos_por_bloque
+                                updated = true
+                              }
                             }
-                            const newDaily = { ...dr, [dayName]: { ...dayData, schedule: newSchedule } }
+                            if (!updated) return
                             // Save to Supabase
                             await supabase
                               .from('resultados')
-                              .update({ daily_results: newDaily })
-                              .eq('id', currentResult.id)
+                              .update({ daily_results: dr })
+                              .eq('id', cr.id)
                             // Update local state
-                            useAppStore.getState().setCurrentResult({ ...currentResult, daily_results: newDaily })
+                            useAppStore.getState().setCurrentResult({ ...cr, daily_results: dr })
                           }}
                         />
                       ) : s.operario ? (
