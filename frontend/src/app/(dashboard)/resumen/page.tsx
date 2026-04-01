@@ -1311,9 +1311,9 @@ function DailyOptimizer() {
                     <TableRow key={m.modelo}>
                       <TableCell className="px-2 py-1">
                         {imgUrl ? (
-                          <img src={imgUrl} alt="" className="h-7 w-auto rounded border object-contain bg-white" />
+                          <img src={imgUrl} alt="" className="h-12 w-auto rounded border object-contain bg-white" />
                         ) : (
-                          <div className="h-7 w-10 rounded border bg-muted flex items-center justify-center text-[8px] text-muted-foreground">?</div>
+                          <div className="h-12 w-14 rounded border bg-muted flex items-center justify-center text-[8px] text-muted-foreground">?</div>
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
