@@ -993,6 +993,150 @@ def run_optimization(req: OptimizeRequest):
 # Generate Daily from Manual Weekly Plan
 # ============================================================
 
+class ReassignOperatorsRequest(BaseModel):
+    resultado_id: str
+
+
+class ReassignOperatorsResponse(BaseModel):
+    status: str
+    saved_as: str
+    unassigned_count: int
+
+
+@router.post("/reassign-operators", response_model=ReassignOperatorsResponse)
+def reassign_operators(req: ReassignOperatorsRequest):
+    """Re-corre asignacion de operarios sobre un resultado existente sin re-optimizar."""
+    import time
+    t0 = time.time()
+
+    results = _sb_get("resultados", f"select=*&id=eq.{req.resultado_id}")
+    if not results:
+        raise HTTPException(404, "Resultado no encontrado")
+    resultado = results[0]
+
+    daily_results = resultado.get("daily_results", {})
+    if not daily_results:
+        raise HTTPException(400, "El resultado no tiene daily_results")
+
+    params = _load_params()
+    operarios = _load_operarios()
+    catalogo = _load_catalogo()
+    if not operarios:
+        raise HTTPException(400, "No hay operarios registrados")
+
+    print(f"[REASSIGN] Re-asignando operarios para '{resultado['nombre']}'")
+
+    # Convert frontend format back to raw format for assign_operators_week
+    raw_daily = {}
+    for day_name, day_data in daily_results.items():
+        raw_schedule = []
+        for s in day_data.get("schedule", []):
+            raw_entry = {
+                "modelo": s.get("modelo", ""),
+                "fraccion": s.get("fraccion", 0),
+                "operacion": s.get("operacion", ""),
+                "recurso": s.get("recurso", ""),
+                "rate": s.get("rate", 0),
+                "hc": s.get("hc", 0),
+                "block_pares": s.get("blocks", []),
+                "total_pares": s.get("total", 0),
+                "robots_used": [s["robot"]] if s.get("robot") else [],
+            }
+            # Reconstruct robots_eligible from catalogo
+            modelo_num = s.get("modelo", "").split()[0]
+            cat = catalogo.get(modelo_num)
+            if cat:
+                for op in cat.get("operations", []):
+                    if op.get("fraccion") == s.get("fraccion"):
+                        raw_entry["robots_eligible"] = op.get("robots", [])
+                        break
+            raw_schedule.append(raw_entry)
+
+        raw_daily[day_name] = {
+            "schedule": raw_schedule,
+            "summary": {
+                "status": day_data.get("status", ""),
+                "total_pares": day_data.get("total_pares", 0),
+                "plantilla": day_data.get("plantilla", 0),
+            },
+        }
+
+    # Run operator assignment
+    op_results = assign_operators_week(raw_daily, operarios, params["time_blocks"])
+
+    # Re-flatten with new assignments
+    matched = _match_models(catalogo, resultado.get("pedido_snapshot", []))
+    model_lookup = {m["codigo"]: m for m in matched}
+
+    new_daily = {}
+    total_unassigned = 0
+    for day_name, day_data in daily_results.items():
+        op_day = op_results.get(day_name, {})
+        source_schedule = op_day.get("assignments") or raw_daily.get(day_name, {}).get("schedule", [])
+
+        schedule = []
+        for s in source_schedule:
+            modelo_code = s.get("modelo", "")
+            etapa = ""
+            input_o_proceso = ""
+            cat_model = model_lookup.get(modelo_code)
+            if cat_model:
+                for op in cat_model.get("operations", []):
+                    if op["fraccion"] == s.get("fraccion"):
+                        etapa = op.get("etapa", "")
+                        input_o_proceso = op.get("input_o_proceso", "")
+                        break
+            entry = {
+                "modelo": modelo_code,
+                "fraccion": s.get("fraccion", 0),
+                "operacion": s.get("operacion", ""),
+                "recurso": s.get("recurso", ""),
+                "rate": s.get("rate", 0),
+                "hc": s.get("hc", 0),
+                "etapa": etapa,
+                "input_o_proceso": input_o_proceso,
+                "blocks": s.get("block_pares", []),
+                "total": s.get("total_pares", 0),
+                "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+                "robot_per_block": s.get("robot_per_block", []),
+                "operario": s.get("operario", ""),
+            }
+            if s.get("motivo_sin_asignar"):
+                entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+            if s.get("motivos_por_bloque"):
+                entry["motivos_por_bloque"] = s["motivos_por_bloque"]
+            schedule.append(entry)
+
+        new_daily[day_name] = {
+            **day_data,
+            "schedule": schedule,
+            "operator_timelines": op_day.get("operator_timelines", {}),
+            "unassigned_ops": op_day.get("unassigned", []),
+        }
+        total_unassigned += len(op_day.get("unassigned", []))
+
+    # Save as new version
+    base_name = resultado.get("base_name", "")
+    saved_as = _save_resultado(
+        base_name,
+        resultado.get("weekly_schedule", []),
+        resultado.get("weekly_summary", {}),
+        new_daily,
+        resultado.get("pedido_snapshot", []),
+        resultado.get("params_snapshot", {}),
+        "Re-asignacion de operarios",
+    )
+
+    wall_time = time.time() - t0
+    print(f"[REASSIGN] Guardado como '{saved_as}' en {wall_time:.1f}s, {total_unassigned} sin asignar")
+
+    return ReassignOperatorsResponse(
+        status="OK",
+        saved_as=saved_as,
+        unassigned_count=total_unassigned,
+    )
+
+
 class GenerateDailyRequest(BaseModel):
     resultado_id: str  # ID del resultado con weekly_schedule manual
     nota: str = ""
