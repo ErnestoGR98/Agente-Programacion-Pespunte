@@ -528,6 +528,7 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
   const [selectedOperario, setSelectedOperario] = useState<string | null>(null)
   const [selectedRecurso, setSelectedRecurso] = useState<string | null>(null)
   const [viewTab, setViewTab] = useState<'programa' | 'operario' | 'recurso'>('programa')
+  const [blockAssign, setBlockAssign] = useState<{ entry: DailyScheduleEntry; blockIdx: number; blockLabel: string } | null>(null)
 
   // Clear selection when day changes
   useEffect(() => { setSelectedOperario(null); setSelectedRecurso(null) }, [dayName])
@@ -1044,8 +1045,11 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
                       return (
                         <td
                           key={bi}
-                          className={`px-1 py-1 text-center ${isSinAsignar && val > 0 ? 'ring-1 ring-inset ring-red-500/50 font-bold cursor-help' : ''}`}
+                          className={`px-1 py-1 text-center ${isSinAsignar && val > 0 ? 'ring-1 ring-inset ring-red-500/50 font-bold cursor-pointer hover:ring-2 hover:ring-red-400' : ''}`}
                           title={blockMotivo}
+                          onClick={isSinAsignar && val > 0 ? () => {
+                            setBlockAssign({ entry: s, blockIdx: bi, blockLabel: blockLabels[bi] })
+                          } : undefined}
                           style={{
                             backgroundColor: val > 0
                               ? isSinAsignar ? 'rgba(239,68,68,0.25)' : `${bgColor}30`
@@ -1090,6 +1094,68 @@ function DayView({ dayName, data, weeklySchedule, maquilaModelos, maquilaDeps, c
 
       {/* Operarios no utilizados */}
       <IdleOperators schedule={schedule} dayName={dayName} allOperarios={allOperarios} />
+
+      {/* Block-level assignment modal */}
+      {blockAssign && (
+        <BlockAssignModal
+          entry={blockAssign.entry}
+          blockIdx={blockAssign.blockIdx}
+          blockLabel={blockAssign.blockLabel}
+          schedule={schedule}
+          allOperarios={allOperarios}
+          dayName={dayName}
+          onAssign={async (operario) => {
+            const cr = useAppStore.getState().currentResult
+            if (!cr) return
+            const dr = JSON.parse(JSON.stringify(cr.daily_results))
+            const dayData = dr[dayName]
+            if (!dayData?.schedule) return
+
+            const ba = blockAssign
+            // Find the original entry and split it: one entry for this block with the new operario,
+            // the rest stays as SIN ASIGNAR
+            const newSchedule: DailyScheduleEntry[] = []
+            for (const e of dayData.schedule) {
+              if (e.modelo === ba.entry.modelo && e.fraccion === ba.entry.fraccion && e.operario === 'SIN ASIGNAR') {
+                const blocks = e.blocks || []
+                const thisBlockPares = blocks[ba.blockIdx] || 0
+                if (thisBlockPares > 0) {
+                  // Entry for the assigned block
+                  const assignedBlocks = blocks.map((_: number, i: number) => i === ba.blockIdx ? thisBlockPares : 0)
+                  newSchedule.push({
+                    ...e,
+                    operario,
+                    blocks: assignedBlocks,
+                    total: thisBlockPares,
+                    motivo_sin_asignar: undefined,
+                    motivos_por_bloque: undefined,
+                  })
+                  // Entry for remaining unassigned blocks (if any)
+                  const remainingBlocks = blocks.map((v: number, i: number) => i === ba.blockIdx ? 0 : v)
+                  const remainingTotal = remainingBlocks.reduce((a: number, b: number) => a + b, 0)
+                  if (remainingTotal > 0) {
+                    newSchedule.push({
+                      ...e,
+                      blocks: remainingBlocks,
+                      total: remainingTotal,
+                    })
+                  }
+                } else {
+                  newSchedule.push(e)
+                }
+              } else {
+                newSchedule.push(e)
+              }
+            }
+
+            dr[dayName] = { ...dayData, schedule: newSchedule }
+            await supabase.from('resultados').update({ daily_results: dr }).eq('id', cr.id)
+            useAppStore.getState().setCurrentResult({ ...cr, daily_results: dr })
+            setBlockAssign(null)
+          }}
+          onClose={() => setBlockAssign(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1480,6 +1546,108 @@ function OperarioSelector({
         </div>
         <button
           onClick={() => setOpen(false)}
+          className="w-full text-center text-xs text-zinc-400 hover:text-white py-2 mt-2 border-t border-zinc-700"
+        >
+          Cancelar
+        </button>
+      </div>
+    </>
+  )
+}
+
+
+// ============================================================
+// Block-level Assignment Modal
+// ============================================================
+
+function BlockAssignModal({
+  entry, blockIdx, blockLabel, schedule, allOperarios, dayName, onAssign, onClose,
+}: {
+  entry: DailyScheduleEntry
+  blockIdx: number
+  blockLabel: string
+  schedule: DailyScheduleEntry[]
+  allOperarios: { nombre: string; activo: boolean; dias: string[]; habilidades: SkillType[] }[]
+  dayName: string
+  onAssign: (operario: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [assigning, setAssigning] = useState(false)
+  const pares = (entry.blocks || [])[blockIdx] || 0
+
+  // Who is busy in THIS specific block
+  const busyInBlock = useMemo(() => {
+    const busy = new Map<string, string>() // operario -> what they're doing
+    for (const s of schedule) {
+      if (!s.operario || s.operario === 'SIN ASIGNAR') continue
+      if ((s.blocks || [])[blockIdx] > 0) {
+        busy.set(s.operario, `${s.modelo} F${s.fraccion}`)
+      }
+    }
+    return busy
+  }, [schedule, blockIdx])
+
+  const dayPrefix = dayName.split(' ')[0] || dayName
+  const available = useMemo(() => {
+    return allOperarios
+      .filter((op) => op.activo)
+      .filter((op) => {
+        if (op.dias.length === 0) return true
+        return op.dias.some((d) => d === dayName || d.startsWith(dayPrefix) || dayName.startsWith(d))
+      })
+      .map((op) => {
+        const busyIn = busyInBlock.get(op.nombre)
+        return { ...op, isFree: !busyIn, busyIn }
+      })
+      .sort((a, b) => {
+        if (a.isFree && !b.isFree) return -1
+        if (!a.isFree && b.isFree) return 1
+        return a.nombre.localeCompare(b.nombre)
+      })
+  }, [allOperarios, busyInBlock, dayName, dayPrefix])
+
+  async function handleSelect(nombre: string) {
+    setAssigning(true)
+    try {
+      await onAssign(nombre)
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[99] bg-black/50" onClick={onClose} />
+      <div className="fixed z-[100] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 max-h-80 overflow-y-auto rounded-xl border shadow-2xl p-3 bg-zinc-900 text-white">
+        <div className="text-xs font-semibold mb-2">Asignar Operario — Bloque {blockLabel}</div>
+        <div className="text-[10px] text-zinc-400 mb-2 pb-2 border-b border-zinc-700">
+          {entry.modelo} · F{entry.fraccion} · {entry.recurso} · {pares}p
+        </div>
+        <div className="space-y-0.5">
+          {available.map((op) => (
+            <button
+              key={op.nombre}
+              disabled={!op.isFree || assigning}
+              onClick={() => handleSelect(op.nombre)}
+              className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                op.isFree
+                  ? 'hover:bg-zinc-700 cursor-pointer'
+                  : 'opacity-30 cursor-not-allowed'
+              }`}
+            >
+              <span className="truncate font-medium">{op.nombre}</span>
+              {op.isFree ? (
+                <span className="text-[9px] text-emerald-400 flex-shrink-0">Disponible</span>
+              ) : (
+                <span className="text-[9px] text-red-400 flex-shrink-0 truncate max-w-[120px]">
+                  {op.busyIn}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
           className="w-full text-center text-xs text-zinc-400 hover:text-white py-2 mt-2 border-t border-zinc-700"
         >
           Cancelar
