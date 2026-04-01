@@ -1310,11 +1310,13 @@ function DailyOptimizer() {
                   const imgUrl = getModeloImageUrl(catImages, modelNum, colorStr)
                   return (
                     <TableRow key={m.modelo}>
-                      <TableCell className="px-2 py-1">
+                      <TableCell className="px-2 py-2 w-[100px]">
                         {imgUrl ? (
-                          <img src={imgUrl} alt="" className="h-12 w-24 rounded border object-contain bg-white" />
+                          <div className="h-16 w-[90px] rounded border bg-white flex items-center justify-center p-1">
+                            <img src={imgUrl} alt="" className="max-h-full max-w-full object-contain" />
+                          </div>
                         ) : (
-                          <div className="h-12 w-24 rounded border bg-muted flex items-center justify-center text-[8px] text-muted-foreground">?</div>
+                          <div className="h-16 w-[90px] rounded border bg-muted flex items-center justify-center text-[9px] text-muted-foreground">Sin foto</div>
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm font-medium">{m.modelo}</TableCell>
