@@ -1747,15 +1747,22 @@ def optimize_day(req: OptimizeDayRequest):
     # Update this day
     daily_results[day_name] = flattened
 
-    # Update weekly_schedule: remove old entries for this day, add new ones
+    # Update weekly_schedule: use ORIGINAL request pares (not solver-adjusted)
+    # Sum pares per model from request (preserves user intent)
     weekly_schedule = [e for e in weekly_schedule if e.get("Dia") != day_name]
-    for m in models_for_day:
-        weekly_schedule.append({
-            "Modelo": m["codigo"],
-            "Dia": day_name,
-            "Pares": m["pares_dia"],
-            "Fabrica": m.get("fabrica", ""),
-        })
+    req_pares = {}
+    for rm in req.models_day:
+        code = rm["modelo"]
+        req_pares[code] = req_pares.get(code, 0) + rm.get("pares", 0)
+    for code, pares in req_pares.items():
+        if pares > 0:
+            fab = next((rm.get("fabrica", "") for rm in req.models_day if rm["modelo"] == code), "")
+            weekly_schedule.append({
+                "Modelo": code,
+                "Dia": day_name,
+                "Pares": pares,
+                "Fabrica": fab,
+            })
 
     # Update weekly_summary
     total_pares = sum(
