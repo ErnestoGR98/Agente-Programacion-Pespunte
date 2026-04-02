@@ -50,6 +50,13 @@ reports/
 # Backups
 data/*_backup.*
 
+# Logs
+*.log
+server.log
+
+# Cache
+img_cache/
+
 # Node (Next.js)
 node_modules/
 .next/
