@@ -1,0 +1,30 @@
+# Overrides temporales para generar_propuesta_backlog.py
+# Renombra a "overrides.yaml" para activarlo.
+# El script lo lee automáticamente; CLI tiene precedencia.
+
+activo: true
+fecha_expira: 2026-12-31    # YYYY-MM-DD; pasada esta fecha el archivo se ignora
+notas: "Mantenimiento robot 6040-M5 sem 17-18"
+
+overrides:
+  # Máximo de modelos activos por semana (default 5)
+  max_modelos_semana: 5
+
+  # Máximo de semanas que un modelo puede ocupar (default 3)
+  max_semanas_modelo: 3
+
+  # Modelos a excluir del cálculo (matching por substring del nombre)
+  excluir:
+    # - "93347"
+
+  # Modelos que NO deben aislarse aunque tengan robots restringidos
+  no_aislar:
+    # - "62100"
+
+  # Fijar modelos en semanas específicas (suma se reparte parejo)
+  fijar:
+    # "68127 NE/RO SLI": [17, 18]
+
+  # Capacidad robot extra (positivo = sumar robots; negativo = restar)
+  # Ej: -50 = un robot fuera por mantenimiento (≈50 h/sem menos)
+  capacidad_robot_extra: 0
