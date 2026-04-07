@@ -708,19 +708,23 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
     # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
     # para evitar datos huérfanos que generen referencias circulares.
     # Además: eliminar imágenes (redundantes con Backlog) y limpiar fills de filas vacías.
-    from openpyxl.styles import PatternFill
+    # OJO: row 5 es decorativa (banda de colores por etapa) — NO tocarla.
+    from openpyxl.styles import PatternFill, Border
     NO_FILL = PatternFill(fill_type=None)
+    NO_BORDER = Border()
     for sn_clean in [s for s in wb.sheetnames if s.startswith("Sem ")]:
         ws_c = wb[sn_clean]
         # eliminar todas las imágenes (las que existen son del template original)
         if hasattr(ws_c, "_images"):
             ws_c._images = []
-        # limpiar valores Y fills desde row 5 hasta max_row+5
-        for r in range(5, ws_c.max_row + 5):
+        # limpiar valores, fills y borders DESDE row 6 (row 5 es decorativa)
+        for r in range(6, ws_c.max_row + 5):
             for c in range(2, 21):
                 safe_set(ws_c, r, c, None)
                 try:
-                    ws_c.cell(row=r, column=c).fill = NO_FILL
+                    cell = ws_c.cell(row=r, column=c)
+                    cell.fill = NO_FILL
+                    cell.border = NO_BORDER
                 except AttributeError:
                     pass
     for s in semanas:
@@ -782,6 +786,9 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
                 col_idx = openpyxl.utils.column_index_from_string(col_letter)
                 safe_set(ws, rt, col_idx, 0)
+        # Ocultar filas vacías después del TOTAL hasta el max_row del template
+        for r_hide in range(rt + 1, max(ws.max_row, rt + 30) + 1):
+            ws.row_dimensions[r_hide].hidden = True
 
     # ===== Hoja "Total General" =====
     if "Total General" in wb.sheetnames:
