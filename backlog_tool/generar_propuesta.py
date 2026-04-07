@@ -707,11 +707,22 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
     # Hojas semanales
     # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
     # para evitar datos huérfanos que generen referencias circulares.
+    # Además: eliminar imágenes (redundantes con Backlog) y limpiar fills de filas vacías.
+    from openpyxl.styles import PatternFill
+    NO_FILL = PatternFill(fill_type=None)
     for sn_clean in [s for s in wb.sheetnames if s.startswith("Sem ")]:
         ws_c = wb[sn_clean]
+        # eliminar todas las imágenes (las que existen son del template original)
+        if hasattr(ws_c, "_images"):
+            ws_c._images = []
+        # limpiar valores Y fills desde row 5 hasta max_row+5
         for r in range(5, ws_c.max_row + 5):
             for c in range(2, 21):
                 safe_set(ws_c, r, c, None)
+                try:
+                    ws_c.cell(row=r, column=c).fill = NO_FILL
+                except AttributeError:
+                    pass
     for s in semanas:
         sn = f"Sem {s}"
         if sn not in wb.sheetnames: continue
