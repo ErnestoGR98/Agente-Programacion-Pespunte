@@ -463,6 +463,66 @@ def _modelo_num(nombre: str) -> str:
     return m.group(1) if m else ""
 
 
+def _descargar_imagen(url: str):
+    """Descarga una imagen desde URL y devuelve un BytesIO listo para openpyxl.Image.
+    Devuelve None si falla."""
+    if not url:
+        return None
+    try:
+        import io
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = r.read()
+        return io.BytesIO(data)
+    except Exception:
+        return None
+
+
+def _descargar_imagenes_paralelo(urls: list) -> dict:
+    """Descarga múltiples URLs en paralelo. Retorna {url: BytesIO|None}."""
+    from concurrent.futures import ThreadPoolExecutor
+    out = {}
+    if not urls:
+        return out
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(_descargar_imagen, urls))
+    for url, res in zip(urls, results):
+        out[url] = res
+    return out
+
+
+def _insertar_imagen_en_celda(ws, row, col, img_bytes, max_h_px=60, max_w_px=60):
+    """Inserta una imagen embebida anclada a la celda (row, col).
+    Redimensiona FÍSICAMENTE con Pillow antes de embeber."""
+    if img_bytes is None:
+        return False
+    try:
+        import io as _io
+        from openpyxl.drawing.image import Image as XLImage
+        from openpyxl.utils import get_column_letter as _gcl
+        from PIL import Image as PILImage
+
+        img_bytes.seek(0)
+        pil = PILImage.open(img_bytes).convert("RGBA")
+        w, h = pil.size
+        ratio = min(max_w_px / w, max_h_px / h, 1.0)
+        new_w, new_h = max(1, int(w * ratio)), max(1, int(h * ratio))
+        pil_resized = pil.resize((new_w, new_h), PILImage.LANCZOS)
+
+        out_bytes = _io.BytesIO()
+        pil_resized.save(out_bytes, format="PNG")
+        out_bytes.seek(0)
+
+        img = XLImage(out_bytes)
+        img.width = new_w
+        img.height = new_h
+        img.anchor = f"{_gcl(col)}{row}"
+        ws.add_image(img)
+        return True
+    except Exception:
+        return False
+
+
 def _quitar_imagenes_de_filas(ws, filas_a_quitar: set):
     """Elimina de ws._images todas las imágenes ancladas a filas en el set.
     Las filas se pasan en 1-indexed (como Excel); el anchor las maneja 0-indexed."""
@@ -562,7 +622,7 @@ def _escribir_seg_por_par_row(ws, r, nombre, info_modelo):
     safe_set(ws, r, 9, f"=IF(C{r}>0,3600/C{r},0)")
 
 
-def escribir_excel(template_path, output_path, asig, info, semanas):
+def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=None):
     wb = openpyxl.load_workbook(template_path)
 
     # Modelos del input indexados por número (4-6 dígitos)
@@ -701,20 +761,46 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
         RIGHT_O = AlI(horizontal="right", vertical="center", indent=1)
 
         # === Título ===
-        ws.merge_cells("C1:E1")
-        cell_title = ws.cell(row=1, column=3, value="BACKLOG — TOTALES POR MODELO")
+        ws.merge_cells("B1:E1")
+        cell_title = ws.cell(row=1, column=2, value="BACKLOG — TOTALES POR MODELO")
         cell_title.font = FtI(bold=True, size=14, color="FF1E3A5F")
         cell_title.alignment = CENTER_O
         ws.row_dimensions[1].height = 28
 
         # === Headers (row 3) ===
-        for col, txt in [(3, "Modelo"), (4, "Alternativa"), (5, "Total Pares")]:
+        for col, txt in [(2, ""), (3, "Modelo"), (4, "Alternativa"), (5, "Total Pares")]:
             cell = ws.cell(row=3, column=col, value=txt)
             cell.fill = HDR_FILL
             cell.font = HDR_FONT
             cell.alignment = CENTER_O
             cell.border = BORDER_O
         ws.row_dimensions[3].height = 26
+
+        # === Pre-cargar imágenes en paralelo ===
+        urls_a_descargar = []
+        modelo_url = {}  # nm -> url
+        if catalogo is not None:
+            import re as _re_pre
+            for nm in input_modelos:
+                m_ = _re_pre.match(r"(\d{5})", nm.strip())
+                if not m_: continue
+                num_ = m_.group(1)
+                cat_m = catalogo.get(num_)
+                if not cat_m: continue
+                url = cat_m.get("imagen_url") or ""
+                if not url:
+                    alts = cat_m.get("alternativas_imagenes") or {}
+                    if isinstance(alts, dict):
+                        for v in alts.values():
+                            if v:
+                                url = v
+                                break
+                if url:
+                    modelo_url[nm] = url
+                    urls_a_descargar.append(url)
+        # Descargar todas las URLs únicas en paralelo
+        urls_unicas = list(set(urls_a_descargar))
+        imgs_cache = _descargar_imagenes_paralelo(urls_unicas) if urls_unicas else {}
 
         # === Datos ordenados por modelo num ===
         import re as _re_o
@@ -729,6 +815,11 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             alt = mtch.group(2) if mtch else ""
             tot = sum(asig[nm].values())
             row_fill = ALT_FILL if (r_out - 4) % 2 == 1 else None
+            # Celda imagen (col B)
+            cell_img = ws.cell(row=r_out, column=2)
+            cell_img.border = BORDER_O
+            if row_fill is not None:
+                cell_img.fill = row_fill
             for col, val, align in [
                 (3, mod_num, CENTER_O),
                 (4, alt, LEFT_O),
@@ -741,12 +832,24 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                     cell.fill = row_fill
             ws.cell(row=r_out, column=3).font = FtI(bold=True, size=11, color="FF1E3A5F")
             ws.cell(row=r_out, column=5).number_format = '#,##0'
-            ws.row_dimensions[r_out].height = 22
+            ws.row_dimensions[r_out].height = 50
+            # Insertar imagen si existe
+            url_nm = modelo_url.get(nm)
+            if url_nm:
+                img_bytes = imgs_cache.get(url_nm)
+                if img_bytes is not None:
+                    # Crear copia del BytesIO porque cada Image lo "consume"
+                    import io as _io
+                    img_bytes.seek(0)
+                    copia = _io.BytesIO(img_bytes.read())
+                    img_bytes.seek(0)
+                    _insertar_imagen_en_celda(ws, r_out, 2, copia, max_h_px=58, max_w_px=58)
             r_out += 1
 
         # === Fila TOTAL ===
         rt_o = r_out
         for col, val, align in [
+            (2, "", CENTER_O),
             (3, "TOTAL", CENTER_O),
             (4, "", CENTER_O),
             (5, f"=SUM(E4:E{rt_o - 1})", RIGHT_O),
@@ -760,6 +863,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
         ws.row_dimensions[rt_o].height = 26
 
         # === Anchos de columna ===
+        ws.column_dimensions['B'].width = 10
         ws.column_dimensions['C'].width = 12
         ws.column_dimensions['D'].width = 24
         ws.column_dimensions['E'].width = 16
@@ -1121,7 +1225,7 @@ def main():
     if not template.exists():
         print(f"[ERROR] Template no existe: {template}", file=sys.stderr); sys.exit(1)
     print(f"\nEscribiendo: {out}")
-    escribir_excel(template, out, asig, info, semanas)
+    escribir_excel(template, out, asig, info, semanas, catalogo=catalogo)
     print("OK.")
 
 if __name__ == "__main__":

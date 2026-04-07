@@ -12,6 +12,9 @@ ortools>=9.8
 # Excel parsing
 openpyxl>=3.1.0
 
+# Imagenes embebidas en Excel (Backlog Original)
+pillow>=10.0.0
+
 # LLM
 anthropic>=0.39.0
 

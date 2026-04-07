@@ -218,7 +218,7 @@ async def balance_backlog(
 
         out_tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
         out_tmp.close()
-        bt.escribir_excel(template, Path(out_tmp.name), asig, info, semanas)
+        bt.escribir_excel(template, Path(out_tmp.name), asig, info, semanas, catalogo=catalogo)
 
         # nombre amigable
         now = datetime.now()
