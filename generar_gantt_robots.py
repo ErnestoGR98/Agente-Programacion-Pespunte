@@ -10,8 +10,21 @@ from openpyxl.utils import get_column_letter
 from collections import OrderedDict
 from datetime import datetime, timedelta
 
+# ── Volumen backlog por modelo (pares programados proximas semanas) ──
+# Solo modelos existentes (modelos nuevos excluidos)
+VOLUMEN_BACKLOG = {
+    "65568": 3300,
+    "64197": 3200,
+    "94750": 3000,
+    "65422": 2000,
+    "61747": 1800,
+    "88186": 1800,
+    "65413": 1600,
+    "61748": 1500,
+}
+
 # ── Programas faltantes (impacto alto) ──
-FALTANTES = [
+_FALTANTES_RAW = [
     ("61748", 6, "COSTURA DE CHINELA EXTERNA", "2A-3020-M1"),
     ("94750", 4, "COSTURA DE TALON", "2A-3020-M1"),
     ("61748", 5, "COSTURA DE CHINELA INTERNA", "2A-3020-M2"),
@@ -36,16 +49,25 @@ FALTANTES = [
     ("94750", 4, "COSTURA DE TALON", "M049-CHACHE"),
 ]
 
+# Ordenar por volumen backlog descendente (mayor volumen primero)
+# Tiebreak: fraccion ascendente para mantener orden logico dentro del modelo
+FALTANTES = sorted(
+    _FALTANTES_RAW,
+    key=lambda x: (-VOLUMEN_BACKLOG.get(x[0], 0), x[0], x[1]),
+)
+
 por_robot = OrderedDict()
 for modelo, fracc, op, robot in FALTANTES:
     por_robot.setdefault(robot, []).append((modelo, fracc, op))
 
 # ── Config ──
 FECHA_INICIO = datetime(2026, 4, 16)  # Jueves 16 de abril 2026
-HORAS_POR_DIA = 8
+HORAS_POR_DIA = 10  # 8:00 AM a 6:00 PM (incluye slot de comida 14-15 visualizado)
 HORA_INICIO = 8  # 8:00 AM
-DIAS_LABORALES = {0, 1, 2, 3, 4, 5}  # Lun(0)-Sab(5)
-DIAS_NOMBRE = {0: "Lun", 1: "Mar", 2: "Mie", 3: "Jue", 4: "Vie", 5: "Sab"}
+HORA_COMIDA = 14  # 14:00-15:00 NO se programa (hora de comida)
+HORAS_PRODUCTIVAS = HORAS_POR_DIA - 1  # 9 horas reales de trabajo
+DIAS_LABORALES = {0, 1, 2, 3, 4}  # Lun(0)-Vie(4)
+DIAS_NOMBRE = {0: "Lun", 1: "Mar", 2: "Mie", 3: "Jue", 4: "Vie", 5: "Sab", 6: "Dom"}
 
 total_horas = len(FALTANTES)
 
@@ -58,8 +80,19 @@ def calcular_fechas(fecha_inicio, num_tareas):
     while current.weekday() not in DIAS_LABORALES:
         current += timedelta(days=1)
 
-    hora_slot = 0  # slot dentro del dia (0..7)
+    hora_slot = 0  # slot dentro del dia (0..HORAS_POR_DIA-1)
     for i in range(num_tareas):
+        # Saltar slot de comida (14:00-15:00)
+        while (HORA_INICIO + hora_slot) == HORA_COMIDA:
+            hora_slot += 1
+        if hora_slot >= HORAS_POR_DIA:
+            hora_slot = 0
+            current += timedelta(days=1)
+            while current.weekday() not in DIAS_LABORALES:
+                current += timedelta(days=1)
+            while (HORA_INICIO + hora_slot) == HORA_COMIDA:
+                hora_slot += 1
+
         inicio = current.replace(hour=HORA_INICIO + hora_slot, minute=0)
         fin = current.replace(hour=HORA_INICIO + hora_slot + 1, minute=0)
         fechas.append((inicio, fin))
@@ -126,7 +159,7 @@ ws.title = "Gantt Secuencial"
 # Titulo
 ws.cell(row=1, column=1,
         value="GANTT SECUENCIAL - PROGRAMACION DE ROBOTS FALTANTES").font = Font(bold=True, size=14)
-ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5 + total_dias * HORAS_POR_DIA)
+ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6 + total_dias * HORAS_POR_DIA)
 
 fecha_inicio_str = FECHA_INICIO.strftime("%d/%m/%Y")
 fecha_fin_str = fechas[-1][1].strftime("%d/%m/%Y")
@@ -134,11 +167,11 @@ ws.cell(row=2, column=1,
         value=f"Inicio: {fecha_inicio_str} | Fin: {fecha_fin_str} | "
               f"{total_horas} programas x 1 hora = {total_horas} hrs = {total_dias} dias laborales (8h/dia)"
         ).font = Font(size=11, italic=True)
-ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5 + total_dias * HORAS_POR_DIA)
+ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=6 + total_dias * HORAS_POR_DIA)
 
 # Fila 4: Headers de dia con fecha real
 for d_idx, dia_date in enumerate(dias_unicos):
-    start_col = 6 + d_idx * HORAS_POR_DIA
+    start_col = 7 + d_idx * HORAS_POR_DIA
     end_col = start_col + HORAS_POR_DIA - 1
     dia_nombre = DIAS_NOMBRE.get(dia_date.weekday(), "")
     label = f"{dia_nombre} {dia_date.strftime('%d/%m/%Y')}"
@@ -149,7 +182,7 @@ for d_idx, dia_date in enumerate(dias_unicos):
     ws.merge_cells(start_row=4, start_column=start_col, end_row=4, end_column=end_col)
 
 # Fila 5: Headers tabla + horas
-table_headers = ["#", "ROBOT", "MODELO", "FRACC", "OPERACION"]
+table_headers = ["#", "ROBOT", "MODELO", "PARES PROG", "FRACC", "OPERACION"]
 for c, h in enumerate(table_headers, 1):
     cell = ws.cell(row=5, column=c, value=h)
     cell.font = HEADER_FONT
@@ -159,7 +192,7 @@ for c, h in enumerate(table_headers, 1):
 
 for d_idx in range(total_dias):
     for h in range(HORAS_POR_DIA):
-        col = 6 + d_idx * HORAS_POR_DIA + h
+        col = 7 + d_idx * HORAS_POR_DIA + h
         hora_real = HORA_INICIO + h
         cell = ws.cell(row=5, column=col, value=f"{hora_real}:00")
         cell.font = Font(bold=True, color="FFFFFF", size=9)
@@ -187,24 +220,32 @@ for i, (modelo, fracc, op, robot) in enumerate(FALTANTES):
     ws.cell(row=r, column=3).alignment = CENTER
     ws.cell(row=r, column=3).border = THIN_BORDER
 
-    ws.cell(row=r, column=4, value=fracc).font = NORMAL_FONT
+    ws.cell(row=r, column=4, value=VOLUMEN_BACKLOG.get(modelo, 0)).font = BOLD_FONT
     ws.cell(row=r, column=4).alignment = CENTER
     ws.cell(row=r, column=4).border = THIN_BORDER
 
-    ws.cell(row=r, column=5, value=op).font = NORMAL_FONT
+    ws.cell(row=r, column=5, value=fracc).font = NORMAL_FONT
+    ws.cell(row=r, column=5).alignment = CENTER
     ws.cell(row=r, column=5).border = THIN_BORDER
+
+    ws.cell(row=r, column=6, value=op).font = NORMAL_FONT
+    ws.cell(row=r, column=6).border = THIN_BORDER
 
     # Calcular posicion en el gantt
     inicio_tarea, fin_tarea = fechas[i]
     dia_idx = dias_unicos.index(inicio_tarea.date())
     hora_idx = inicio_tarea.hour - HORA_INICIO
-    gantt_col = 6 + dia_idx * HORAS_POR_DIA + hora_idx
+    gantt_col = 7 + dia_idx * HORAS_POR_DIA + hora_idx
 
-    # Pintar todas las celdas del gantt (fondo vacio)
+    # Pintar todas las celdas del gantt (fondo vacio, marca comida)
+    lunch_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
     for h in range(total_dias * HORAS_POR_DIA):
-        col = 6 + h
+        col = 7 + h
+        hora_real = HORA_INICIO + (h % HORAS_POR_DIA)
         cell = ws.cell(row=r, column=col)
         cell.border = LIGHT_BORDER
+        if hora_real == HORA_COMIDA:
+            cell.fill = lunch_fill
 
     # Barra del gantt
     cell = ws.cell(row=r, column=gantt_col)
@@ -238,12 +279,13 @@ ws.cell(row=row_num, column=3,
 ws.column_dimensions["A"].width = 4
 ws.column_dimensions["B"].width = 16
 ws.column_dimensions["C"].width = 10
-ws.column_dimensions["D"].width = 7
-ws.column_dimensions["E"].width = 32
+ws.column_dimensions["D"].width = 11
+ws.column_dimensions["E"].width = 7
+ws.column_dimensions["F"].width = 32
 for h in range(total_dias * HORAS_POR_DIA):
-    ws.column_dimensions[get_column_letter(6 + h)].width = 12
+    ws.column_dimensions[get_column_letter(7 + h)].width = 12
 
-ws.freeze_panes = "F6"
+ws.freeze_panes = "G6"
 
 # ═══════════════════════════════════════════════
 # HOJA 2: CHECKLIST CON FECHAS REALES
@@ -256,7 +298,7 @@ ws2.cell(row=2, column=1,
          value=f"Inicio: {fecha_inicio_str} | {total_horas} programas | {total_dias} dias laborales").font = Font(
     size=11, italic=True)
 
-headers_ck = ["#", "ROBOT", "MODELO", "FRACC", "OPERACION", "FECHA", "DIA", "HORA INICIO", "HORA FIN", "STATUS"]
+headers_ck = ["#", "ROBOT", "MODELO", "VOL", "FRACC", "OPERACION", "FECHA", "DIA", "HORA INICIO", "HORA FIN", "STATUS"]
 for c, h in enumerate(headers_ck, 1):
     cell = ws2.cell(row=4, column=c, value=h)
     cell.font = HEADER_FONT
@@ -281,34 +323,37 @@ for i, (modelo, fracc, op, robot) in enumerate(FALTANTES):
 
     ws2.cell(row=r, column=3, value=modelo).font = NORMAL_FONT
     ws2.cell(row=r, column=3).alignment = CENTER
-    ws2.cell(row=r, column=4, value=fracc).font = NORMAL_FONT
+    ws2.cell(row=r, column=4, value=VOLUMEN_BACKLOG.get(modelo, 0)).font = BOLD_FONT
     ws2.cell(row=r, column=4).alignment = CENTER
-    ws2.cell(row=r, column=5, value=op).font = NORMAL_FONT
+    ws2.cell(row=r, column=5, value=fracc).font = NORMAL_FONT
+    ws2.cell(row=r, column=5).alignment = CENTER
+    ws2.cell(row=r, column=6, value=op).font = NORMAL_FONT
 
-    ws2.cell(row=r, column=6, value=inicio.strftime("%d/%m/%Y")).font = NORMAL_FONT
-    ws2.cell(row=r, column=6).alignment = CENTER
-    ws2.cell(row=r, column=7, value=dia_nombre).font = NORMAL_FONT
+    ws2.cell(row=r, column=7, value=inicio.strftime("%d/%m/%Y")).font = NORMAL_FONT
     ws2.cell(row=r, column=7).alignment = CENTER
-    ws2.cell(row=r, column=8, value=inicio.strftime("%H:%M")).font = NORMAL_FONT
+    ws2.cell(row=r, column=8, value=dia_nombre).font = NORMAL_FONT
     ws2.cell(row=r, column=8).alignment = CENTER
-    ws2.cell(row=r, column=9, value=fin.strftime("%H:%M")).font = NORMAL_FONT
+    ws2.cell(row=r, column=9, value=inicio.strftime("%H:%M")).font = NORMAL_FONT
     ws2.cell(row=r, column=9).alignment = CENTER
-    ws2.cell(row=r, column=10, value="PENDIENTE").font = Font(size=10, color="FF0000")
+    ws2.cell(row=r, column=10, value=fin.strftime("%H:%M")).font = NORMAL_FONT
     ws2.cell(row=r, column=10).alignment = CENTER
+    ws2.cell(row=r, column=11, value="PENDIENTE").font = Font(size=10, color="FF0000")
+    ws2.cell(row=r, column=11).alignment = CENTER
 
-    for c in range(1, 11):
+    for c in range(1, 12):
         ws2.cell(row=r, column=c).border = THIN_BORDER
 
 ws2.column_dimensions["A"].width = 4
 ws2.column_dimensions["B"].width = 16
 ws2.column_dimensions["C"].width = 10
-ws2.column_dimensions["D"].width = 7
-ws2.column_dimensions["E"].width = 30
-ws2.column_dimensions["F"].width = 12
-ws2.column_dimensions["G"].width = 6
-ws2.column_dimensions["H"].width = 12
-ws2.column_dimensions["I"].width = 10
-ws2.column_dimensions["J"].width = 14
+ws2.column_dimensions["D"].width = 8
+ws2.column_dimensions["E"].width = 7
+ws2.column_dimensions["F"].width = 30
+ws2.column_dimensions["G"].width = 12
+ws2.column_dimensions["H"].width = 6
+ws2.column_dimensions["I"].width = 12
+ws2.column_dimensions["J"].width = 10
+ws2.column_dimensions["K"].width = 14
 
 OUTPUT = "Gantt_Programacion_Robots.xlsx"
 wb.save(OUTPUT)
@@ -321,5 +366,6 @@ print("\nDetalle:")
 for i, (modelo, fracc, op, robot) in enumerate(FALTANTES):
     inicio, fin = fechas[i]
     dia_nombre = DIAS_NOMBRE.get(inicio.weekday(), "")
-    print(f"  {i+1:2d}. {robot:<14s} {modelo}-F{fracc} {op:<30s} "
+    vol = VOLUMEN_BACKLOG.get(modelo, 0)
+    print(f"  {i+1:2d}. [{vol:>4d}p] {robot:<14s} {modelo}-F{fracc} {op:<30s} "
           f"{dia_nombre} {inicio.strftime('%d/%m/%Y %H:%M')}-{fin.strftime('%H:%M')}")
