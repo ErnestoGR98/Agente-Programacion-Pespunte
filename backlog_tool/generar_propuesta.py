@@ -644,11 +644,11 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
 
     # ===== Hoja "Backlog Original" =====
     # El usuario solo da TOTALES en el input, así que esta hoja muestra solo
-    # Modelo + Total Pares (sin desglose por semana). El desglose va en "Backlog".
+    # Modelo + Alternativa + Total Pares (sin desglose por semana).
     if "Backlog Original" in wb.sheetnames:
         ws = wb["Backlog Original"]
 
-        # Capturar nombres del template
+        # Capturar nombres del template para limpiar imágenes huérfanas
         template_rows_o = {}
         for r in range(4, 35):
             nm = ws.cell(row=r, column=3).value
@@ -658,12 +658,16 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             if num:
                 template_rows_o[r] = num
 
-        # Limpiar TODO el rango cols 3..22 (modelo + semanas + tabla lateral) y unhidear
-        from openpyxl.styles import PatternFill as PFI, Border as BdI
+        from openpyxl.styles import (
+            PatternFill as PFI, Border as BdI, Font as FtI,
+            Alignment as AlI, Side as SdI,
+        )
         NO_FILL_I = PFI(fill_type=None)
         NO_BORDER_I = BdI()
+
+        # Limpiar TODO en cols 3..22 filas 1..40
         for r in range(1, 41):
-            for c in range(4, 22):  # D..U (todo lo que NO sea col C = modelo)
+            for c in range(3, 22):
                 try:
                     cell = ws.cell(row=r, column=c)
                     cell.value = None
@@ -671,42 +675,98 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                     cell.border = NO_BORDER_I
                 except AttributeError:
                     pass
-        # Desunmergear cualquier merge a partir de col D
         for rng in list(ws.merged_cells.ranges):
-            if rng.min_col >= 4:
+            if rng.min_col >= 3:
                 ws.unmerge_cells(str(rng))
-
-        for r in range(4, 41):
+        for r in range(1, 41):
             ws.row_dimensions[r].hidden = False
 
-        # Headers nuevos: col C = "Modelo", col D = "Total Pares"
-        safe_set(ws, 2, 3, "Modelo")
-        safe_set(ws, 2, 4, "Total Pares")
+        # Quitar imágenes de filas template
+        _quitar_imagenes_de_filas(ws, set(template_rows_o.keys()))
 
-        asignados_orig = set()
-        filas_huerfanas_o = set()
-        for r, num in template_rows_o.items():
-            input_match = input_por_num.get(num)
-            if input_match:
-                safe_set(ws, r, 3, input_match)
-                total_modelo = sum(asig[input_match].values())
-                safe_set(ws, r, 4, total_modelo)
-                asignados_orig.add(input_match)
-            else:
-                ws.row_dimensions[r].hidden = True
-                filas_huerfanas_o.add(r)
-        _quitar_imagenes_de_filas(ws, filas_huerfanas_o)
+        # === Estilos ===
+        HDR_FILL = PFI(fill_type="solid", fgColor="FF1E3A5F")
+        HDR_FONT = FtI(bold=True, color="FFFFFFFF", size=11)
+        TOT_FILL = PFI(fill_type="solid", fgColor="FF2E5BA8")
+        TOT_FONT = FtI(bold=True, color="FFFFFFFF", size=11)
+        ALT_FILL = PFI(fill_type="solid", fgColor="FFF8FAFC")
+        BORDER_O = BdI(
+            left=SdI(border_style="thin", color="FFCBD5E1"),
+            right=SdI(border_style="thin", color="FFCBD5E1"),
+            top=SdI(border_style="thin", color="FFCBD5E1"),
+            bottom=SdI(border_style="thin", color="FFCBD5E1"),
+        )
+        CENTER_O = AlI(horizontal="center", vertical="center")
+        LEFT_O = AlI(horizontal="left", vertical="center", indent=1)
+        RIGHT_O = AlI(horizontal="right", vertical="center", indent=1)
 
-        last_row_o = max(template_rows_o.keys()) if template_rows_o else 3
-        for nm in input_modelos:
-            if nm in asignados_orig: continue
-            last_row_o += 1
-            safe_set(ws, last_row_o, 3, nm)
-            safe_set(ws, last_row_o, 4, sum(asig[nm].values()))
+        # === Título ===
+        ws.merge_cells("C1:E1")
+        cell_title = ws.cell(row=1, column=3, value="BACKLOG — TOTALES POR MODELO")
+        cell_title.font = FtI(bold=True, size=14, color="FF1E3A5F")
+        cell_title.alignment = CENTER_O
+        ws.row_dimensions[1].height = 28
 
-        rt_o = last_row_o + 1
-        safe_set(ws, rt_o, 3, "TOTAL")
-        safe_set(ws, rt_o, 4, f"=SUM(D4:D{rt_o - 1})")
+        # === Headers (row 3) ===
+        for col, txt in [(3, "Modelo"), (4, "Alternativa"), (5, "Total Pares")]:
+            cell = ws.cell(row=3, column=col, value=txt)
+            cell.fill = HDR_FILL
+            cell.font = HDR_FONT
+            cell.alignment = CENTER_O
+            cell.border = BORDER_O
+        ws.row_dimensions[3].height = 26
+
+        # === Datos ordenados por modelo num ===
+        import re as _re_o
+        modelos_ordenados = sorted(
+            input_modelos,
+            key=lambda x: _modelo_num(x) or x,
+        )
+        r_out = 4
+        for nm in modelos_ordenados:
+            mtch = _re_o.match(r"^(\d{5})\s*(.*)$", nm.strip())
+            mod_num = mtch.group(1) if mtch else nm
+            alt = mtch.group(2) if mtch else ""
+            tot = sum(asig[nm].values())
+            row_fill = ALT_FILL if (r_out - 4) % 2 == 1 else None
+            for col, val, align in [
+                (3, mod_num, CENTER_O),
+                (4, alt, LEFT_O),
+                (5, tot, RIGHT_O),
+            ]:
+                cell = ws.cell(row=r_out, column=col, value=val)
+                cell.border = BORDER_O
+                cell.alignment = align
+                if row_fill is not None:
+                    cell.fill = row_fill
+            ws.cell(row=r_out, column=3).font = FtI(bold=True, size=11, color="FF1E3A5F")
+            ws.cell(row=r_out, column=5).number_format = '#,##0'
+            ws.row_dimensions[r_out].height = 22
+            r_out += 1
+
+        # === Fila TOTAL ===
+        rt_o = r_out
+        for col, val, align in [
+            (3, "TOTAL", CENTER_O),
+            (4, "", CENTER_O),
+            (5, f"=SUM(E4:E{rt_o - 1})", RIGHT_O),
+        ]:
+            cell = ws.cell(row=rt_o, column=col, value=val)
+            cell.fill = TOT_FILL
+            cell.font = TOT_FONT
+            cell.alignment = align
+            cell.border = BORDER_O
+        ws.cell(row=rt_o, column=5).number_format = '#,##0'
+        ws.row_dimensions[rt_o].height = 26
+
+        # === Anchos de columna ===
+        ws.column_dimensions['C'].width = 12
+        ws.column_dimensions['D'].width = 24
+        ws.column_dimensions['E'].width = 16
+
+        # Ocultar filas posteriores
+        for r_hide in range(rt_o + 1, max(ws.max_row, rt_o + 30) + 1):
+            ws.row_dimensions[r_hide].hidden = True
 
     # Hojas semanales
     # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
