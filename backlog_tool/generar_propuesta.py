@@ -1023,7 +1023,47 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             num = _modelo_num(str(nm))
             if num:
                 template_rows_tg[r] = num
-        # Limpiar valores Y fills (el template tenía rows rosa hardcodeadas para SIN CATALOGO)
+
+        # Estilo del template para filas de Total General
+        from openpyxl.styles import Font as FtTG
+        TG_FONT_NORMAL = FtTG(bold=False, size=10)
+        TG_FONT_MODELO = FtTG(bold=True, size=10)
+        TG_FONT_TOTAL_HRS = FtTG(bold=True, size=10)
+        # Tints por columna (mismos colores del template)
+        TG_TINTS = {
+            4: PRE_TINT, 5: PRE_TINT, 6: PRE_TINT, 7: PRE_TINT,
+            8: ROB_TINT, 9: ROB_TINT, 10: ROB_TINT, 11: ROB_TINT,
+            12: POST_TINT, 13: POST_TINT, 14: POST_TINT, 15: POST_TINT,
+            16: NA_TINT, 17: NA_TINT,
+            18: MAQ_TINT, 19: MAQ_TINT,
+        }
+
+        def _aplicar_estilo_tg(ws_, r_, sin_cat=False):
+            """Aplica el estilo idéntico al template a una fila de Total General."""
+            ws_.row_dimensions[r_].height = 33
+            for c in range(2, 21):
+                try:
+                    cell = ws_.cell(row=r_, column=c)
+                    if c == 2:
+                        cell.alignment = LEFT_AL
+                        cell.font = TG_FONT_MODELO
+                    elif c == 20:
+                        cell.alignment = CENTER_AL
+                        cell.font = TG_FONT_TOTAL_HRS
+                    else:
+                        cell.alignment = CENTER_AL
+                        cell.font = TG_FONT_NORMAL
+                    # Tint por columna
+                    if sin_cat:
+                        cell.fill = PINK_FILL
+                    elif c in TG_TINTS:
+                        cell.fill = TG_TINTS[c]
+                    else:
+                        cell.fill = NO_FILL
+                except AttributeError:
+                    pass
+
+        # Limpiar valores Y fills
         for r in range(6, 41):
             for c in range(2, 21):
                 safe_set(ws, r, c, None)
@@ -1038,10 +1078,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             input_match = input_por_num.get(num)
             if input_match:
                 _escribir_total_general_row(ws, r, input_match, asig[input_match], info[input_match])
-                # Aplicar fill rosa solo si SIGUE sin catálogo
-                if info[input_match].get("sin_catalogo"):
-                    _estilo_fila(ws, r, fill=PINK_FILL, font=SIN_CAT_FONT, align=CENTER_AL)
-                    ws.cell(row=r, column=2).alignment = LEFT_AL
+                _aplicar_estilo_tg(ws, r, sin_cat=info[input_match].get("sin_catalogo", False))
                 asignados_tg.add(input_match)
             else:
                 ws.row_dimensions[r].hidden = True
@@ -1050,15 +1087,22 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             if nm in asignados_tg: continue
             last_row_tg += 1
             _escribir_total_general_row(ws, last_row_tg, nm, asig[nm], info[nm])
-            if info[nm].get("sin_catalogo"):
-                _estilo_fila(ws, last_row_tg, fill=PINK_FILL, font=SIN_CAT_FONT, align=CENTER_AL)
-                ws.cell(row=last_row_tg, column=2).alignment = LEFT_AL
+            _aplicar_estilo_tg(ws, last_row_tg, sin_cat=info[nm].get("sin_catalogo", False))
         rt_tg = last_row_tg + 1
         safe_set(ws, rt_tg, 2, "TOTAL")
         for col_letter in ["C","E","F","G","I","J","K","M","N","O","Q","S","T"]:
             col_idx = openpyxl.utils.column_index_from_string(col_letter)
             safe_set(ws, rt_tg, col_idx, f"=SUM({col_letter}6:{col_letter}{rt_tg - 1})")
-        _estilo_fila(ws, rt_tg, fill=TOTAL_FILL, font=TOTAL_FONT, align=CENTER_AL)
+        # Estilo TOTAL: azul oscuro + bold blanco
+        ws.row_dimensions[rt_tg].height = 33
+        for c in range(2, 21):
+            try:
+                cell = ws.cell(row=rt_tg, column=c)
+                cell.fill = TOTAL_FILL
+                cell.font = TOTAL_FONT
+                cell.alignment = CENTER_AL
+            except AttributeError:
+                pass
         # Formato 1 decimal en horas/personas/dias
         for r in range(6, rt_tg + 1):
             for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
@@ -1066,6 +1110,9 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
                 cell = ws.cell(row=r, column=col_idx)
                 if cell.value is not None:
                     cell.number_format = "0.0"
+        # Ocultar filas vacías post-TOTAL
+        for r_hide in range(rt_tg + 1, max(ws.max_row, rt_tg + 30) + 1):
+            ws.row_dimensions[r_hide].hidden = True
 
     # ===== Hoja "Seg por Par" =====
     if "Seg por Par" in wb.sheetnames:
