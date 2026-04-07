@@ -639,12 +639,32 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
     # ===== Hoja "Backlog" =====
     # Cols: B=Modelo, C..=Sem (dinámicas según semanas), última=Total
     if "Backlog" in wb.sheetnames:
+        from openpyxl.styles import Font as FtB, PatternFill as PFB, Alignment as AlB, Border as BdB, Side as SdB
+        NO_FILL = PFB(fill_type=None)
+        NO_BORDER = BdB()
         ws = wb["Backlog"]
         safe_set(ws, 1, 1, "PROPUESTA OPTIMIZADA - data-driven")
         safe_set(ws, 2, 1, "Generado por backlog_tool/generar_propuesta.py")
 
-        # Capturar nombres del template ANTES de limpiar (para matchear por num)
-        template_rows_b = {}  # row_idx -> num
+        # Estilos
+        B_HDR_FILL = PFB(fill_type="solid", fgColor="FF1E3A5F")
+        B_HDR_FONT = FtB(bold=True, color="FFFFFFFF", size=11)
+        B_TOT_FILL = PFB(fill_type="solid", fgColor="FF2E5BA8")
+        B_TOT_FONT = FtB(bold=True, color="FFFFFFFF", size=11)
+        B_PINK = PFB(fill_type="solid", fgColor="FFFECACA")
+        B_SINCAT_FONT = FtB(italic=True, color="FFB91C1C", size=10)
+        B_BORDER = BdB(
+            left=SdB(border_style="thin", color="FFCBD5E1"),
+            right=SdB(border_style="thin", color="FFCBD5E1"),
+            top=SdB(border_style="thin", color="FFCBD5E1"),
+            bottom=SdB(border_style="thin", color="FFCBD5E1"),
+        )
+        B_CENTER = AlB(horizontal="center", vertical="center")
+        B_LEFT = AlB(horizontal="left", vertical="center", indent=1)
+        B_RIGHT = AlB(horizontal="right", vertical="center", indent=1)
+
+        # Capturar nombres del template ANTES de limpiar
+        template_rows_b = {}
         for r in range(5, 35):
             nm = ws.cell(row=r, column=2).value
             if not nm or str(nm).strip().upper() == "TOTAL":
@@ -653,19 +673,62 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             if num:
                 template_rows_b[r] = num
 
-        # LIMPIAR todo el rango de datos (filas 4..40 cols 2..15) y unhidear
+        # LIMPIAR valores Y fills Y borders
         for r in range(4, 41):
             for c in range(2, 16):
                 safe_set(ws, r, c, None)
+                try:
+                    cell = ws.cell(row=r, column=c)
+                    cell.fill = NO_FILL
+                    cell.border = NO_BORDER
+                except AttributeError:
+                    pass
             ws.row_dimensions[r].hidden = False
 
-        # Headers
+        # Headers (row 4)
         for j, s in enumerate(semanas):
-            safe_set(ws, 4, 3 + j, f"Sem {s}")
+            cell = ws.cell(row=4, column=3 + j, value=f"Sem {s}")
+            cell.fill = B_HDR_FILL
+            cell.font = B_HDR_FONT
+            cell.alignment = B_CENTER
+            cell.border = B_BORDER
         col_total_b = 3 + len(semanas)
-        safe_set(ws, 4, col_total_b, "Total")
+        cell_modelo = ws.cell(row=4, column=2, value="Modelo")
+        cell_modelo.fill = B_HDR_FILL
+        cell_modelo.font = B_HDR_FONT
+        cell_modelo.alignment = B_CENTER
+        cell_modelo.border = B_BORDER
+        cell_total_h = ws.cell(row=4, column=col_total_b, value="Total")
+        cell_total_h.fill = B_HDR_FILL
+        cell_total_h.font = B_HDR_FONT
+        cell_total_h.alignment = B_CENTER
+        cell_total_h.border = B_BORDER
+        ws.row_dimensions[4].height = 26
 
-        # Escribir filas matcheadas por num en su row original (mantiene imágenes)
+        def _aplicar_estilo_fila_b(ws_, r_, sin_cat=False):
+            """Aplica estilo a una fila de datos en Backlog."""
+            ws_.row_dimensions[r_].height = 24
+            for c in range(2, col_total_b + 1):
+                try:
+                    cell = ws_.cell(row=r_, column=c)
+                    cell.border = B_BORDER
+                    if c == 2:
+                        cell.alignment = B_LEFT
+                        cell.font = B_SINCAT_FONT if sin_cat else FtB(bold=True, size=10, color="FF1E3A5F")
+                    elif c == col_total_b:
+                        cell.alignment = B_RIGHT
+                        cell.font = FtB(bold=True, size=10, color="FF1E3A5F")
+                        cell.number_format = '#,##0'
+                    else:
+                        cell.alignment = B_CENTER
+                        cell.font = B_SINCAT_FONT if sin_cat else FtB(size=10)
+                        cell.number_format = '#,##0'
+                    if sin_cat:
+                        cell.fill = B_PINK
+                except AttributeError:
+                    pass
+
+        # Escribir filas matcheadas por num
         filas_huerfanas_b = set()
         for r, num in template_rows_b.items():
             input_match = input_por_num.get(num)
@@ -675,6 +738,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
                     v = asig[input_match][s]
                     safe_set(ws, r, 3 + j, v if v > 0 else None)
                 safe_set(ws, r, col_total_b, f"=SUM(C{r}:{get_column_letter(col_total_b - 1)}{r})")
+                _aplicar_estilo_fila_b(ws, r, sin_cat=info[input_match].get("sin_catalogo", False))
                 asignados_input.add(input_match)
             else:
                 ws.row_dimensions[r].hidden = True
@@ -691,6 +755,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
                 v = asig[nm][s]
                 safe_set(ws, last_row_b, 3 + j, v if v > 0 else None)
             safe_set(ws, last_row_b, col_total_b, f"=SUM(C{last_row_b}:{get_column_letter(col_total_b - 1)}{last_row_b})")
+            _aplicar_estilo_fila_b(ws, last_row_b, sin_cat=info[nm].get("sin_catalogo", False))
 
         # Fila TOTAL
         rt = last_row_b + 1
@@ -701,6 +766,22 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             safe_set(ws, rt, col, f"=SUM({letter}5:{letter}{rt - 1})")
         letter_t = get_column_letter(col_total_b)
         safe_set(ws, rt, col_total_b, f"=SUM({letter_t}5:{letter_t}{rt - 1})")
+        # Estilo TOTAL
+        ws.row_dimensions[rt].height = 26
+        for c in range(2, col_total_b + 1):
+            try:
+                cell = ws.cell(row=rt, column=c)
+                cell.fill = B_TOT_FILL
+                cell.font = B_TOT_FONT
+                cell.alignment = B_CENTER if c == 2 else (B_RIGHT if c == col_total_b else B_CENTER)
+                cell.border = B_BORDER
+                if c >= 3:
+                    cell.number_format = '#,##0'
+            except AttributeError:
+                pass
+        # Ocultar filas vacías post-TOTAL
+        for r_hide in range(rt + 1, max(ws.max_row, rt + 30) + 1):
+            ws.row_dimensions[r_hide].hidden = True
 
     # ===== Hoja "Backlog Original" =====
     # El usuario solo da TOTALES en el input, así que esta hoja muestra solo
