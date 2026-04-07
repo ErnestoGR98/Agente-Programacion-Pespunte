@@ -84,14 +84,16 @@ def fetch_robots_activos():
     return [r for r in rows if r["estado"] == "ACTIVO" and r["area"] == "PESPUNTE"]
 
 def fetch_catalogo():
-    """{modelo_num: {alternativas, seg_par por etapa, robots_restringido}}"""
-    modelos = sb_get("catalogo_modelos", "select=id,modelo_num,alternativas,total_sec_per_pair")
+    """{modelo_num: {alternativas, seg_par por etapa, robots_restringido, imagen_url}}"""
+    modelos = sb_get("catalogo_modelos", "select=id,modelo_num,alternativas,total_sec_per_pair,imagen_url,alternativas_imagenes")
     out = {}
     for m in modelos:
         out[m["modelo_num"]] = {
             "id": m["id"],
             "alternativas": m.get("alternativas") or [],
             "total_sec_per_pair": m.get("total_sec_per_pair") or 0,
+            "imagen_url": m.get("imagen_url") or "",
+            "alternativas_imagenes": m.get("alternativas_imagenes") or {},
             "PRE": 0, "ROB": 0, "POST": 0, "NA": 0, "MAQ": 0,
             "ops": [],
             "robot_restringido": False,
@@ -195,28 +197,66 @@ def parse_backlog(path):
                     nxt = ws.cell(row=r, column=c+1).value
                     if isinstance(nxt, (int, float)): sem_fin = int(nxt)
         if sem_ini and sem_fin and sem_fin >= sem_ini:
-            # buscar cabecera "Modelo" + "Total Pares"
+            # buscar cabecera "Modelo" en alguna fila
             for r in range(1, min(ws.max_row + 1, 20)):
                 for c in range(1, min(ws.max_column + 1, 10)):
                     v = ws.cell(row=r, column=c).value
-                    if isinstance(v, str) and v.strip().lower() == "modelo":
-                        # siguiente columna debe ser Total Pares
-                        nxt = ws.cell(row=r, column=c+1).value
-                        if isinstance(nxt, str) and "total" in nxt.lower() and "par" in nxt.lower():
-                            modelos = []
-                            rr = r + 1
-                            while rr <= ws.max_row + 30:
-                                nm = ws.cell(row=rr, column=c).value
-                                tot = ws.cell(row=rr, column=c+1).value
-                                if isinstance(nm, str) and nm.strip() not in ("", "TOTAL") and isinstance(tot, (int, float)) and tot > 0:
-                                    modelos.append((nm.strip(), int(tot)))
-                                elif nm and isinstance(nm, str) and nm.strip() == "TOTAL":
-                                    break
-                                rr += 1
-                                if rr > r + 60: break
-                            if modelos:
-                                semanas = list(range(sem_ini, sem_fin + 1))
-                                return modelos, semanas
+                    if not (isinstance(v, str) and v.strip().lower() == "modelo"):
+                        continue
+                    # Detectar columnas: revisar las siguientes 1-3 columnas
+                    # buscando "alternativas" / "alternativa" y "total pares"
+                    col_modelo = c
+                    col_alt = None
+                    col_total = None
+                    for off in range(1, 5):
+                        h = ws.cell(row=r, column=c + off).value
+                        if not isinstance(h, str): continue
+                        hl = h.strip().lower()
+                        if "alternativ" in hl and col_alt is None:
+                            col_alt = c + off
+                        elif "total" in hl and "par" in hl and col_total is None:
+                            col_total = c + off
+                    if col_total is None:
+                        continue  # no es la cabecera buscada
+                    # Leer filas
+                    modelos = []
+                    rr = r + 1
+                    while rr <= ws.max_row + 30:
+                        nm_raw = ws.cell(row=rr, column=col_modelo).value
+                        tot_raw = ws.cell(row=rr, column=col_total).value
+                        alt_raw = ws.cell(row=rr, column=col_alt).value if col_alt else None
+
+                        if nm_raw is None and tot_raw is None:
+                            rr += 1
+                            if rr > r + 60: break
+                            continue
+                        if isinstance(nm_raw, str) and nm_raw.strip().upper() == "TOTAL":
+                            break
+                        # Modelo: aceptar número o string. Lo normalizamos a string.
+                        if nm_raw is None:
+                            rr += 1
+                            continue
+                        if isinstance(nm_raw, (int, float)):
+                            modelo_str = str(int(nm_raw))
+                        else:
+                            modelo_str = str(nm_raw).strip()
+                        if not modelo_str or modelo_str.startswith("("):  # placeholders tipo "(modelo)"
+                            rr += 1
+                            continue
+                        if not isinstance(tot_raw, (int, float)) or tot_raw <= 0:
+                            rr += 1
+                            continue
+                        # Combinar modelo + alternativa
+                        alt_str = ""
+                        if alt_raw and isinstance(alt_raw, str) and not alt_raw.strip().startswith("("):
+                            alt_str = alt_raw.strip()
+                        nombre_completo = f"{modelo_str} {alt_str}".strip()
+                        modelos.append((nombre_completo, int(tot_raw)))
+                        rr += 1
+                        if rr > r + 60: break
+                    if modelos:
+                        semanas = list(range(sem_ini, sem_fin + 1))
+                        return modelos, semanas
     # === Formato B: legacy (matriz modelo×semana) ===
     for sn in wb.sheetnames:
         ws = wb[sn]
@@ -445,13 +485,17 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 safe_set(ws, r, 5 + j, v if v > 0 else None)
 
     # Hojas semanales
+    # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
+    # para evitar datos huérfanos que generen referencias circulares.
+    for sn_clean in [s for s in wb.sheetnames if s.startswith("Sem ")]:
+        ws_c = wb[sn_clean]
+        for r in range(5, ws_c.max_row + 5):
+            for c in range(2, 21):
+                safe_set(ws_c, r, c, None)
     for s in semanas:
         sn = f"Sem {s}"
         if sn not in wb.sheetnames: continue
         ws = wb[sn]
-        for r in range(5, ws.max_row + 5):
-            for c in range(2, 21):
-                safe_set(ws, r, c, None)
         activos = [(n, asig[n][s]) for n in asig if asig[n][s] > 0]
         r = 6
         for n, pares in activos:
@@ -495,10 +539,18 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             r += 1
         rt = r; first = 6
         safe_set(ws, rt, 2, "TOTAL")
-        safe_set(ws, rt, 3, f"=SUM(C{first}:C{rt-1})")
-        for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
-            col_idx = openpyxl.utils.column_index_from_string(col_letter)
-            safe_set(ws, rt, col_idx, f"=SUM({col_letter}{first}:{col_letter}{rt-1})")
+        if rt > first:
+            # Hay al menos un modelo: SUM normal
+            safe_set(ws, rt, 3, f"=SUM(C{first}:C{rt-1})")
+            for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
+                col_idx = openpyxl.utils.column_index_from_string(col_letter)
+                safe_set(ws, rt, col_idx, f"=SUM({col_letter}{first}:{col_letter}{rt-1})")
+        else:
+            # Semana sin modelos: valores fijos en 0 para evitar referencia circular
+            safe_set(ws, rt, 3, 0)
+            for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
+                col_idx = openpyxl.utils.column_index_from_string(col_letter)
+                safe_set(ws, rt, col_idx, 0)
 
     # Resumen Semanal
     if "Resumen Semanal" in wb.sheetnames:

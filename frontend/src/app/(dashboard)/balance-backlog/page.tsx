@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,10 +10,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
-  fetchCatalogoBacklog, balanceFromExcel, balanceFromManual, downloadBlob,
+  fetchCatalogoBacklog, balanceFromExcel, balanceFromManual, downloadBlob, downloadPlantillaBacklog,
   type CatalogoModelo, type ResumenBacklog, type BalanceBacklogResult,
 } from '@/lib/api/balance_backlog'
-import { Plus, Trash2, Upload, Wand2, Download, AlertTriangle, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Wand2, Download, AlertTriangle, Loader2, FileDown, UploadCloud, FileSpreadsheet, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface FilaManual {
   modelo: string
@@ -36,6 +37,20 @@ export default function BalanceBacklogPage() {
 
   // Modo Excel
   const [file, setFile] = useState<File | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))) {
+      setFile(f)
+    } else if (f) {
+      setError('Solo se aceptan archivos .xlsx')
+    }
+  }
 
   // Opciones avanzadas
   const [maxModelos, setMaxModelos] = useState('5')
@@ -187,17 +202,68 @@ export default function BalanceBacklogPage() {
             </TabsContent>
 
             <TabsContent value="excel" className="space-y-4 mt-4">
-              <div>
-                <Label htmlFor="file">Excel del backlog</Label>
-                <Input
-                  id="file"
-                  type="file"
-                  accept=".xlsx"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Formato simple (Modelo + Total Pares + rango de semanas) o legacy (matriz modelo×semana).
-                </p>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Excel del backlog</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadPlantillaBacklog().catch((e) => setError(String(e)))}
+                  title="Descargar Excel en blanco con el formato correcto"
+                >
+                  <FileDown className="h-4 w-4 mr-2" /> Descargar plantilla
+                </Button>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+
+              <div
+                onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setDragActive(false) }}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-8 cursor-pointer transition-colors',
+                  dragActive
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50 hover:bg-accent/30',
+                )}
+              >
+                {file ? (
+                  <>
+                    <FileSpreadsheet className="h-10 w-10 text-primary" />
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{file.name}</span>
+                      <span className="text-xs text-muted-foreground">({(file.size / 1024).toFixed(1)} KB)</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setFile(null) }}
+                        className="rounded-full p-1 hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                        title="Quitar archivo"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Click o arrastra otro archivo para reemplazar</p>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className={cn('h-10 w-10', dragActive ? 'text-primary' : 'text-muted-foreground')} />
+                    <div className="text-center">
+                      <p className="text-sm font-medium">
+                        {dragActive ? 'Suelta el archivo aquí' : 'Arrastra el archivo o haz click para seleccionar'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Formato simple (Modelo + Total Pares + rango de semanas) o legacy (matriz modelo×semana)
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </TabsContent>
           </Tabs>
@@ -305,6 +371,7 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-14"></TableHead>
                 <TableHead>Modelo</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 {resumen.semanas.map((s) => (
@@ -315,12 +382,37 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
             <TableBody>
               {resumen.por_modelo.map((m) => (
                 <TableRow key={m.modelo}>
-                  <TableCell className="font-medium">
-                    {m.modelo}
-                    {m.robot_restringido && <Badge variant="outline" className="ml-2">robots únicos</Badge>}
-                    {m.sin_catalogo && <Badge variant="secondary" className="ml-2">sin catálogo</Badge>}
+                  <TableCell>
+                    {m.imagen_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.imagen_url}
+                        alt={m.modelo}
+                        className="h-10 w-10 rounded-md object-cover border bg-muted"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-md border bg-muted/30 flex items-center justify-center text-[9px] text-muted-foreground">
+                        s/img
+                      </div>
+                    )}
                   </TableCell>
-                  <TableCell className="text-right">{m.total.toLocaleString()}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {m.modelo}
+                      {m.robot_restringido && (
+                        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20">
+                          robots únicos
+                        </Badge>
+                      )}
+                      {m.sin_catalogo && (
+                        <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20">
+                          sin catálogo
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">{m.total.toLocaleString()}</TableCell>
                   {resumen.semanas.map((s) => (
                     <TableCell key={s} className="text-right text-muted-foreground">
                       {m.distribucion[String(s)] ? m.distribucion[String(s)].toLocaleString() : '—'}

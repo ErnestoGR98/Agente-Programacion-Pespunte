@@ -9,6 +9,7 @@ export interface CatalogoModelo {
   label: string
   total_seg_par: number
   robot_restringido: boolean
+  imagen_url?: string
 }
 
 export interface ResumenSemana {
@@ -25,6 +26,7 @@ export interface ResumenModelo {
   distribucion: Record<string, number>
   robot_restringido: boolean
   sin_catalogo: boolean
+  imagen_url?: string
 }
 
 export interface ResumenBacklog {
@@ -54,6 +56,13 @@ export interface BalanceOptions {
   excluir?: string
   fijar?: string
   no_aislar?: string
+}
+
+export async function downloadPlantillaBacklog(): Promise<void> {
+  const res = await fetch(`${API_URL}/api/balance-backlog/plantilla`)
+  if (!res.ok) throw new Error(`Error ${res.status} al descargar plantilla`)
+  const blob = await res.blob()
+  downloadBlob(blob, 'Backlog_Plantilla.xlsx')
 }
 
 export async function fetchCatalogoBacklog(): Promise<CatalogoModelo[]> {

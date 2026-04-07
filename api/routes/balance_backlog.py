@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 # Hacer importable backlog_tool/
 ROOT = Path(__file__).parent.parent.parent
@@ -27,6 +27,51 @@ sys.path.insert(0, str(ROOT / "backlog_tool"))
 import generar_propuesta as bt  # noqa: E402
 
 router = APIRouter()
+
+
+def _imagen_url_de(nombre_modelo: str, catalogo: dict) -> str:
+    """Busca la imagen del modelo usando solo los primeros 5 dígitos.
+
+    Prioridad:
+    1. imagen_url del modelo
+    2. Primer valor de alternativas_imagenes (dict alt -> url)
+    """
+    import re
+    m = re.match(r"(\d{4,6})", nombre_modelo.strip())
+    if not m:
+        return ""
+    num = m.group(1)
+    cat = catalogo.get(num)
+    if not cat:
+        return ""
+    url = cat.get("imagen_url") or ""
+    if url:
+        return url
+    # fallback: primer valor de alternativas_imagenes
+    alts = cat.get("alternativas_imagenes") or {}
+    if isinstance(alts, dict):
+        for v in alts.values():
+            if v:
+                return v
+    return ""
+
+
+@router.get("/api/balance-backlog/plantilla")
+def descargar_plantilla():
+    """Descarga la plantilla Excel en blanco para llenar el backlog."""
+    plantilla = ROOT / "backlog_tool" / "plantilla.xlsx"
+    if not plantilla.exists():
+        raise HTTPException(404, f"Plantilla no encontrada: {plantilla}")
+    return FileResponse(
+        path=str(plantilla),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="Backlog_Plantilla.xlsx",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.get("/api/balance-backlog/catalogo")
@@ -43,6 +88,7 @@ def get_catalogo_modelos():
                 "label": label,
                 "total_seg_par": m.get("total_sec_per_pair", 0),
                 "robot_restringido": m.get("robot_restringido", False),
+                "imagen_url": m.get("imagen_url", ""),
             })
         modelos.sort(key=lambda x: x["modelo_num"])
         return {"modelos": modelos}
@@ -158,6 +204,7 @@ async def balance_backlog(
                     "distribucion": {str(s): asig[n][s] for s in semanas if asig[n][s] > 0},
                     "robot_restringido": info.get(n, {}).get("robot_restringido", False),
                     "sin_catalogo": info.get(n, {}).get("sin_catalogo", False),
+                    "imagen_url": _imagen_url_de(n, catalogo),
                 }
                 for n, t in modelos
             ],
