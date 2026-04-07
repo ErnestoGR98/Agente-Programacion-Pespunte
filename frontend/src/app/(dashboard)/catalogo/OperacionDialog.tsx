@@ -212,7 +212,33 @@ export function OperacionDialog({ open, onOpenChange, operacion, robots, nextFra
 
           {recursos.includes('ROBOT') && (
             <div className="space-y-1">
-              <Label className="text-xs">Robots Habilitados</Label>
+              {(() => {
+                const ROBOT_BASE = ['3020', '6040', 'CHACHE']
+                const realRobotIds = robots
+                  .filter((r) => (r.tipos || []).some((t) => ROBOT_BASE.includes(t)))
+                  .map((r) => r.id)
+                const allRealSelected =
+                  realRobotIds.length > 0 &&
+                  realRobotIds.every((id) => selectedRobots.includes(id))
+                return (
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Robots Habilitados</Label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedRobots((prev) =>
+                          allRealSelected
+                            ? prev.filter((id) => !realRobotIds.includes(id))
+                            : Array.from(new Set([...prev, ...realRobotIds]))
+                        )
+                      }
+                      className="text-[11px] text-primary font-medium hover:underline"
+                    >
+                      {allRealSelected ? 'Deseleccionar robots' : 'Seleccionar todos los robots'}
+                    </button>
+                  </div>
+                )
+              })()}
               <div className="flex flex-wrap gap-2">
                 {robots.map((r) => (
                   <label key={r.id} className="flex items-center gap-1 text-xs">
