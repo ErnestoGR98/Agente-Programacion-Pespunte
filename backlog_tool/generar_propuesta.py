@@ -570,6 +570,12 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
     input_por_num = {_modelo_num(n): n for n in input_modelos if _modelo_num(n)}
     asignados_input = set()  # nombres ya colocados
 
+    # Eliminar TODAS las imágenes del workbook (a petición del usuario)
+    for sn_img in wb.sheetnames:
+        ws_img = wb[sn_img]
+        if hasattr(ws_img, "_images"):
+            ws_img._images = []
+
     # ===== Hoja "Backlog" =====
     # Cols: B=Modelo, C..=Sem (dinámicas según semanas), última=Total
     if "Backlog" in wb.sheetnames:

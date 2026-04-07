@@ -371,7 +371,6 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-14"></TableHead>
                 <TableHead>Modelo</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 {resumen.semanas.map((s) => (
@@ -382,21 +381,6 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
             <TableBody>
               {resumen.por_modelo.map((m) => (
                 <TableRow key={m.modelo}>
-                  <TableCell>
-                    {m.imagen_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={m.imagen_url}
-                        alt={m.modelo}
-                        className="h-10 w-10 rounded-md object-cover border bg-muted"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-md border bg-muted/30 flex items-center justify-center text-[9px] text-muted-foreground">
-                        s/img
-                      </div>
-                    )}
-                  </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2 flex-wrap">
                       {m.modelo}
