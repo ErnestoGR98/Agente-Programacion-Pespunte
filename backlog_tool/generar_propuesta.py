@@ -456,10 +456,10 @@ def safe_set(ws, r, c, v):
         ws.cell(row=r, column=c).value = v
 
 def _modelo_num(nombre: str) -> str:
-    """Extrae los primeros 4-6 dígitos del nombre del modelo."""
+    """Extrae los primeros 5 dígitos del nombre del modelo."""
     import re
     if not nombre: return ""
-    m = re.match(r"(\d{4,6})", str(nombre).strip())
+    m = re.match(r"(\d{5})", str(nombre).strip())
     return m.group(1) if m else ""
 
 

@@ -30,14 +30,14 @@ router = APIRouter()
 
 
 def _imagen_url_de(nombre_modelo: str, catalogo: dict) -> str:
-    """Busca la imagen del modelo usando solo los primeros 5 dígitos.
+    """Busca la imagen del modelo usando exactamente los primeros 5 dígitos.
 
     Prioridad:
     1. imagen_url del modelo
     2. Primer valor de alternativas_imagenes (dict alt -> url)
     """
     import re
-    m = re.match(r"(\d{4,6})", nombre_modelo.strip())
+    m = re.match(r"(\d{5})", nombre_modelo.strip())
     if not m:
         return ""
     num = m.group(1)
