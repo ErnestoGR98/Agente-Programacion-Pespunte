@@ -748,6 +748,21 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
     CENTER_AL = Al(horizontal="center", vertical="center")
     LEFT_AL = Al(horizontal="left", vertical="center")
 
+    # Tints suaves por columna (etapa) - colores del template original
+    PRE_TINT = PF(fill_type="solid", fgColor="FFFEF3C7")    # cream para PRELIM
+    ROB_TINT = PF(fill_type="solid", fgColor="FFD1FAE5")    # verde claro para ROBOT
+    POST_TINT = PF(fill_type="solid", fgColor="FFFCE7F3")   # rosa claro para POST
+    NA_TINT = PF(fill_type="solid", fgColor="FFE2E8F0")     # gris claro para N/A
+    MAQ_TINT = PF(fill_type="solid", fgColor="FFEDE9FE")    # purpura muy claro para MAQUILA
+    # Mapping col -> fill
+    COL_TINTS = {
+        4: PRE_TINT, 5: PRE_TINT, 6: PRE_TINT, 7: PRE_TINT,
+        8: ROB_TINT, 9: ROB_TINT, 10: ROB_TINT, 11: ROB_TINT,
+        12: POST_TINT, 13: POST_TINT, 14: POST_TINT, 15: POST_TINT,
+        16: NA_TINT, 17: NA_TINT,
+        18: MAQ_TINT, 19: MAQ_TINT,
+    }
+
     def _estilo_fila(ws_, r_, fill=None, font=None, align=None, border=THIN_BORDER, cols=range(2, 21)):
         for c_ in cols:
             try:
@@ -808,6 +823,12 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 # Estilo de fila normal: border + alineación centrada (excepto B = nombre izq)
                 _estilo_fila(ws, r, align=CENTER_AL)
                 ws.cell(row=r, column=2).alignment = LEFT_AL
+                # Aplicar tints suaves por columna (PRELIM/ROBOT/POST/NA/MAQ)
+                for col_idx, tint in COL_TINTS.items():
+                    try:
+                        ws.cell(row=r, column=col_idx).fill = tint
+                    except AttributeError:
+                        pass
             r += 1
         rt = r; first = 6
         safe_set(ws, rt, 2, "TOTAL")
