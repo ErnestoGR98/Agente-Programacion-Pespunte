@@ -455,34 +455,230 @@ def safe_set(ws, r, c, v):
                 ws.unmerge_cells(str(rng)); break
         ws.cell(row=r, column=c).value = v
 
+def _modelo_num(nombre: str) -> str:
+    """Extrae los primeros 4-6 dígitos del nombre del modelo."""
+    import re
+    if not nombre: return ""
+    m = re.match(r"(\d{4,6})", str(nombre).strip())
+    return m.group(1) if m else ""
+
+
+def _escribir_total_general_row(ws, r, nombre, asig_modelo, info_modelo):
+    """Escribe una fila de la hoja Total General.
+    Cols: B=Modelo, C=Total Pares,
+          D=SegPar PRE, E=H, F=Pers, G=Días
+          H=SegPar ROB, I=H, J=Pers, K=Días
+          L=SegPar POST, M=H, N=Pers, O=Días
+          P=SegPar NA, Q=H
+          R=SegPar MAQ, S=H
+          T=TOTAL HRS
+    """
+    safe_set(ws, r, 2, nombre)
+    total_pares = sum(asig_modelo.values())
+    safe_set(ws, r, 3, total_pares)
+    if info_modelo.get("sin_catalogo"):
+        safe_set(ws, r, 4, "SIN CATALOGO")
+        safe_set(ws, r, 20, "—")
+        return
+    if info_modelo.get("PRE", 0) > 0:
+        safe_set(ws, r, 4, info_modelo["PRE"])
+        safe_set(ws, r, 5, f"=C{r}*D{r}/3600")
+        safe_set(ws, r, 6, f"=E{r}/$F$2")
+        safe_set(ws, r, 7, f"=F{r}/$C$2")
+    else:
+        safe_set(ws, r, 4, "—"); safe_set(ws, r, 5, "—")
+        safe_set(ws, r, 6, "—"); safe_set(ws, r, 7, "—")
+    if info_modelo.get("ROB", 0) > 0:
+        safe_set(ws, r, 8, info_modelo["ROB"])
+        safe_set(ws, r, 9, f"=C{r}*H{r}/3600")
+        safe_set(ws, r, 10, f"=I{r}/$J$2")
+        safe_set(ws, r, 11, f"=J{r}/$C$2")
+    else:
+        safe_set(ws, r, 8, "—"); safe_set(ws, r, 9, "—")
+        safe_set(ws, r, 10, "—"); safe_set(ws, r, 11, "—")
+    if info_modelo.get("POST", 0) > 0:
+        safe_set(ws, r, 12, info_modelo["POST"])
+        safe_set(ws, r, 13, f"=C{r}*L{r}/3600")
+        safe_set(ws, r, 14, f"=M{r}/$N$2")
+        safe_set(ws, r, 15, f"=N{r}/$C$2")
+    else:
+        safe_set(ws, r, 12, "—"); safe_set(ws, r, 13, "—")
+        safe_set(ws, r, 14, "—"); safe_set(ws, r, 15, "—")
+    if info_modelo.get("NA", 0) > 0:
+        safe_set(ws, r, 16, info_modelo["NA"])
+        safe_set(ws, r, 17, f"=C{r}*P{r}/3600")
+    else:
+        safe_set(ws, r, 16, "—"); safe_set(ws, r, 17, "—")
+    if info_modelo.get("MAQ", 0) > 0:
+        safe_set(ws, r, 18, info_modelo["MAQ"])
+        safe_set(ws, r, 19, f"=C{r}*R{r}/3600")
+    else:
+        safe_set(ws, r, 18, "—"); safe_set(ws, r, 19, "—")
+    parts = []
+    for col, key in [("E","PRE"),("I","ROB"),("M","POST"),("Q","NA"),("S","MAQ")]:
+        if info_modelo.get(key, 0) > 0:
+            parts.append(f"{col}{r}")
+    safe_set(ws, r, 20, "=" + "+".join(parts) if parts else 0)
+
+
+def _escribir_seg_por_par_row(ws, r, nombre, info_modelo):
+    """Escribe una fila de la hoja Seg por Par.
+    Cols: B=Modelo, C=Total Seg/Par, D=PRE, E=ROB, F=POST, G=NA, H=MAQ, I=Pares/Hr
+    """
+    safe_set(ws, r, 2, nombre)
+    if info_modelo.get("sin_catalogo"):
+        safe_set(ws, r, 3, "SIN CATALOGO")
+        return
+    pre = info_modelo.get("PRE", 0) or 0
+    rob = info_modelo.get("ROB", 0) or 0
+    post = info_modelo.get("POST", 0) or 0
+    na = info_modelo.get("NA", 0) or 0
+    maq = info_modelo.get("MAQ", 0) or 0
+    safe_set(ws, r, 3, f"=D{r}+E{r}+F{r}+G{r}+H{r}")
+    safe_set(ws, r, 4, pre)
+    safe_set(ws, r, 5, rob)
+    safe_set(ws, r, 6, post)
+    safe_set(ws, r, 7, na)
+    safe_set(ws, r, 8, maq)
+    safe_set(ws, r, 9, f"=IF(C{r}>0,3600/C{r},0)")
+
+
 def escribir_excel(template_path, output_path, asig, info, semanas):
     wb = openpyxl.load_workbook(template_path)
 
-    # Backlog
+    # Modelos del input indexados por número (4-6 dígitos)
+    input_modelos = list(asig.keys())  # nombres completos del input
+    input_por_num = {_modelo_num(n): n for n in input_modelos if _modelo_num(n)}
+    asignados_input = set()  # nombres ya colocados
+
+    # ===== Hoja "Backlog" =====
+    # Cols: B=Modelo, C..=Sem (dinámicas según semanas), última=Total
     if "Backlog" in wb.sheetnames:
         ws = wb["Backlog"]
         safe_set(ws, 1, 1, "PROPUESTA OPTIMIZADA - data-driven")
-        safe_set(ws, 2, 1, f"Generado por scripts/generar_propuesta_backlog.py")
-        for r in range(5, 25):
+        safe_set(ws, 2, 1, "Generado por backlog_tool/generar_propuesta.py")
+
+        # Capturar nombres del template ANTES de limpiar (para matchear por num)
+        template_rows_b = {}  # row_idx -> num
+        for r in range(5, 35):
             nm = ws.cell(row=r, column=2).value
-            if not nm: continue
-            nm = str(nm).strip()
-            if nm == "TOTAL" or nm not in asig: continue
+            if not nm or str(nm).strip().upper() == "TOTAL":
+                continue
+            num = _modelo_num(str(nm))
+            if num:
+                template_rows_b[r] = num
+
+        # LIMPIAR todo el rango de datos (filas 4..40 cols 2..15) y unhidear
+        for r in range(4, 41):
+            for c in range(2, 16):
+                safe_set(ws, r, c, None)
+            ws.row_dimensions[r].hidden = False
+
+        # Headers
+        for j, s in enumerate(semanas):
+            safe_set(ws, 4, 3 + j, f"Sem {s}")
+        col_total_b = 3 + len(semanas)
+        safe_set(ws, 4, col_total_b, "Total")
+
+        # Escribir filas matcheadas por num en su row original (mantiene imágenes)
+        for r, num in template_rows_b.items():
+            input_match = input_por_num.get(num)
+            if input_match:
+                safe_set(ws, r, 2, input_match)
+                for j, s in enumerate(semanas):
+                    v = asig[input_match][s]
+                    safe_set(ws, r, 3 + j, v if v > 0 else None)
+                safe_set(ws, r, col_total_b, f"=SUM(C{r}:{get_column_letter(col_total_b - 1)}{r})")
+                asignados_input.add(input_match)
+            else:
+                # Ocultar fila huérfana del template
+                ws.row_dimensions[r].hidden = True
+
+        # Agregar modelos nuevos del input al final
+        last_row_b = max(template_rows_b.keys()) if template_rows_b else 4
+        for nm in input_modelos:
+            if nm in asignados_input: continue
+            last_row_b += 1
+            safe_set(ws, last_row_b, 2, nm)
             for j, s in enumerate(semanas):
                 v = asig[nm][s]
-                safe_set(ws, r, 3 + j, v if v > 0 else None)
+                safe_set(ws, last_row_b, 3 + j, v if v > 0 else None)
+            safe_set(ws, last_row_b, col_total_b, f"=SUM(C{last_row_b}:{get_column_letter(col_total_b - 1)}{last_row_b})")
 
-    # Backlog Original
+        # Fila TOTAL
+        rt = last_row_b + 1
+        safe_set(ws, rt, 2, "TOTAL")
+        for j in range(len(semanas)):
+            col = 3 + j
+            letter = get_column_letter(col)
+            safe_set(ws, rt, col, f"=SUM({letter}5:{letter}{rt - 1})")
+        letter_t = get_column_letter(col_total_b)
+        safe_set(ws, rt, col_total_b, f"=SUM({letter_t}5:{letter_t}{rt - 1})")
+
+    # ===== Hoja "Backlog Original" =====
+    # Cols: C=Alternativa, E..K=semanas 15..21 (7 fijas en template), L=Total general
     if "Backlog Original" in wb.sheetnames:
         ws = wb["Backlog Original"]
-        for r in range(4, 25):
+
+        # Capturar nombres del template
+        template_rows_o = {}
+        for r in range(4, 35):
             nm = ws.cell(row=r, column=3).value
-            if not nm: continue
-            nm = str(nm).strip()
-            if nm not in asig: continue
+            if not nm or str(nm).strip().upper() == "TOTAL":
+                continue
+            num = _modelo_num(str(nm))
+            if num:
+                template_rows_o[r] = num
+
+        # Limpiar todo el rango y unhidear
+        for r in range(4, 41):
+            for c in range(3, 13):
+                safe_set(ws, r, c, None)
+            ws.row_dimensions[r].hidden = False
+
+        # Headers de semanas en row 2
+        for j in range(7):
+            col = 5 + j
+            if j < len(semanas):
+                safe_set(ws, 2, col, semanas[j])
+            else:
+                safe_set(ws, 2, col, None)
+
+        asignados_orig = set()
+        for r, num in template_rows_o.items():
+            input_match = input_por_num.get(num)
+            if input_match:
+                safe_set(ws, r, 3, input_match)
+                for j, s in enumerate(semanas):
+                    if j >= 7: break
+                    v = asig[input_match][s]
+                    safe_set(ws, r, 5 + j, v if v > 0 else None)
+                last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
+                safe_set(ws, r, 12, f"=SUM(E{r}:{last_sem_col}{r})")
+                asignados_orig.add(input_match)
+            else:
+                ws.row_dimensions[r].hidden = True
+
+        last_row_o = max(template_rows_o.keys()) if template_rows_o else 3
+        for nm in input_modelos:
+            if nm in asignados_orig: continue
+            last_row_o += 1
+            safe_set(ws, last_row_o, 3, nm)
             for j, s in enumerate(semanas):
+                if j >= 7: break
                 v = asig[nm][s]
-                safe_set(ws, r, 5 + j, v if v > 0 else None)
+                safe_set(ws, last_row_o, 5 + j, v if v > 0 else None)
+            last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
+            safe_set(ws, last_row_o, 12, f"=SUM(E{last_row_o}:{last_sem_col}{last_row_o})")
+
+        rt_o = last_row_o + 1
+        safe_set(ws, rt_o, 3, "TOTAL")
+        for j in range(min(len(semanas), 7)):
+            col = 5 + j
+            letter = get_column_letter(col)
+            safe_set(ws, rt_o, col, f"=SUM({letter}4:{letter}{rt_o - 1})")
+        last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
+        safe_set(ws, rt_o, 12, f"=SUM(E{rt_o}:{last_sem_col}{rt_o})")
 
     # Hojas semanales
     # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
@@ -551,6 +747,71 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
                 col_idx = openpyxl.utils.column_index_from_string(col_letter)
                 safe_set(ws, rt, col_idx, 0)
+
+    # ===== Hoja "Total General" =====
+    if "Total General" in wb.sheetnames:
+        ws = wb["Total General"]
+        template_rows_tg = {}
+        for r in range(6, 35):
+            nm = ws.cell(row=r, column=2).value
+            if not nm or str(nm).strip().upper() == "TOTAL":
+                continue
+            num = _modelo_num(str(nm))
+            if num:
+                template_rows_tg[r] = num
+        for r in range(6, 41):
+            for c in range(2, 21):
+                safe_set(ws, r, c, None)
+            ws.row_dimensions[r].hidden = False
+
+        asignados_tg = set()
+        for r, num in template_rows_tg.items():
+            input_match = input_por_num.get(num)
+            if input_match:
+                _escribir_total_general_row(ws, r, input_match, asig[input_match], info[input_match])
+                asignados_tg.add(input_match)
+            else:
+                ws.row_dimensions[r].hidden = True
+        last_row_tg = max(template_rows_tg.keys()) if template_rows_tg else 5
+        for nm in input_modelos:
+            if nm in asignados_tg: continue
+            last_row_tg += 1
+            _escribir_total_general_row(ws, last_row_tg, nm, asig[nm], info[nm])
+        rt_tg = last_row_tg + 1
+        safe_set(ws, rt_tg, 2, "TOTAL")
+        for col_letter in ["C","E","F","G","I","J","K","M","N","O","Q","S","T"]:
+            col_idx = openpyxl.utils.column_index_from_string(col_letter)
+            safe_set(ws, rt_tg, col_idx, f"=SUM({col_letter}6:{col_letter}{rt_tg - 1})")
+
+    # ===== Hoja "Seg por Par" =====
+    if "Seg por Par" in wb.sheetnames:
+        ws = wb["Seg por Par"]
+        template_rows_sp = {}
+        for r in range(4, 35):
+            nm = ws.cell(row=r, column=2).value
+            if not nm or str(nm).strip().upper() == "TOTAL":
+                continue
+            num = _modelo_num(str(nm))
+            if num:
+                template_rows_sp[r] = num
+        for r in range(4, 41):
+            for c in range(2, 10):
+                safe_set(ws, r, c, None)
+            ws.row_dimensions[r].hidden = False
+
+        asignados_sp = set()
+        for r, num in template_rows_sp.items():
+            input_match = input_por_num.get(num)
+            if input_match:
+                _escribir_seg_por_par_row(ws, r, input_match, info[input_match])
+                asignados_sp.add(input_match)
+            else:
+                ws.row_dimensions[r].hidden = True
+        last_row_sp = max(template_rows_sp.keys()) if template_rows_sp else 3
+        for nm in input_modelos:
+            if nm in asignados_sp: continue
+            last_row_sp += 1
+            _escribir_seg_por_par_row(ws, last_row_sp, nm, info[nm])
 
     # Resumen Semanal
     if "Resumen Semanal" in wb.sheetnames:
