@@ -644,6 +644,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
 
     # ===== Hoja "Backlog Original" =====
     # Cols: C=Alternativa, E..K=semanas 15..21 (7 fijas en template), L=Total general
+    # Cols M..U: tabla resumen lateral hardcodeada del template -> ELIMINAR
     if "Backlog Original" in wb.sheetnames:
         ws = wb["Backlog Original"]
 
@@ -657,7 +658,25 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             if num:
                 template_rows_o[r] = num
 
-        # Limpiar todo el rango y unhidear
+        # Limpiar todo el rango (incluyendo la tabla lateral hardcodeada cols M..U)
+        # y unhidear filas
+        from openpyxl.styles import PatternFill as PFI, Border as BdI
+        NO_FILL_I = PFI(fill_type=None)
+        NO_BORDER_I = BdI()
+        for r in range(1, 41):
+            for c in range(13, 22):  # M..U
+                try:
+                    cell = ws.cell(row=r, column=c)
+                    cell.value = None
+                    cell.fill = NO_FILL_I
+                    cell.border = NO_BORDER_I
+                except AttributeError:
+                    pass
+        # Desunmergear cualquier merge en la zona lateral
+        for rng in list(ws.merged_cells.ranges):
+            if rng.min_col >= 13:
+                ws.unmerge_cells(str(rng))
+
         for r in range(4, 41):
             for c in range(3, 13):
                 safe_set(ws, r, c, None)
