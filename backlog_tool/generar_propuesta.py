@@ -733,6 +733,32 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                     cell.border = NO_BORDER
                 except AttributeError:
                     pass
+    # Estilos del template
+    from openpyxl.styles import PatternFill as PF, Font as Ft, Alignment as Al, Border as Bd, Side as Sd
+    PINK_FILL = PF(fill_type="solid", fgColor="FFFECACA")
+    TOTAL_FILL = PF(fill_type="solid", fgColor="FF1E3A5F")
+    TOTAL_FONT = Ft(bold=True, color="FFFFFFFF")
+    SIN_CAT_FONT = Ft(italic=True, color="FFB91C1C")
+    THIN_BORDER = Bd(
+        left=Sd(border_style="thin", color="FFE5E7EB"),
+        right=Sd(border_style="thin", color="FFE5E7EB"),
+        top=Sd(border_style="thin", color="FFE5E7EB"),
+        bottom=Sd(border_style="thin", color="FFE5E7EB"),
+    )
+    CENTER_AL = Al(horizontal="center", vertical="center")
+    LEFT_AL = Al(horizontal="left", vertical="center")
+
+    def _estilo_fila(ws_, r_, fill=None, font=None, align=None, border=THIN_BORDER, cols=range(2, 21)):
+        for c_ in cols:
+            try:
+                cell = ws_.cell(row=r_, column=c_)
+                if fill is not None: cell.fill = fill
+                if font is not None: cell.font = font
+                if align is not None: cell.alignment = align
+                if border is not None: cell.border = border
+            except AttributeError:
+                pass
+
     for s in semanas:
         sn = f"Sem {s}"
         if sn not in wb.sheetnames: continue
@@ -746,6 +772,8 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             if i.get("sin_catalogo"):
                 safe_set(ws, r, 4, "SIN CATALOGO")
                 safe_set(ws, r, 20, "—")
+                _estilo_fila(ws, r, fill=PINK_FILL, font=SIN_CAT_FONT, align=CENTER_AL)
+                ws.cell(row=r, column=2).alignment = LEFT_AL
             else:
                 if i.get("PRE", 0) > 0:
                     safe_set(ws, r, 4, i["PRE"])
@@ -777,6 +805,9 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 for col, key in [("E","PRE"),("I","ROB"),("M","POST"),("Q","NA"),("S","MAQ")]:
                     if i.get(key, 0) > 0: parts.append(f"{col}{r}")
                 safe_set(ws, r, 20, "=" + "+".join(parts) if parts else 0)
+                # Estilo de fila normal: border + alineación centrada (excepto B = nombre izq)
+                _estilo_fila(ws, r, align=CENTER_AL)
+                ws.cell(row=r, column=2).alignment = LEFT_AL
             r += 1
         rt = r; first = 6
         safe_set(ws, rt, 2, "TOTAL")
@@ -792,6 +823,8 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
                 col_idx = openpyxl.utils.column_index_from_string(col_letter)
                 safe_set(ws, rt, col_idx, 0)
+        # Estilo TOTAL: fondo azul oscuro + texto blanco bold
+        _estilo_fila(ws, rt, fill=TOTAL_FILL, font=TOTAL_FONT, align=CENTER_AL)
         # Ocultar filas vacías después del TOTAL hasta el max_row del template
         for r_hide in range(rt + 1, max(ws.max_row, rt + 30) + 1):
             ws.row_dimensions[r_hide].hidden = True
