@@ -1063,15 +1063,22 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
                 for col, key in [("E","PRE"),("I","ROB"),("M","POST"),("Q","NA"),("S","MAQ")]:
                     if i.get(key, 0) > 0: parts.append(f"{col}{r}")
                 safe_set(ws, r, 20, "=" + "+".join(parts) if parts else 0)
-                # Estilo de fila normal: border + alineación centrada (excepto B = nombre izq)
-                _estilo_fila(ws, r, align=CENTER_AL)
+                # Estilo de fila normal: forzar font negro normal (size 10), border, alineación
+                from openpyxl.styles import Font as _FtN
+                NORMAL_FONT = _FtN(bold=False, italic=False, color="FF000000", size=10)
+                MODELO_FONT = _FtN(bold=True, italic=False, color="FF000000", size=10)
+                _estilo_fila(ws, r, font=NORMAL_FONT, align=CENTER_AL)
                 ws.cell(row=r, column=2).alignment = LEFT_AL
+                ws.cell(row=r, column=2).font = MODELO_FONT
+                ws.cell(row=r, column=20).font = MODELO_FONT
                 # Aplicar tints suaves por columna (PRELIM/ROBOT/POST/NA/MAQ)
                 for col_idx, tint in COL_TINTS.items():
                     try:
                         ws.cell(row=r, column=col_idx).fill = tint
                     except AttributeError:
                         pass
+            # Forzar altura uniforme para TODAS las filas de datos
+            ws.row_dimensions[r].height = 33
             r += 1
         rt = r; first = 6
         safe_set(ws, rt, 2, "TOTAL")
@@ -1087,8 +1094,9 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
                 col_idx = openpyxl.utils.column_index_from_string(col_letter)
                 safe_set(ws, rt, col_idx, 0)
-        # Estilo TOTAL: fondo azul oscuro + texto blanco bold
+        # Estilo TOTAL: fondo azul oscuro + texto blanco bold + altura uniforme
         _estilo_fila(ws, rt, fill=TOTAL_FILL, font=TOTAL_FONT, align=CENTER_AL)
+        ws.row_dimensions[rt].height = 33
         # Ocultar filas vacías después del TOTAL hasta el max_row del template
         for r_hide in range(rt + 1, max(ws.max_row, rt + 30) + 1):
             ws.row_dimensions[r_hide].hidden = True
