@@ -1023,9 +1023,14 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             num = _modelo_num(str(nm))
             if num:
                 template_rows_tg[r] = num
+        # Limpiar valores Y fills (el template tenía rows rosa hardcodeadas para SIN CATALOGO)
         for r in range(6, 41):
             for c in range(2, 21):
                 safe_set(ws, r, c, None)
+                try:
+                    ws.cell(row=r, column=c).fill = NO_FILL
+                except AttributeError:
+                    pass
             ws.row_dimensions[r].hidden = False
 
         asignados_tg = set()
@@ -1033,6 +1038,10 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             input_match = input_por_num.get(num)
             if input_match:
                 _escribir_total_general_row(ws, r, input_match, asig[input_match], info[input_match])
+                # Aplicar fill rosa solo si SIGUE sin catálogo
+                if info[input_match].get("sin_catalogo"):
+                    _estilo_fila(ws, r, fill=PINK_FILL, font=SIN_CAT_FONT, align=CENTER_AL)
+                    ws.cell(row=r, column=2).alignment = LEFT_AL
                 asignados_tg.add(input_match)
             else:
                 ws.row_dimensions[r].hidden = True
@@ -1041,11 +1050,22 @@ def escribir_excel(template_path, output_path, asig, info, semanas, catalogo=Non
             if nm in asignados_tg: continue
             last_row_tg += 1
             _escribir_total_general_row(ws, last_row_tg, nm, asig[nm], info[nm])
+            if info[nm].get("sin_catalogo"):
+                _estilo_fila(ws, last_row_tg, fill=PINK_FILL, font=SIN_CAT_FONT, align=CENTER_AL)
+                ws.cell(row=last_row_tg, column=2).alignment = LEFT_AL
         rt_tg = last_row_tg + 1
         safe_set(ws, rt_tg, 2, "TOTAL")
         for col_letter in ["C","E","F","G","I","J","K","M","N","O","Q","S","T"]:
             col_idx = openpyxl.utils.column_index_from_string(col_letter)
             safe_set(ws, rt_tg, col_idx, f"=SUM({col_letter}6:{col_letter}{rt_tg - 1})")
+        _estilo_fila(ws, rt_tg, fill=TOTAL_FILL, font=TOTAL_FONT, align=CENTER_AL)
+        # Formato 1 decimal en horas/personas/dias
+        for r in range(6, rt_tg + 1):
+            for col_letter in ["E","F","G","I","J","K","M","N","O","Q","S","T"]:
+                col_idx = openpyxl.utils.column_index_from_string(col_letter)
+                cell = ws.cell(row=r, column=col_idx)
+                if cell.value is not None:
+                    cell.number_format = "0.0"
 
     # ===== Hoja "Seg por Par" =====
     if "Seg por Par" in wb.sheetnames:
