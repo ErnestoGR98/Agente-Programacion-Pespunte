@@ -373,6 +373,7 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
               <TableRow>
                 <TableHead className="w-14"></TableHead>
                 <TableHead>Modelo</TableHead>
+                <TableHead>Alternativa</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 {resumen.semanas.map((s) => (
                   <TableHead key={s} className="text-right">S{s}</TableHead>
@@ -380,7 +381,12 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {resumen.por_modelo.map((m) => (
+              {resumen.por_modelo.map((m) => {
+                // Separar modelo (5 dígitos) y alternativa (resto)
+                const match = m.modelo.match(/^(\d{5})\s*(.*)$/)
+                const modeloNum = match ? match[1] : m.modelo
+                const alternativa = match ? match[2] : ''
+                return (
                 <TableRow key={m.modelo}>
                   <TableCell>
                     {m.imagen_url ? (
@@ -395,9 +401,10 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
                       <div className="h-10 w-10 rounded-md border bg-muted/30" />
                     )}
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium font-mono">{modeloNum}</TableCell>
+                  <TableCell>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {m.modelo}
+                      <span className="text-muted-foreground">{alternativa}</span>
                       {m.robot_restringido && (
                         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20">
                           robots únicos
@@ -417,7 +424,8 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
                     </TableCell>
                   ))}
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
         </CardContent>
