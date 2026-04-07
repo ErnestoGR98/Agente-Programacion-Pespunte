@@ -463,6 +463,25 @@ def _modelo_num(nombre: str) -> str:
     return m.group(1) if m else ""
 
 
+def _quitar_imagenes_de_filas(ws, filas_a_quitar: set):
+    """Elimina de ws._images todas las imágenes ancladas a filas en el set.
+    Las filas se pasan en 1-indexed (como Excel); el anchor las maneja 0-indexed."""
+    if not hasattr(ws, "_images") or not ws._images:
+        return
+    filas_0idx = {r - 1 for r in filas_a_quitar}
+    nuevas = []
+    for img in ws._images:
+        anchor = getattr(img, "anchor", None)
+        fr = getattr(anchor, "_from", None) if anchor is not None else None
+        if fr is None:
+            nuevas.append(img)
+            continue
+        if fr.row in filas_0idx:
+            continue  # eliminar
+        nuevas.append(img)
+    ws._images = nuevas
+
+
 def _escribir_total_general_row(ws, r, nombre, asig_modelo, info_modelo):
     """Escribe una fila de la hoja Total General.
     Cols: B=Modelo, C=Total Pares,
@@ -581,6 +600,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
         safe_set(ws, 4, col_total_b, "Total")
 
         # Escribir filas matcheadas por num en su row original (mantiene imágenes)
+        filas_huerfanas_b = set()
         for r, num in template_rows_b.items():
             input_match = input_por_num.get(num)
             if input_match:
@@ -591,8 +611,9 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 safe_set(ws, r, col_total_b, f"=SUM(C{r}:{get_column_letter(col_total_b - 1)}{r})")
                 asignados_input.add(input_match)
             else:
-                # Ocultar fila huérfana del template
                 ws.row_dimensions[r].hidden = True
+                filas_huerfanas_b.add(r)
+        _quitar_imagenes_de_filas(ws, filas_huerfanas_b)
 
         # Agregar modelos nuevos del input al final
         last_row_b = max(template_rows_b.keys()) if template_rows_b else 4
@@ -645,6 +666,7 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 safe_set(ws, 2, col, None)
 
         asignados_orig = set()
+        filas_huerfanas_o = set()
         for r, num in template_rows_o.items():
             input_match = input_por_num.get(num)
             if input_match:
@@ -658,6 +680,8 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                 asignados_orig.add(input_match)
             else:
                 ws.row_dimensions[r].hidden = True
+                filas_huerfanas_o.add(r)
+        _quitar_imagenes_de_filas(ws, filas_huerfanas_o)
 
         last_row_o = max(template_rows_o.keys()) if template_rows_o else 3
         for nm in input_modelos:
