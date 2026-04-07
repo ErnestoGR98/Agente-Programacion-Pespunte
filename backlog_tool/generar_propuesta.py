@@ -643,8 +643,8 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
         safe_set(ws, rt, col_total_b, f"=SUM({letter_t}5:{letter_t}{rt - 1})")
 
     # ===== Hoja "Backlog Original" =====
-    # Cols: C=Alternativa, E..K=semanas 15..21 (7 fijas en template), L=Total general
-    # Cols M..U: tabla resumen lateral hardcodeada del template -> ELIMINAR
+    # El usuario solo da TOTALES en el input, así que esta hoja muestra solo
+    # Modelo + Total Pares (sin desglose por semana). El desglose va en "Backlog".
     if "Backlog Original" in wb.sheetnames:
         ws = wb["Backlog Original"]
 
@@ -658,13 +658,12 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             if num:
                 template_rows_o[r] = num
 
-        # Limpiar todo el rango (incluyendo la tabla lateral hardcodeada cols M..U)
-        # y unhidear filas
+        # Limpiar TODO el rango cols 3..22 (modelo + semanas + tabla lateral) y unhidear
         from openpyxl.styles import PatternFill as PFI, Border as BdI
         NO_FILL_I = PFI(fill_type=None)
         NO_BORDER_I = BdI()
         for r in range(1, 41):
-            for c in range(13, 22):  # M..U
+            for c in range(4, 22):  # D..U (todo lo que NO sea col C = modelo)
                 try:
                     cell = ws.cell(row=r, column=c)
                     cell.value = None
@@ -672,23 +671,17 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
                     cell.border = NO_BORDER_I
                 except AttributeError:
                     pass
-        # Desunmergear cualquier merge en la zona lateral
+        # Desunmergear cualquier merge a partir de col D
         for rng in list(ws.merged_cells.ranges):
-            if rng.min_col >= 13:
+            if rng.min_col >= 4:
                 ws.unmerge_cells(str(rng))
 
         for r in range(4, 41):
-            for c in range(3, 13):
-                safe_set(ws, r, c, None)
             ws.row_dimensions[r].hidden = False
 
-        # Headers de semanas en row 2
-        for j in range(7):
-            col = 5 + j
-            if j < len(semanas):
-                safe_set(ws, 2, col, semanas[j])
-            else:
-                safe_set(ws, 2, col, None)
+        # Headers nuevos: col C = "Modelo", col D = "Total Pares"
+        safe_set(ws, 2, 3, "Modelo")
+        safe_set(ws, 2, 4, "Total Pares")
 
         asignados_orig = set()
         filas_huerfanas_o = set()
@@ -696,12 +689,8 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             input_match = input_por_num.get(num)
             if input_match:
                 safe_set(ws, r, 3, input_match)
-                for j, s in enumerate(semanas):
-                    if j >= 7: break
-                    v = asig[input_match][s]
-                    safe_set(ws, r, 5 + j, v if v > 0 else None)
-                last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
-                safe_set(ws, r, 12, f"=SUM(E{r}:{last_sem_col}{r})")
+                total_modelo = sum(asig[input_match].values())
+                safe_set(ws, r, 4, total_modelo)
                 asignados_orig.add(input_match)
             else:
                 ws.row_dimensions[r].hidden = True
@@ -713,21 +702,11 @@ def escribir_excel(template_path, output_path, asig, info, semanas):
             if nm in asignados_orig: continue
             last_row_o += 1
             safe_set(ws, last_row_o, 3, nm)
-            for j, s in enumerate(semanas):
-                if j >= 7: break
-                v = asig[nm][s]
-                safe_set(ws, last_row_o, 5 + j, v if v > 0 else None)
-            last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
-            safe_set(ws, last_row_o, 12, f"=SUM(E{last_row_o}:{last_sem_col}{last_row_o})")
+            safe_set(ws, last_row_o, 4, sum(asig[nm].values()))
 
         rt_o = last_row_o + 1
         safe_set(ws, rt_o, 3, "TOTAL")
-        for j in range(min(len(semanas), 7)):
-            col = 5 + j
-            letter = get_column_letter(col)
-            safe_set(ws, rt_o, col, f"=SUM({letter}4:{letter}{rt_o - 1})")
-        last_sem_col = get_column_letter(5 + min(len(semanas), 7) - 1)
-        safe_set(ws, rt_o, 12, f"=SUM(E{rt_o}:{last_sem_col}{rt_o})")
+        safe_set(ws, rt_o, 4, f"=SUM(D4:D{rt_o - 1})")
 
     # Hojas semanales
     # IMPORTANTE: limpiar TODAS las hojas Sem* del template (no solo las del rango)
