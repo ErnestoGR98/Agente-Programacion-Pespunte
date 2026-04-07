@@ -6,7 +6,7 @@ import { useAppStore } from '@/lib/store/useAppStore'
 import {
   Database, ShieldAlert, Users, Settings,
   CalendarDays, LayoutGrid, BarChart3, Bot, AlertTriangle, LogOut, BookOpen, Sheet,
-  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft, Factory,
+  Sun, Moon, Menu, X, PanelLeftClose, PanelLeft, Factory, Wand2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
@@ -53,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Herramientas',
     items: [
+      { href: '/balance-backlog', label: 'Propuesta Backlog', icon: Wand2, minStep: 0 },
       { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
     ],
   },

@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar codigo fuente
 COPY src/ ./src/
 COPY api/ ./api/
+COPY backlog_tool/ ./backlog_tool/
 
 # Directorio de trabajo para el API
 WORKDIR /app/api
