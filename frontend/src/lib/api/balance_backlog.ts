@@ -26,6 +26,8 @@ export interface ResumenModelo {
   distribucion: Record<string, number>
   robot_restringido: boolean
   sin_catalogo: boolean
+  complejidad_cat?: 'simple' | 'medio' | 'complejo'
+  complejidad_score?: number
   imagen_url?: string
 }
 

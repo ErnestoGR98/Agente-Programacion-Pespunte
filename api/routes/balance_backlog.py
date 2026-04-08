@@ -204,6 +204,8 @@ async def balance_backlog(
                     "distribucion": {str(s): asig[n][s] for s in semanas if asig[n][s] > 0},
                     "robot_restringido": info.get(n, {}).get("robot_restringido", False),
                     "sin_catalogo": info.get(n, {}).get("sin_catalogo", False),
+                    "complejidad_cat": info.get(n, {}).get("complejidad_cat", "medio"),
+                    "complejidad_score": info.get(n, {}).get("complejidad_score", 0.5),
                     "imagen_url": _imagen_url_de(n, catalogo),
                 }
                 for n, t in modelos

@@ -447,6 +447,21 @@ function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
                   <TableCell>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-muted-foreground">{alternativa}</span>
+                      {m.complejidad_cat === 'simple' && (
+                        <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
+                          simple
+                        </Badge>
+                      )}
+                      {m.complejidad_cat === 'medio' && (
+                        <Badge className="bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30">
+                          medio
+                        </Badge>
+                      )}
+                      {m.complejidad_cat === 'complejo' && (
+                        <Badge className="bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30">
+                          complejo
+                        </Badge>
+                      )}
                       {m.robot_restringido && (
                         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20">
                           robots únicos

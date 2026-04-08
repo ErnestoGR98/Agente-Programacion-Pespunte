@@ -140,6 +140,7 @@ def fetch_catalogo():
                 rids = robots_per_op.get(op["id"], [])
                 if 0 < len(rids) <= ROBOT_RESTRINGIDO_THRESHOLD:
                     m["robot_restringido"] = True
+    calcular_complejidad(out)
     return out
 
 def fetch_restricciones_activas():
@@ -326,12 +327,74 @@ def match_modelo(nm, catalogo_db):
 # ALGORITMO GREEDY (playbook)
 # ============================================================
 def n_sem_por_volumen(t, max_sem):
-    # EXPERIMENTO: regla heurística desactivada. Todo modelo ocupa 1 semana.
-    # La carga de robot por semana se controla en el scoring del greedy.
+    # FALLBACK: solo se usa cuando no hay datos de horas-robot.
+    # La decisión real se toma con n_sem_por_horas_robot() abajo.
     return 1
-    # if t <= 1500: return 1
-    # if t <= 2200: return min(2, max_sem)
-    # return min(3, max_sem)
+
+def calcular_complejidad(catalogo_db):
+    """Asigna a cada modelo un score 0-1 y una categoría (simple/medio/complejo).
+
+    Score compuesto:
+      0.5 * (total_seg_par / max_global)
+      0.3 * (n_operaciones / max_global)
+      0.2 * (n_recursos_distintos / max_global)
+
+    Mutará catalogo_db agregando: complejidad_score, complejidad_cat.
+    """
+    # 1) Calcular features por modelo
+    feats = {}
+    for num, m in catalogo_db.items():
+        total_seg = m.get("total_sec_per_pair") or 0
+        if not total_seg:
+            total_seg = (m.get("PRE", 0) + m.get("ROB", 0)
+                         + m.get("POST", 0) + m.get("NA", 0) + m.get("MAQ", 0))
+        ops = m.get("ops") or []
+        n_ops = len(ops)
+        recursos = set()
+        for op in ops:
+            r = (op.get("recurso") or "").upper().strip()
+            if r:
+                recursos.add(r)
+        feats[num] = {
+            "seg": total_seg,
+            "n_ops": n_ops,
+            "n_rec": len(recursos),
+        }
+
+    # 2) Normalizar contra el máximo global
+    max_seg = max((f["seg"] for f in feats.values()), default=1) or 1
+    max_ops = max((f["n_ops"] for f in feats.values()), default=1) or 1
+    max_rec = max((f["n_rec"] for f in feats.values()), default=1) or 1
+
+    # 3) Score y categoría
+    for num, f in feats.items():
+        score = (
+            0.5 * (f["seg"] / max_seg)
+            + 0.3 * (f["n_ops"] / max_ops)
+            + 0.2 * (f["n_rec"] / max_rec)
+        )
+        if score < 0.33:
+            cat = "simple"
+        elif score < 0.66:
+            cat = "medio"
+        else:
+            cat = "complejo"
+        catalogo_db[num]["complejidad_score"] = round(score, 3)
+        catalogo_db[num]["complejidad_cat"] = cat
+
+def n_sem_por_horas_robot(seg_par_rob, total, cap_robot_sem, max_sem):
+    """Decisión inteligente: 1 semana por default, 2-3 sólo si las
+    horas-robot del modelo no caben físicamente en una semana.
+    Usa 90% del cap como margen para dejar espacio a otros modelos."""
+    if seg_par_rob <= 0 or cap_robot_sem <= 0:
+        return 1  # neutro o sin info
+    horas = total * seg_par_rob / 3600
+    margen = cap_robot_sem * 0.9
+    if horas <= margen:
+        return 1
+    # No cabe entero: partir en el mínimo de semanas necesario
+    n = math.ceil(horas / margen)
+    return min(n, max_sem)
 
 def horas_robot_total(seg_par_rob, total):
     return total * seg_par_rob / 3600
@@ -344,6 +407,9 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
     asig = {n: {s: 0 for s in semanas} for n, _ in modelos}
     carga = {s: 0.0 for s in semanas}
     mods = {s: 0 for s in semanas}
+    # conteo de modelos COMPLEJOS por semana (para balancear complejidad)
+    cmplx = {s: 0 for s in semanas}
+    MAX_CMPLX_POR_SEM = 1  # objetivo soft: máx 1 complejo por semana
 
     # info por modelo
     info = {}
@@ -360,10 +426,13 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
                 "robot_restringido": cat["robot_restringido"],
                 "neutro": cat["ROB"] == 0,
                 "sin_catalogo": False,
+                "complejidad_cat": cat.get("complejidad_cat", "medio"),
+                "complejidad_score": cat.get("complejidad_score", 0.5),
             }
         else:
             info[n] = {"ROB":0,"PRE":0,"POST":0,"NA":0,"MAQ":0,
-                       "robot_restringido": False, "neutro": True, "sin_catalogo": True}
+                       "robot_restringido": False, "neutro": True, "sin_catalogo": True,
+                       "complejidad_cat": "medio", "complejidad_score": 0.5}
 
     # aplicar fijaciones
     fijar = opts.get("fijar", {})
@@ -371,15 +440,17 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
         if n in fijar:
             asig[n] = {s: 0 for s in semanas}
 
-    # orden: restringidos -> robot-share por h-robot desc -> neutros
+    # orden: fijar -> restringidos -> COMPLEJOS -> robot-share desc -> neutros
     def prio(item):
         n, t = item
         i = info[n]
-        if n in fijar: return (-1, 0)
+        if n in fijar: return (-2, 0)
         if i["robot_restringido"] and n not in opts.get("no_aislar", set()):
-            return (0, 0)
+            return (-1, 0)
+        if i.get("complejidad_cat") == "complejo":
+            return (0, -i.get("complejidad_score", 0))
         if i["neutro"]:
-            return (2, -t)
+            return (3, -t)
         return (1, -horas_robot_total(i["ROB"], t))
 
     orden = sorted(modelos, key=prio)
@@ -396,7 +467,8 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
         if n in fijar:
             n_por_modelo[n] = len([s for s in fijar[n] if s in semanas]) or 1
         else:
-            n_por_modelo[n] = n_sem_por_volumen(total, max_sem)
+            seg = info[n]["ROB"] if not info[n]["neutro"] else 0
+            n_por_modelo[n] = n_sem_por_horas_robot(seg, total, cap_robot_sem, max_sem)
     demanda = sum(n_por_modelo.values())
     n_sem = len(semanas)
     max_mod_pedido = max_mod
@@ -434,7 +506,8 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
                 asig[n][sems_fijas[0]] += diff
             continue
 
-        N = n_por_modelo.get(n, n_sem_por_volumen(total, max_sem))
+        seg_n = info[n]["ROB"] if not info[n]["neutro"] else 0
+        N = n_por_modelo.get(n, n_sem_por_horas_robot(seg_n, total, cap_robot_sem, max_sem))
         base = total // N
         bloques = [base] * N
         for i in range(total - base * N): bloques[i] += 1
@@ -446,9 +519,12 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
         is_neutro = info[n]["neutro"]
         h_par = info[n]["ROB"] / 3600 if not is_neutro else 0
         es_restringido = info[n]["robot_restringido"] and n not in opts.get("no_aislar", set())
+        es_complejo = info[n].get("complejidad_cat") == "complejo"
+        es_medio = info[n].get("complejidad_cat") == "medio"
 
         # FASE 1: max_mod es DURO. Intentar meter el modelo SOLO en ventanas
         # que respeten el cap. Si no hay, dejarlo pendiente para FASE 2.
+        PENAL_COMPLEJO = 50_000
         mejor = None
         mejor_score = float("inf")
         for st in range(len(semanas) - N + 1):
@@ -462,6 +538,13 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
             else:
                 pico = max(carga[vent[k]] + bloques[k] * h_par for k in range(N))
                 score = pico * (10 if pico > cap_robot_sem else 1)
+            # Penalización por complejidad: complejos prefieren semanas sin
+            # otros complejos previos; medios penalizan menos
+            if es_complejo:
+                score += sum(max(0, cmplx[s] - MAX_CMPLX_POR_SEM + 1) * PENAL_COMPLEJO
+                             for s in vent)
+            elif es_medio:
+                score += sum(cmplx[s] * PENAL_COMPLEJO * 0.3 for s in vent)
             if score < mejor_score:
                 mejor_score = score; mejor = vent
 
@@ -475,6 +558,8 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
             if not is_neutro:
                 carga[s] += bloques[k] * h_par
             mods[s] += 1
+            if es_complejo:
+                cmplx[s] += 1
 
     # FASE 2: colocar modelos pendientes (los que no cupieron con cap duro).
     # Estrategia: concentrar excesos en POCAS semanas en vez de repartirlos.
