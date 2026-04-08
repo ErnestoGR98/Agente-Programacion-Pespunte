@@ -974,6 +974,53 @@ def run_optimization(req: OptimizeRequest):
             weekly_schedule = frozen_entries + new_entries
             print(f"  [REOPT] weekly_schedule: {len(frozen_entries)} frozen + {len(new_entries)} new")
 
+    # 10b. Reconciliar weekly_summary con la realidad del daily_results.
+    # El weekly_summary se calcula del weekly_schedule (intencion del solver semanal),
+    # pero el daily puede zerear modelos enteros si no caben. Recalcular producido
+    # real por modelo sumando lo que efectivamente aparece en daily_results.
+    if weekly_summary.get("models"):
+        # Sumar pares reales producidos por modelo (sólo la fracción terminal,
+        # para no contar pares de operaciones intermedias dos veces). Aproximación
+        # razonable: tomar el max total_pares por modelo entre todas sus ops, ya
+        # que en cascada la última fracción ≈ output real del modelo.
+        produced_real = {}
+        for day_name, day_data in daily_results.items():
+            por_modelo_op = {}
+            for s in day_data.get("schedule", []):
+                code = s.get("modelo", "")
+                frac = s.get("fraccion", 0)
+                tp = s.get("total", s.get("total_pares", 0)) or 0
+                key = (code, frac)
+                por_modelo_op[key] = por_modelo_op.get(key, 0) + tp
+            # Por modelo, agregar la fraccion MAXIMA (la que define output real)
+            por_modelo = {}
+            for (code, frac), pares in por_modelo_op.items():
+                if code not in por_modelo or frac > por_modelo[code][0]:
+                    por_modelo[code] = (frac, pares)
+            for code, (_, pares) in por_modelo.items():
+                produced_real[code] = produced_real.get(code, 0) + pares
+
+        total_real = 0
+        total_tardiness_real = 0
+        for model_sum in weekly_summary["models"]:
+            code = model_sum.get("codigo", "")
+            volumen = model_sum.get("volumen", 0)
+            real = produced_real.get(code, 0)
+            prev_producido = model_sum.get("producido", 0)
+            if real != prev_producido:
+                print(f"  [RECONCILE] {code}: weekly decia {prev_producido}, "
+                      f"daily real={real} (delta={real - prev_producido})")
+            model_sum["producido"] = real
+            model_sum["pct_completado"] = round(100 * real / volumen, 1) if volumen > 0 else 0
+            model_sum["tardiness"] = max(0, volumen - real)
+            total_real += real
+            total_tardiness_real += model_sum["tardiness"]
+        weekly_summary["total_pares"] = total_real
+        weekly_summary["total_tardiness"] = total_tardiness_real
+        if total_tardiness_real > 0:
+            weekly_summary["status"] = "FEASIBLE_PARTIAL"
+            print(f"  [RECONCILE] Total tardiness real={total_tardiness_real}")
+
     # 11. Guardar resultado en Supabase
     saved_as = _save_resultado(
         base_name, weekly_schedule, weekly_summary,

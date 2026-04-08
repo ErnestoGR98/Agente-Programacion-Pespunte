@@ -29,10 +29,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ortools.sat.python import cp_model
 
 # Pesos del objetivo (defaults, overridden by params if available)
-_W_TARDINESS = 100_000     # por par no completado en el dia
+# IMPORTANTE: tardiness DEBE dominar a hc_overflow. Antes _W_TARDINESS=100k
+# y _W_HC_OVERFLOW=50/seg, lo que daba 180k/persona-bloque > 100k/par. El solver
+# prefería zerear modelos enteros (ej. 61747 GC) en vez de exceder HC. Ahora
+# tardiness=1M domina cualquier overflow razonable (>5x) y fuerza producción
+# parcial siempre que sea físicamente posible.
+_W_TARDINESS = 1_000_000   # por par no completado en el dia
 _W_UNIFORMITY = 5_000      # soft uniformity (por par de shortfall)
 _W_HC_OVERFLOW = 50         # por segundo de exceso sobre plantilla/recurso por bloque
-                            # (50 * 3600s = 180k por persona-bloque: fuerte pero < tardiness)
+                            # (50 * 3600s = 180k por persona-bloque, ahora claramente < tardiness)
 _W_OP_CAP_OVERFLOW = 5_000  # LEGACY: kept for params override; used only if op_capacity is soft
 _W_IDLE = 1_500            # por segundo de capacidad ociosa (moderado, no domina W_EARLY)
 _W_BALANCE = 10            # minimizar pico de HC (suave)
@@ -1576,6 +1581,40 @@ def _extract_day_schedule(solver, x, y, active, hc_used, robot_ops_idx,
             print(c)
     else:
         print(f"  [ROBOT VALIDATION] OK - sin conflictos de robots")
+
+    # Detectar modelos asignados por weekly que el daily zerea por completo
+    # (todas sus operaciones quedaron con total_pares=0 y se saltaron arriba).
+    # En vez de dejarlos desaparecer silenciosamente, emitir un placeholder
+    # visible con motivo, para que UI y reporting los muestren como NO PRODUCIDOS.
+    modelos_con_entries = {entry["modelo"] for entry in schedule}
+    for m_idx, model in enumerate(models_day):
+        codigo = model["codigo"]
+        if codigo in modelos_con_entries:
+            continue
+        pares_dia = model.get("pares_dia", 0)
+        if pares_dia <= 0:
+            continue  # weekly tampoco le asigno nada, no es un drop
+        print(f"  [DAILY DROP] {codigo}: weekly asigno {pares_dia} pares pero "
+              f"daily produjo 0 (solver zereo el modelo). Emitiendo placeholder.")
+        first_op = model["operations"][0] if model["operations"] else {}
+        schedule.append({
+            "modelo": codigo,
+            "fabrica": model.get("fabrica", ""),
+            "fraccion": first_op.get("fraccion", 0),
+            "operacion": first_op.get("operacion", "(modelo no producido)"),
+            "recurso": first_op.get("recurso", ""),
+            "rate": first_op.get("rate", 0),
+            "hc": 0,
+            "block_pares": [0] * num_blocks,
+            "total_pares": 0,
+            "hc_per_block": [0] * num_blocks,
+            "robots_used": [],
+            "robot_per_block": [None] * num_blocks,
+            "robots_eligible": first_op.get("robots", []),
+            "hc_multiplier": first_op.get("max_hc", 1),
+            "pares_no_producidos": pares_dia,
+            "motivo_drop": "Solver diario no pudo programar (probable falta de HC/robot/cuello)",
+        })
 
     # Ordenar por modelo, fraccion
     schedule.sort(key=lambda r: (r["modelo"], r["fraccion"]))

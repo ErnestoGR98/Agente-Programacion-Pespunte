@@ -296,14 +296,21 @@ def optimize(models: list, params: dict, compiled=None) -> tuple:
             # usar los bloques de overtime si los regulares estan ocupados).
             block_duration = 60
             total_blocks = day_minutes / block_duration
-            cascade_startup = (num_ops - 1) * 0.3
+            # Cascade penalty: more conservative (0.15 vs 0.3) — the daily solver
+            # can parallelize across robots, so cascade overhead is smaller than
+            # assumed. For ROBOT-bottleneck models, parallelism across multiple
+            # machine instances further reduces the effective startup cost.
+            cascade_mult = 0.15 if bottleneck_recurso not in ("MESA", "GENERAL", None, "") else 0.30
+            cascade_startup = (num_ops - 1) * cascade_mult
             effective_blocks = max(1, total_blocks - cascade_startup)
             cascade_eff = effective_blocks / total_blocks if total_blocks > 0 else 1
-            # Factor 0.70: the daily solver handles physical machine constraints,
-            # so the weekly just needs a moderate cap to avoid wild overestimation.
-            throughput_factor = 0.70
-            max_throughput = int(bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor)
-            max_throughput = (max_throughput // step) * step
+            # Factor 0.90: the daily solver handles physical machine constraints,
+            # so the weekly just needs a light cap to avoid wild overestimation.
+            # Was 0.70 — too aggressive, caused tardiness on isolated models.
+            throughput_factor = 0.90
+            raw_throughput = bottleneck_rate * hc_boost * day_minutes / 60 * cascade_eff * throughput_factor
+            # Round to nearest step (not floor) to avoid losing capacity to truncation.
+            max_throughput = int(round(raw_throughput / step)) * step
             max_throughput = max(max_throughput, step)  # never round to 0
             max_throughput = min(max_throughput, model["total_producir"])
             solver_model.Add(x[m, d] <= max_throughput)
