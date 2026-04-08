@@ -319,8 +319,50 @@ export default function BalanceBacklogPage() {
 
 function ResumenView({ resumen }: { resumen: ResumenBacklog }) {
   const totalPares = resumen.por_semana.reduce((a, s) => a + s.pares, 0)
+  const meta = resumen.meta
   return (
     <div className="space-y-4">
+      {meta?.ajustado && meta.intentos && meta.intentos.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <div className="font-semibold text-amber-600 dark:text-amber-400">
+            ⚠ Máx modelos por semana ajustado automáticamente
+          </div>
+          <div className="text-muted-foreground mt-1 space-y-1">
+            <div>
+              Pediste <strong>{meta.max_mod_pedido}</strong> modelos/semana, pero no era suficiente
+              ({meta.demanda_model_weeks} model-weeks requeridas en {resumen.semanas.length} semanas).
+            </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              <span>Intentos:</span>
+              {meta.intentos.map((v) => {
+                const ok = v === meta.max_mod_usado
+                return (
+                  <span
+                    key={v}
+                    className={
+                      'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-mono ' +
+                      (ok
+                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-red-500/15 text-red-500 line-through')
+                    }
+                  >
+                    {ok ? '✓' : '✗'} {v}
+                  </span>
+                )
+              })}
+            </div>
+            <div>
+              Mínimo factible: <strong>{meta.max_mod_usado}</strong> modelos/semana.
+            </div>
+          </div>
+        </div>
+      )}
+      {meta && !meta.ajustado && meta.max_mod_pedido != null && (
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-muted-foreground">
+          ✓ Cap de <strong>{meta.max_mod_pedido}</strong> modelos/semana respetado en todas las semanas
+          (pico real: {meta.max_mod_real}).
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Distribución por semana</CardTitle>

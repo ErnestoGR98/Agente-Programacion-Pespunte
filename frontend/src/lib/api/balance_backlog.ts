@@ -29,6 +29,16 @@ export interface ResumenModelo {
   imagen_url?: string
 }
 
+export interface ResumenMeta {
+  max_mod_pedido?: number
+  max_mod_usado?: number
+  max_mod_real?: number
+  min_factible?: number
+  ajustado?: boolean
+  intentos?: number[]
+  demanda_model_weeks?: number
+}
+
 export interface ResumenBacklog {
   semanas: number[]
   capacidad_robot_sem: number
@@ -36,6 +46,7 @@ export interface ResumenBacklog {
   por_semana: ResumenSemana[]
   por_modelo: ResumenModelo[]
   errores: string[]
+  meta?: ResumenMeta
 }
 
 export interface BalanceBacklogResult {

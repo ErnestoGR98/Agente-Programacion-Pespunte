@@ -209,6 +209,7 @@ async def balance_backlog(
                 for n, t in modelos
             ],
             "errores": errores,
+            "meta": info.get("__meta__", {}),
         }
 
         # 7) Generar Excel

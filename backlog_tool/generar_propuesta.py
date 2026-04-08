@@ -33,6 +33,7 @@ PRECEDENCIA DE OVERRIDES:
 """
 import argparse
 import json
+import math
 import os
 import sys
 import urllib.request
@@ -325,9 +326,12 @@ def match_modelo(nm, catalogo_db):
 # ALGORITMO GREEDY (playbook)
 # ============================================================
 def n_sem_por_volumen(t, max_sem):
-    if t <= 1500: return 1
-    if t <= 2200: return min(2, max_sem)
-    return min(3, max_sem)
+    # EXPERIMENTO: regla heurística desactivada. Todo modelo ocupa 1 semana.
+    # La carga de robot por semana se controla en el scoring del greedy.
+    return 1
+    # if t <= 1500: return 1
+    # if t <= 2200: return min(2, max_sem)
+    # return min(3, max_sem)
 
 def horas_robot_total(seg_par_rob, total):
     return total * seg_par_rob / 3600
@@ -381,6 +385,33 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
     orden = sorted(modelos, key=prio)
     max_sem = opts.get("max_sem", MAX_SEM_MOD_DEF)
     max_mod = opts.get("max_mod", MAX_MOD_SEM_DEF)
+    print(f"[backlog.distribuir] max_mod={max_mod} max_sem={max_sem} "
+          f"n_modelos={len(modelos)} n_semanas={len(semanas)}", flush=True)
+
+    # Calcular N por modelo (usado por el loop principal). El cap max_mod se
+    # trata como SOFT: el algoritmo lo respeta donde puede, y solo lo excede
+    # en las semanas donde es matemáticamente imposible cumplirlo.
+    n_por_modelo = {}
+    for n, total in orden:
+        if n in fijar:
+            n_por_modelo[n] = len([s for s in fijar[n] if s in semanas]) or 1
+        else:
+            n_por_modelo[n] = n_sem_por_volumen(total, max_sem)
+    demanda = sum(n_por_modelo.values())
+    n_sem = len(semanas)
+    max_mod_pedido = max_mod
+    min_factible = max(1, math.ceil(demanda / n_sem)) if n_sem > 0 else max_mod
+    # AUTO-BUMP iterativo: si max_mod pedido no permite distribución completa,
+    # subir +1 hasta encontrar el menor valor donde TODOS los modelos caben
+    # respetando el cap. Equivale a math.ceil(demanda/n_sem).
+    intentos = []
+    if max_mod < min_factible:
+        for v in range(max_mod_pedido, min_factible + 1):
+            intentos.append(v)
+        max_mod = min_factible
+        print(f"[backlog.distribuir] AUTO-BUMP: intentos={intentos} -> "
+              f"usado={max_mod} (demanda={demanda}, n_sem={n_sem})", flush=True)
+    pendientes = []  # modelos que no caben (no debería pasar con auto-bump)
 
     for n, total in orden:
         # si está fijado, distribuir parejo en sus semanas
@@ -403,7 +434,7 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
                 asig[n][sems_fijas[0]] += diff
             continue
 
-        N = n_sem_por_volumen(total, max_sem)
+        N = n_por_modelo.get(n, n_sem_por_volumen(total, max_sem))
         base = total // N
         bloques = [base] * N
         for i in range(total - base * N): bloques[i] += 1
@@ -416,11 +447,14 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
         h_par = info[n]["ROB"] / 3600 if not is_neutro else 0
         es_restringido = info[n]["robot_restringido"] and n not in opts.get("no_aislar", set())
 
+        # FASE 1: max_mod es DURO. Intentar meter el modelo SOLO en ventanas
+        # que respeten el cap. Si no hay, dejarlo pendiente para FASE 2.
         mejor = None
         mejor_score = float("inf")
         for st in range(len(semanas) - N + 1):
             vent = semanas[st:st + N]
-            if any(mods[s] >= max_mod for s in vent): continue
+            if any(mods[s] >= max_mod for s in vent):
+                continue
             if is_neutro:
                 score = sum(mods[s] for s in vent) * 1000 - sum(carga[s] for s in vent)
             elif es_restringido:
@@ -432,7 +466,9 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
                 mejor_score = score; mejor = vent
 
         if mejor is None:
-            mejor = sorted(sorted(semanas, key=lambda s: (mods[s] >= max_mod, carga[s]))[:N])
+            # No cupo en FASE 1: dejarlo pendiente
+            pendientes.append((n, total, N, bloques, h_par, is_neutro, es_restringido))
+            continue
 
         for k, s in enumerate(mejor):
             asig[n][s] += bloques[k]
@@ -440,6 +476,44 @@ def distribuir(modelos, semanas, catalogo_db, cap_robot_sem, opts):
                 carga[s] += bloques[k] * h_par
             mods[s] += 1
 
+    # FASE 2: colocar modelos pendientes (los que no cupieron con cap duro).
+    # Estrategia: concentrar excesos en POCAS semanas en vez de repartirlos.
+    # Para cada pendiente, elegir las N semanas que YA tienen más exceso
+    # (o si ninguna, las menos cargadas en robot).
+    if pendientes:
+        print(f"[backlog.distribuir] FASE 2: {len(pendientes)} modelos pendientes "
+              f"a colocar fuera del cap", flush=True)
+    for n, total, N, bloques, h_par, is_neutro, es_restringido in pendientes:
+        # Preferir semanas que ya excedieron el cap (concentración),
+        # luego menos cargadas en robot
+        ranked = sorted(
+            semanas,
+            key=lambda s: (
+                -(max(0, mods[s] - max_mod_pedido + 1)),  # más exceso primero (negativo)
+                carga[s] if not is_neutro else 0,
+                mods[s],
+            )
+        )
+        # Tomar N semanas, preferir contiguas si es posible
+        elegidas = sorted(ranked[:N])
+        for k, s in enumerate(elegidas):
+            asig[n][s] += bloques[k]
+            if not is_neutro:
+                carga[s] += bloques[k] * h_par
+            mods[s] += 1
+
+    print(f"[backlog.distribuir] FINAL mods por semana: "
+          f"{ {s: mods[s] for s in semanas} } (cap={max_mod})", flush=True)
+    max_real = max(mods.values()) if mods else 0
+    info["__meta__"] = {
+        "max_mod_pedido": max_mod_pedido,
+        "max_mod_usado": max_mod,
+        "max_mod_real": max_real,
+        "min_factible": min_factible,
+        "ajustado": max_mod != max_mod_pedido,
+        "intentos": intentos,
+        "demanda_model_weeks": demanda,
+    }
     return asig, carga, info
 
 # ============================================================
