@@ -70,9 +70,8 @@ function deriveGrid(
 
   const placements = new Map<string, number>()
   if (connectedFracs.size === 0) {
-    const empty: (number | null)[][] = []
-    for (let i = 0; i < 5; i++) empty.push([null, null, null])
-    return { grid: empty, placements, groupBoundaries: [] }
+    // Start with a single empty row; user adds more via AGREGAR+
+    return { grid: [[null, null, null]], placements, groupBoundaries: [] }
   }
 
   // Compute depths via topological order (Kahn's algorithm) — immune to cycles
@@ -147,14 +146,14 @@ function deriveGrid(
   }
 
   const maxDepth = Math.max(0, ...([...depth.values()]))
-  const numCols = Math.max(3, maxDepth + 1)
+  const numCols = Math.max(1, maxDepth + 1)
   const grid: (number | null)[][] = []
   for (const chain of chains) {
     const row: (number | null)[] = Array(numCols).fill(null)
     for (const frac of chain) { const col = depth.get(frac) ?? 0; row[col] = frac; placements.set(`${grid.length},${col}`, frac) }
     grid.push(row)
   }
-  while (grid.length < 5) grid.push(Array(numCols).fill(null))
+  // No padding: user adds extra rows/cols via AGREGAR+
   return { grid, placements, groupBoundaries }
 }
 
@@ -278,7 +277,6 @@ export function CascadeEditor({
     }
 
     const newRows = raw.grid.filter((row) => row.some((v) => v !== null))
-    const emptyRows = raw.grid.filter((row) => row.every((v) => v === null))
 
     // Map each frac → which new row it belongs to
     const fracToNewRow = new Map<number, number>()
@@ -321,9 +319,11 @@ export function CascadeEditor({
       if (!placedNewIdx.has(i)) stabilized.push(newRows[i])
     }
 
-    // Pad with empty rows
-    for (const row of emptyRows) stabilized.push(row)
-    while (stabilized.length < 5) stabilized.push(Array(raw.grid[0]?.length ?? 3).fill(null))
+    // No padding: only rows with content remain. User adds more via AGREGAR+.
+    // If no content rows at all, keep one blank row to allow initial drops.
+    if (stabilized.length === 0) {
+      stabilized.push(Array(raw.grid[0]?.length ?? 3).fill(null))
+    }
 
     // Rebuild placements for stabilized grid
     const stablePlacements = new Map<string, number>()
@@ -602,14 +602,20 @@ export function CascadeEditor({
         })
       }
 
-      const canvas = await html2canvas(gridRef.current, {
+      // Capture the inner wrapper (fit-content) so the snapshot hugs the table
+      const target = (svgWrapperRef.current ?? gridRef.current) as HTMLElement
+
+      const canvas = await html2canvas(target, {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
-        width: gridRef.current.scrollWidth,
+        width: target.scrollWidth,
+        height: target.scrollHeight,
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight,
       })
 
-      // Restore: unhide elements + restore dark mode
+      // Restore: unhide elements + dark mode
       hidden.forEach((el) => { el.style.display = '' })
       root.classList.remove('light')
       if (wasDark) root.classList.add('dark')
@@ -1207,8 +1213,8 @@ export function CascadeEditor({
 
       {/* Grid */}
       <div ref={gridRef} className="cascade-grid border rounded-lg overflow-x-auto">
-      <div ref={svgWrapperRef} className="relative" style={{ width: 'fit-content', minWidth: '100%' }}>
-        <table className="w-full border-collapse text-xs">
+      <div ref={svgWrapperRef} className="cascade-grid-inner relative" style={{ width: 'fit-content' }}>
+        <table className="border-collapse text-xs">
           <thead>
             <tr className="bg-muted/50 border-b">
               <th className="px-2 py-2 text-left font-semibold w-12 border-r">#</th>

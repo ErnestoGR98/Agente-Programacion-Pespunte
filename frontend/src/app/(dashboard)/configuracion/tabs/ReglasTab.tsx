@@ -24,6 +24,7 @@ import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType, type Restriccion } f
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
 import { CascadeEditor } from '@/components/shared/CascadeEditor'
 import { ProcessFlowDiagram } from '@/components/shared/ProcessFlowDiagram'
+import { loadImageBase64 } from '@/lib/export'
 
 interface CatalogoModelo {
   modelo_num: string
@@ -348,11 +349,16 @@ export function ReglasTab() {
           })
         }
 
-        const canvas = await html2canvas(gridEl, {
+        // Target the inner fit-content wrapper so snapshot hugs the table
+        const captureEl = (gridEl.querySelector('.cascade-grid-inner') as HTMLElement | null) ?? gridEl
+        const canvas = await html2canvas(captureEl, {
           backgroundColor: '#ffffff',
           scale: 2,
           useCORS: true,
-          width: gridEl.scrollWidth,
+          width: captureEl.scrollWidth,
+          height: captureEl.scrollHeight,
+          windowWidth: captureEl.scrollWidth,
+          windowHeight: captureEl.scrollHeight,
         })
 
         // Restore hidden elements and overflow
@@ -484,7 +490,9 @@ export function ReglasTab() {
           scale: 2,
           useCORS: true,
           width: diagramEl.scrollWidth,
+          height: diagramEl.scrollHeight,
           windowWidth: diagramEl.scrollWidth,
+          windowHeight: diagramEl.scrollHeight,
         })
 
         hidden.forEach((el) => { el.style.display = '' })
@@ -534,10 +542,40 @@ export function ReglasTab() {
   async function exportAllCombinedPdf() {
     const { data: allModelos } = await supabase
       .from('catalogo_modelos')
-      .select('modelo_num')
+      .select('modelo_num, imagen_url, alternativas_imagenes')
       .order('modelo_num')
-    const modelNums = (allModelos || []).map((m: { modelo_num: string }) => m.modelo_num)
+    type ModeloImgRow = {
+      modelo_num: string
+      imagen_url: string | null
+      alternativas_imagenes: Record<string, string> | null
+    }
+    const modelosFull = (allModelos || []) as ModeloImgRow[]
+    const modelNums = modelosFull.map((m) => m.modelo_num)
     if (modelNums.length === 0) return
+
+    // Build image lookup: key is 5-digit prefix of modelo_num.
+    // Fallback order: main imagen_url → first alternativa image.
+    // Multiple rows with same prefix: pick first with a usable image.
+    const imageUrlMap = new Map<string, string>()
+    for (const m of modelosFull) {
+      const key = (m.modelo_num || '').slice(0, 5)
+      if (!key || imageUrlMap.has(key)) continue
+      let url: string | null = m.imagen_url || null
+      if (!url && m.alternativas_imagenes && typeof m.alternativas_imagenes === 'object') {
+        const values = Object.values(m.alternativas_imagenes).filter((v): v is string => typeof v === 'string' && v.length > 0)
+        if (values.length > 0) url = values[0]
+      }
+      if (url) imageUrlMap.set(key, url)
+    }
+    // Second pass: for keys still missing, scan all rows with same prefix for alternativa
+    for (const m of modelosFull) {
+      const key = (m.modelo_num || '').slice(0, 5)
+      if (!key || imageUrlMap.has(key)) continue
+      if (m.alternativas_imagenes && typeof m.alternativas_imagenes === 'object') {
+        const values = Object.values(m.alternativas_imagenes).filter((v): v is string => typeof v === 'string' && v.length > 0)
+        if (values.length > 0) imageUrlMap.set(key, values[0])
+      }
+    }
 
     setBulkCombinedExporting(true)
     try {
@@ -631,11 +669,15 @@ export function ReglasTab() {
             })
           }
 
-          cascadaCanvas = await html2canvas(gridEl, {
+          const captureEl = (gridEl.querySelector('.cascade-grid-inner') as HTMLElement | null) ?? gridEl
+          cascadaCanvas = await html2canvas(captureEl, {
             backgroundColor: '#ffffff',
             scale: 2,
             useCORS: true,
-            width: gridEl.scrollWidth,
+            width: captureEl.scrollWidth,
+            height: captureEl.scrollHeight,
+            windowWidth: captureEl.scrollWidth,
+            windowHeight: captureEl.scrollHeight,
           })
 
           hidden.forEach((el) => { el.style.display = '' })
@@ -657,27 +699,46 @@ export function ReglasTab() {
             (el as HTMLElement).style.display = 'none'
             hidden.push(el as HTMLElement)
           })
+          // Aggressively expand: scroll container + every ancestor up to diagramEl
           const scroller = diagramEl.querySelector('[data-cursograma-scroll]') as HTMLElement | null
-          const prevMaxH = scroller?.style.maxHeight
-          const prevOverflow = scroller?.style.overflow
+          const restorers: Array<() => void> = []
           if (scroller) {
+            const prev = { mh: scroller.style.maxHeight, h: scroller.style.height, ov: scroller.style.overflow }
             scroller.style.maxHeight = 'none'
+            scroller.style.height = 'auto'
             scroller.style.overflow = 'visible'
+            restorers.push(() => { scroller.style.maxHeight = prev.mh; scroller.style.height = prev.h; scroller.style.overflow = prev.ov })
+            // Also un-clip every ancestor up to diagramEl
+            let cur: HTMLElement | null = scroller.parentElement
+            while (cur && cur !== diagramEl.parentElement) {
+              const prevOv = cur.style.overflow
+              const prevMaxH = cur.style.maxHeight
+              cur.style.overflow = 'visible'
+              cur.style.maxHeight = 'none'
+              const el = cur
+              restorers.push(() => { el.style.overflow = prevOv; el.style.maxHeight = prevMaxH })
+              cur = cur.parentElement
+            }
           }
+          // Force reflow + extra wait so layout settles
+          void diagramEl.scrollHeight
+          await new Promise((r) => setTimeout(r, 80))
+
+          const fullW = Math.max(diagramEl.scrollWidth, diagramEl.offsetWidth)
+          const fullH = Math.max(diagramEl.scrollHeight, diagramEl.offsetHeight)
 
           cursoCanvas = await html2canvas(diagramEl, {
             backgroundColor: '#ffffff',
             scale: 2,
             useCORS: true,
-            width: diagramEl.scrollWidth,
-            windowWidth: diagramEl.scrollWidth,
+            width: fullW,
+            height: fullH,
+            windowWidth: fullW,
+            windowHeight: fullH,
           })
 
           hidden.forEach((el) => { el.style.display = '' })
-          if (scroller) {
-            scroller.style.maxHeight = prevMaxH || ''
-            scroller.style.overflow = prevOverflow || ''
-          }
+          restorers.forEach((fn) => fn())
         }
         setBulkCursoRenderData(null)
 
@@ -692,13 +753,9 @@ export function ReglasTab() {
         const sectionGap = 4
         const sectionLabelH = 5
         const regionW = pageW - margin * 2
-        const availH = pageH - margin - headerH - margin - sectionGap - sectionLabelH * 2
 
-        // Independent scaling: each image fills regionW width; heights capped to avoid
-        // cursograma ballooning when its natural aspect is near-square.
-        const cascadaMaxH = 70 // mm
-        const cursoMaxH = 120 // mm
-
+        // Pre-compute cascada size at sensible aspect (cap height)
+        const cascadaMaxH = 75 // mm
         let cascadaW = 0, cascadaH = 0
         if (cascadaCanvas) {
           const sw = regionW / cascadaCanvas.width
@@ -713,38 +770,35 @@ export function ReglasTab() {
           }
         }
 
-        let cursoW = 0, cursoH = 0
-        if (cursoCanvas) {
-          const sw = regionW / cursoCanvas.width
-          const hAtFullW = cursoCanvas.height * sw
-          if (hAtFullW <= cursoMaxH) {
-            cursoW = regionW
-            cursoH = hAtFullW
-          } else {
-            const sh = cursoMaxH / cursoCanvas.height
-            cursoW = cursoCanvas.width * sh
-            cursoH = cursoMaxH
-          }
+        // Load model image (keyed by 5-digit prefix; with alternativa fallback)
+        const imgKey = (modeloNum || '').slice(0, 5)
+        const imgUrl = imageUrlMap.get(imgKey)
+        let imgData: string | null = null
+        if (imgUrl) {
+          try { imgData = await loadImageBase64(imgUrl) } catch { imgData = null }
         }
 
-        // If combined still exceeds page, uniform downscale
-        const totalH = cascadaH + cursoH
-        if (totalH > availH) {
-          const fit = availH / totalH
-          cascadaW *= fit; cascadaH *= fit
-          cursoW *= fit; cursoH *= fit
+        // Title + image
+        const imgBoxSize = 18 // mm
+        const imgX = margin
+        let textX = margin
+        if (imgData) {
+          try {
+            const fmt = imgData.startsWith('data:image/png') ? 'PNG' : 'JPEG'
+            pdf.addImage(imgData, fmt, imgX, margin - 2, imgBoxSize, imgBoxSize)
+            textX = margin + imgBoxSize + 4
+          } catch { /* skip on failure */ }
         }
 
-        // Title
         pdf.setFontSize(14)
         pdf.setTextColor(0)
-        pdf.text(`Reglas — Modelo ${modeloNum}`, margin, margin + 5)
+        pdf.text(`Reglas — Modelo ${modeloNum}`, textX, margin + 5)
         pdf.setFontSize(8)
         pdf.setTextColor(120)
         pdf.text(new Date().toLocaleDateString('es-MX'), pageW - margin - 25, margin + 5)
         pdf.setTextColor(0)
 
-        let y = margin + headerH
+        let y = margin + (imgData ? imgBoxSize + 2 : headerH)
 
         // Cascada
         pdf.setFontSize(10)
@@ -763,12 +817,50 @@ export function ReglasTab() {
         }
         y += sectionGap
 
-        // Cursograma
+        // Independent fracciones (no precedencia connection)
+        const referencedFracs = new Set<number>()
+        for (const r of modelRules) {
+          const p = r.parametros as Record<string, unknown>
+          for (const f of (p.fracciones_origen as number[] | undefined) || []) referencedFracs.add(f)
+          for (const f of (p.fracciones_destino as number[] | undefined) || []) referencedFracs.add(f)
+        }
+        const independent = fullOps
+          .filter((o) => !referencedFracs.has(o.fraccion))
+          .sort((a, b) => a.fraccion - b.fraccion)
+
+        if (independent.length > 0) {
+          pdf.setFontSize(9)
+          pdf.setTextColor(180, 83, 9) // amber-700
+          pdf.text(`OPERACIONES INDEPENDIENTES (sin precedencia) — ${independent.length}`, margin, y + 3.5)
+          y += sectionLabelH
+          pdf.setFontSize(8)
+          pdf.setTextColor(60)
+          // Horizontal list: items separated by " · ", auto-wraps to fit regionW
+          const items = independent.map((op) => `F${op.fraccion} ${op.operacion} [${op.input_o_proceso}]`)
+          const fullText = items.join('  ·  ')
+          const lines = pdf.splitTextToSize(fullText, regionW) as string[]
+          const lineH = 3.6
+          for (const ln of lines) {
+            pdf.text(ln, margin, y + 3)
+            y += lineH
+          }
+          y += sectionGap
+          pdf.setTextColor(0)
+        }
+
+        // Cursograma — compute size based on REAL remaining vertical space
         pdf.setFontSize(10)
         pdf.setTextColor(30, 58, 95)
         pdf.text('CURSOGRAMA ANALITICO DEL PROCESO', margin, y + 3.5)
         y += sectionLabelH
-        if (cursoCanvas && cursoH > 0) {
+        if (cursoCanvas) {
+          const remainingH = pageH - margin - y
+          // Fit by width or by remaining height, whichever is more restrictive (preserve aspect)
+          const sByW = regionW / cursoCanvas.width
+          const sByH = remainingH / cursoCanvas.height
+          const s = Math.min(sByW, sByH)
+          const cursoW = cursoCanvas.width * s
+          const cursoH = cursoCanvas.height * s
           const ox = margin + (regionW - cursoW) / 2
           pdf.addImage(cursoCanvas.toDataURL('image/png'), 'PNG', ox, y, cursoW, cursoH)
         }

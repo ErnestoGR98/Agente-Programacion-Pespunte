@@ -266,7 +266,7 @@ export interface ProgramaDayGroup {
  *  Uses canvas to normalise any format (PNG/WEBP) → JPEG,
  *  which avoids the jsPDF format-mismatch crash.
  *  Falls back to fetch+FileReader if canvas fails. */
-async function loadImageBase64(url: string): Promise<string | null> {
+export async function loadImageBase64(url: string): Promise<string | null> {
   // 1. Canvas approach – same CORS behaviour as <img> in the UI
   try {
     const dataUrl = await new Promise<string | null>((resolve) => {

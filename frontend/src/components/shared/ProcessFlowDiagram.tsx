@@ -194,7 +194,9 @@ export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFl
         scale: 2,
         useCORS: true,
         width: containerRef.current.scrollWidth,
+        height: containerRef.current.scrollHeight,
         windowWidth: containerRef.current.scrollWidth,
+        windowHeight: containerRef.current.scrollHeight,
       })
 
       if (scroller) {
@@ -268,7 +270,7 @@ export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFl
   }
 
   return (
-    <div ref={containerRef} className="border rounded-lg bg-card overflow-hidden">
+    <div ref={containerRef} className="border rounded-lg bg-card">
       {/* Header */}
       <div className="bg-muted/50 border-b px-4 py-2 flex items-start flex-wrap gap-4">
         <div>
