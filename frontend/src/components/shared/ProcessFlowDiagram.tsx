@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState, useCallback } from 'react'
 import type { OperacionFull } from '@/lib/hooks/useCatalogo'
 import type { Restriccion } from '@/types'
 import { STAGE_COLORS } from '@/types'
-import { Bot } from 'lucide-react'
+import { Bot, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
+import { exportCursogramaExcel } from '@/lib/export'
 
 /* ================================================================
    CURSOGRAMA ANALITICO DEL PROCESO
@@ -111,6 +112,9 @@ export interface ProcessFlowDiagramProps {
 }
 
 export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFlowDiagramProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [exporting, setExporting] = useState(false)
+
   const rows: ChartRow[] = useMemo(() => {
     return operaciones
       .slice()
@@ -141,6 +145,120 @@ export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFl
     return { counts, totalSec, totalOps: rows.length }
   }, [rows])
 
+  const title = `Cursograma_${modeloNum || 'modelo'}`
+
+  const handleExcel = useCallback(() => {
+    exportCursogramaExcel(
+      title,
+      modeloNum || 'modelo',
+      rows.map((r) => ({
+        num: r.num,
+        fraccion: r.fraccion,
+        operacion: r.operacion,
+        recurso: r.recurso,
+        seg: r.secPerPair,
+        rate: r.rate,
+        stage: r.stage,
+        robots: r.robots,
+      })),
+      { counts: summary.counts, totalOps: summary.totalOps, totalSec: summary.totalSec },
+    )
+  }, [rows, summary, title, modeloNum])
+
+  const handlePdf = useCallback(async () => {
+    if (!containerRef.current) return
+    setExporting(true)
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default
+      const { jsPDF } = await import('jspdf')
+
+      const root = document.documentElement
+      const wasDark = root.classList.contains('dark')
+      if (wasDark) root.classList.remove('dark')
+      root.classList.add('light')
+      await new Promise((r) => setTimeout(r, 60))
+
+      const scroller = containerRef.current.querySelector('[data-cursograma-scroll]') as HTMLElement | null
+      const prevMaxH = scroller?.style.maxHeight
+      const prevOverflow = scroller?.style.overflow
+      if (scroller) {
+        scroller.style.maxHeight = 'none'
+        scroller.style.overflow = 'visible'
+      }
+      const exportBar = containerRef.current.querySelector('[data-export-hide]') as HTMLElement | null
+      const prevDisplay = exportBar?.style.display
+      if (exportBar) exportBar.style.display = 'none'
+
+      const canvas = await html2canvas(containerRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        width: containerRef.current.scrollWidth,
+        windowWidth: containerRef.current.scrollWidth,
+      })
+
+      if (scroller) {
+        scroller.style.maxHeight = prevMaxH || ''
+        scroller.style.overflow = prevOverflow || ''
+      }
+      if (exportBar) exportBar.style.display = prevDisplay || ''
+      root.classList.remove('light')
+      if (wasDark) root.classList.add('dark')
+
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const headerSpace = 22
+      const maxW = pageW - margin * 2
+      const bodyH = pageH - headerSpace - margin
+
+      pdf.setFontSize(14)
+      pdf.text(`Cursograma Analitico${modeloNum ? ` — ${modeloNum}` : ''}`, margin, 14)
+      pdf.setFontSize(9)
+      pdf.setTextColor(120)
+      pdf.text(new Date().toLocaleDateString('es-MX'), margin, 19)
+      pdf.setTextColor(0)
+
+      // Fit width to page, paginate vertically if too tall
+      const scale = maxW / imgW
+      const finalW = maxW
+      const finalH = imgH * scale
+
+      if (finalH <= bodyH) {
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, headerSpace, finalW, finalH)
+      } else {
+        const sliceHpx = bodyH / scale
+        let yPx = 0
+        let first = true
+        while (yPx < imgH) {
+          if (!first) {
+            pdf.addPage()
+            pdf.setFontSize(9)
+            pdf.setTextColor(120)
+            pdf.text(`Cursograma Analitico${modeloNum ? ` — ${modeloNum}` : ''} (cont.)`, margin, 14)
+            pdf.setTextColor(0)
+          }
+          const h = Math.min(sliceHpx, imgH - yPx)
+          const slice = document.createElement('canvas')
+          slice.width = imgW
+          slice.height = h
+          const ctx = slice.getContext('2d')
+          if (ctx) ctx.drawImage(canvas, 0, yPx, imgW, h, 0, 0, imgW, h)
+          pdf.addImage(slice.toDataURL('image/png'), 'PNG', margin, headerSpace, finalW, h * scale)
+          yPx += h
+          first = false
+        }
+      }
+
+      pdf.save(`${title}.pdf`)
+    } finally {
+      setExporting(false)
+    }
+  }, [modeloNum, title])
+
   if (operaciones.length === 0) {
     return (
       <div className="h-[400px] flex items-center justify-center text-sm text-muted-foreground">
@@ -150,14 +268,33 @@ export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFl
   }
 
   return (
-    <div className="border rounded-lg bg-card overflow-hidden">
+    <div ref={containerRef} className="border rounded-lg bg-card overflow-hidden">
       {/* Header */}
-      <div className="bg-muted/50 border-b px-4 py-2 flex items-center justify-between flex-wrap gap-2">
+      <div className="bg-muted/50 border-b px-4 py-2 flex items-start flex-wrap gap-4">
         <div>
           <h3 className="text-sm font-bold tracking-wide">CURSOGRAMA ANALITICO DEL PROCESO</h3>
           {modeloNum && (
             <span className="text-xs text-muted-foreground font-mono">Modelo: {modeloNum}</span>
           )}
+        </div>
+        <div className="flex items-center gap-1" data-export-hide>
+            <button
+              onClick={handleExcel}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
+              title="Exportar Excel"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Excel
+            </button>
+            <button
+              onClick={handlePdf}
+              disabled={exporting}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-60"
+              title="Exportar PDF"
+            >
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              PDF
+            </button>
         </div>
 
         {/* Summary / Resumen */}
@@ -197,26 +334,26 @@ export function ProcessFlowDiagram({ operaciones, reglas, modeloNum }: ProcessFl
       </div>
 
       {/* Chart table */}
-      <div className="overflow-auto max-h-[420px]">
-        <table className="w-full text-xs border-collapse">
+      <div data-cursograma-scroll className="overflow-auto max-h-[560px] w-fit max-w-full">
+        <table className="text-xs border-collapse">
           <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
             <tr className="border-b-2">
-              <th className="border-r px-1.5 py-1.5 text-center w-7 text-muted-foreground">#</th>
-              <th className="border-r px-1.5 py-1.5 text-center w-7 text-muted-foreground">F</th>
-              <th className="border-r px-2 py-1.5 text-left min-w-[180px]">Descripcion del Proceso</th>
-              <th className="border-r px-1 py-1.5 text-center w-14">Recurso</th>
-              <th className="border-r px-1 py-1.5 text-center w-10" title="Segundos por par">Seg</th>
-              <th className="border-r px-1 py-1.5 text-center w-10" title="Pares por hora">Rate</th>
+              <th className="border-r px-1 py-1 text-center w-6 text-muted-foreground">#</th>
+              <th className="border-r px-1 py-1 text-center w-6 text-muted-foreground">F</th>
+              <th className="border-r px-1.5 py-1 text-left w-[220px]">Descripcion del Proceso</th>
+              <th className="border-r px-1 py-1 text-center w-12">Recurso</th>
+              <th className="border-r px-1 py-1 text-center w-9" title="Segundos por par">Seg</th>
+              <th className="border-r px-1 py-1 text-center w-9" title="Pares por hora">Rate</th>
               {/* Symbol columns */}
               {STAGE_ORDER.map((stage) => (
-                <th key={stage} className="border-r px-0 py-1 text-center w-7" title={STAGE_SYMBOLS[stage].label}>
+                <th key={stage} className="border-r px-0 py-1 text-center w-6" title={STAGE_SYMBOLS[stage].label}>
                   <div className="flex flex-col items-center gap-0.5">
                     <SymbolShape stage={stage} active={true} size={13} />
                     <span className="text-[7px] text-muted-foreground leading-none">{STAGE_SYMBOLS[stage].short}</span>
                   </div>
                 </th>
               ))}
-              <th className="px-1 py-1.5 text-center w-7" title="Robot asignado">
+              <th className="px-1 py-1 text-center w-6" title="Robot asignado">
                 <Bot className="h-3 w-3 mx-auto text-muted-foreground" />
               </th>
             </tr>

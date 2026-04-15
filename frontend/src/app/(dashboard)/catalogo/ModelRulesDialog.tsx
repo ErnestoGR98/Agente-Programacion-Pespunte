@@ -26,6 +26,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
   const [reglas, setReglas] = useState<Restriccion[]>([])
   const [loading, setLoading] = useState(false)
   const [loteMinimo, setLoteMinimo] = useState('')
+  const [activeTab, setActiveTab] = useState<'cascada' | 'flujo'>('cascada')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -166,7 +167,7 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[90vw] w-full max-h-[90vh] overflow-y-auto">
+      <DialogContent className={`${activeTab === 'flujo' ? '!w-fit !max-w-fit sm:!max-w-fit' : 'sm:max-w-[90vw] w-full'} max-h-[90vh] overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle className="font-mono">Reglas — {modeloNum}</DialogTitle>
         </DialogHeader>
@@ -187,13 +188,13 @@ export function ModelRulesDialog({ open, onOpenChange, modeloNum, operaciones }:
                   <Trash2 className="mr-1 h-3 w-3" /> Borrar todas
                 </Button>
               )}
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground max-w-[280px]">
                 Arrastra operaciones a las cascadas. Haz clic en una flecha para editar buffer o eliminar.
               </span>
             </div>
 
             {/* Cascada + Flujo de Proceso */}
-            <Tabs defaultValue="cascada">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'cascada' | 'flujo')}>
               <TabsList>
                 <TabsTrigger value="cascada">Cascada</TabsTrigger>
                 <TabsTrigger value="flujo">Flujo de Proceso</TabsTrigger>

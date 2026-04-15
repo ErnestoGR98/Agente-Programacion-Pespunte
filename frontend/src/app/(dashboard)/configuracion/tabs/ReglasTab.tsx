@@ -23,6 +23,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CONSTRAINT_TYPES_PERMANENTES, type ConstraintType, type Restriccion } from '@/types'
 import { ConstraintParams } from '@/app/(dashboard)/restricciones/ConstraintParams'
 import { CascadeEditor } from '@/components/shared/CascadeEditor'
+import { ProcessFlowDiagram } from '@/components/shared/ProcessFlowDiagram'
 
 interface CatalogoModelo {
   modelo_num: string
@@ -46,6 +47,16 @@ export function ReglasTab() {
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, modelo: '' })
   const [bulkRenderData, setBulkRenderData] = useState<{ ops: OperacionFull[]; rules: Restriccion[]; title: string } | null>(null)
   const bulkContainerRef = useRef<HTMLDivElement>(null)
+
+  // Bulk cursograma export state
+  const [bulkCursoExporting, setBulkCursoExporting] = useState(false)
+  const [bulkCursoProgress, setBulkCursoProgress] = useState({ current: 0, total: 0, modelo: '' })
+  const [bulkCursoRenderData, setBulkCursoRenderData] = useState<{ ops: OperacionFull[]; rules: Restriccion[]; modeloNum: string } | null>(null)
+  const bulkCursoContainerRef = useRef<HTMLDivElement>(null)
+
+  // Bulk combined export state
+  const [bulkCombinedExporting, setBulkCombinedExporting] = useState(false)
+  const [bulkCombinedProgress, setBulkCombinedProgress] = useState({ current: 0, total: 0, modelo: '' })
 
   const loadModelos = useCallback(async () => {
     const { data: modelos } = await supabase
@@ -392,6 +403,392 @@ export function ReglasTab() {
     }
   }
 
+  async function exportAllCursogramasPdf() {
+    // Load all modelos with operaciones (not just the ones with precedencias)
+    const { data: allModelos } = await supabase
+      .from('catalogo_modelos')
+      .select('modelo_num')
+      .order('modelo_num')
+    const modelNums = (allModelos || []).map((m: { modelo_num: string }) => m.modelo_num)
+    if (modelNums.length === 0) return
+
+    setBulkCursoExporting(true)
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default
+      const { jsPDF } = await import('jspdf')
+
+      const root = document.documentElement
+      const wasDark = root.classList.contains('dark')
+      if (wasDark) root.classList.remove('dark')
+      root.classList.add('light')
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+      let firstPage = true
+
+      for (let i = 0; i < modelNums.length; i++) {
+        const modeloNum = modelNums[i]
+        setBulkCursoProgress({ current: i + 1, total: modelNums.length, modelo: modeloNum })
+
+        const { data: mod } = await supabase
+          .from('catalogo_modelos').select('id').eq('modelo_num', modeloNum).single()
+        if (!mod) continue
+        const { data: ops } = await supabase
+          .from('catalogo_operaciones')
+          .select('id, fraccion, operacion, input_o_proceso, etapa, recurso, recurso_raw, rate, sec_per_pair')
+          .eq('modelo_id', mod.id).order('fraccion')
+        if (!ops || ops.length === 0) continue
+
+        const opIds = ops.map((o: { id: string }) => o.id)
+        const { data: robotLinks } = await supabase
+          .from('catalogo_operaciones_robots')
+          .select('operacion_id, robot_id').in('operacion_id', opIds)
+        const robotMap = new Map<string, string[]>()
+        for (const link of (robotLinks || [])) {
+          const list = robotMap.get(link.operacion_id) || []
+          list.push(link.robot_id)
+          robotMap.set(link.operacion_id, list)
+        }
+        const fullOps = ops.map((o: Record<string, unknown>) => ({
+          ...o, robots: robotMap.get(o.id as string) || [],
+        })) as OperacionFull[]
+
+        const modelRules = reglas.reglas.filter(
+          (r) => r.tipo === 'PRECEDENCIA_OPERACION' && r.modelo_num === modeloNum
+        )
+
+        setBulkCursoRenderData({ ops: fullOps, rules: modelRules, modeloNum })
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))
+        })
+
+        const diagramEl = bulkCursoContainerRef.current?.querySelector('[data-cursograma-root]') as HTMLElement | null
+        if (!diagramEl) continue
+
+        // Hide export buttons inside the diagram
+        const hidden: HTMLElement[] = []
+        diagramEl.querySelectorAll('[data-export-hide]').forEach((el) => {
+          (el as HTMLElement).style.display = 'none'
+          hidden.push(el as HTMLElement)
+        })
+        // Expand scroller
+        const scroller = diagramEl.querySelector('[data-cursograma-scroll]') as HTMLElement | null
+        const prevMaxH = scroller?.style.maxHeight
+        const prevOverflow = scroller?.style.overflow
+        if (scroller) {
+          scroller.style.maxHeight = 'none'
+          scroller.style.overflow = 'visible'
+        }
+
+        const canvas = await html2canvas(diagramEl, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          width: diagramEl.scrollWidth,
+          windowWidth: diagramEl.scrollWidth,
+        })
+
+        hidden.forEach((el) => { el.style.display = '' })
+        if (scroller) {
+          scroller.style.maxHeight = prevMaxH || ''
+          scroller.style.overflow = prevOverflow || ''
+        }
+
+        if (!firstPage) pdf.addPage()
+        firstPage = false
+
+        const pageW = pdf.internal.pageSize.getWidth()
+        const pageH = pdf.internal.pageSize.getHeight()
+        const margin = 10
+        const headerSpace = 22
+        const maxW = pageW - margin * 2
+        const maxH = pageH - headerSpace - margin
+
+        pdf.setFontSize(14)
+        pdf.text(`Cursograma Analitico — ${modeloNum}`, margin, 14)
+        pdf.setFontSize(9)
+        pdf.setTextColor(120)
+        pdf.text(new Date().toLocaleDateString('es-MX'), margin, 19)
+        pdf.setTextColor(0)
+
+        const scale = Math.min(maxW / canvas.width, maxH / canvas.height)
+        const finalW = canvas.width * scale
+        const finalH = canvas.height * scale
+        const offsetX = margin + (maxW - finalW) / 2
+
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', offsetX, headerSpace, finalW, finalH)
+      }
+
+      root.classList.remove('light')
+      if (wasDark) root.classList.add('dark')
+
+      pdf.save('Todos-Cursogramas-Flujo-Proceso.pdf')
+    } catch (err) {
+      console.error('[ReglasTab] Bulk cursograma PDF export failed:', err)
+    } finally {
+      setBulkCursoExporting(false)
+      setBulkCursoRenderData(null)
+      setBulkCursoProgress({ current: 0, total: 0, modelo: '' })
+    }
+  }
+
+  async function exportAllCombinedPdf() {
+    const { data: allModelos } = await supabase
+      .from('catalogo_modelos')
+      .select('modelo_num')
+      .order('modelo_num')
+    const modelNums = (allModelos || []).map((m: { modelo_num: string }) => m.modelo_num)
+    if (modelNums.length === 0) return
+
+    setBulkCombinedExporting(true)
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default
+      const { jsPDF } = await import('jspdf')
+
+      const root = document.documentElement
+      const wasDark = root.classList.contains('dark')
+      if (wasDark) root.classList.remove('dark')
+      root.classList.add('light')
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
+      let firstPage = true
+
+      for (let i = 0; i < modelNums.length; i++) {
+        const modeloNum = modelNums[i]
+        setBulkCombinedProgress({ current: i + 1, total: modelNums.length, modelo: modeloNum })
+
+        const { data: mod } = await supabase
+          .from('catalogo_modelos').select('id').eq('modelo_num', modeloNum).single()
+        if (!mod) continue
+        const { data: ops } = await supabase
+          .from('catalogo_operaciones')
+          .select('id, fraccion, operacion, input_o_proceso, etapa, recurso, recurso_raw, rate, sec_per_pair')
+          .eq('modelo_id', mod.id).order('fraccion')
+        if (!ops || ops.length === 0) continue
+
+        const opIds = ops.map((o: { id: string }) => o.id)
+        const { data: robotLinks } = await supabase
+          .from('catalogo_operaciones_robots')
+          .select('operacion_id, robot_id').in('operacion_id', opIds)
+        const robotMap = new Map<string, string[]>()
+        for (const link of (robotLinks || [])) {
+          const list = robotMap.get(link.operacion_id) || []
+          list.push(link.robot_id)
+          robotMap.set(link.operacion_id, list)
+        }
+        const fullOps = ops.map((o: Record<string, unknown>) => ({
+          ...o, robots: robotMap.get(o.id as string) || [],
+        })) as OperacionFull[]
+
+        const modelRules = reglas.reglas.filter(
+          (r) => r.tipo === 'PRECEDENCIA_OPERACION' && r.modelo_num === modeloNum
+        )
+
+        // --- 1. Capture Cascada ---
+        setBulkRenderData({ ops: fullOps, rules: modelRules, title: `Cascada-${modeloNum}` })
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))
+        })
+
+        let cascadaCanvas: HTMLCanvasElement | null = null
+        const gridEl = bulkContainerRef.current?.querySelector('.cascade-grid') as HTMLElement | null
+        if (gridEl) {
+          const origOverflow = gridEl.style.overflow
+          gridEl.style.overflow = 'visible'
+          const hidden: HTMLElement[] = []
+          gridEl.querySelectorAll('tbody tr').forEach((tr) => {
+            if ((tr as HTMLElement).textContent?.includes('AGREGAR')) {
+              (tr as HTMLElement).style.display = 'none'
+              hidden.push(tr as HTMLElement)
+              return
+            }
+            const hasOp = tr.querySelector('[style*="border-left-color"]') !== null
+            const hasBuf = Array.from(tr.querySelectorAll('button')).some((b) => {
+              const cls = b.className || ''
+              return cls.includes('emerald') || cls.includes('cyan')
+            })
+            if (!hasOp && !hasBuf) {
+              (tr as HTMLElement).style.display = 'none'
+              hidden.push(tr as HTMLElement)
+            }
+          })
+          gridEl.querySelectorAll('button').forEach((btn) => {
+            const cls = (btn as HTMLElement).className || ''
+            if (cls.includes('emerald') || cls.includes('cyan')) return
+            ;(btn as HTMLElement).style.display = 'none'
+            hidden.push(btn as HTMLElement)
+          })
+          gridEl.querySelectorAll('.cursor-ns-resize').forEach((el) => {
+            (el as HTMLElement).style.display = 'none'
+            hidden.push(el as HTMLElement)
+          })
+          const thLast = gridEl.querySelector('thead tr th:last-child') as HTMLElement | null
+          if (thLast?.textContent?.includes('AGREGAR')) {
+            thLast.style.display = 'none'
+            hidden.push(thLast)
+            gridEl.querySelectorAll('tbody tr').forEach((tr) => {
+              const lastTd = tr.querySelector('td:last-child') as HTMLElement | null
+              if (lastTd) { lastTd.style.display = 'none'; hidden.push(lastTd) }
+            })
+          }
+
+          cascadaCanvas = await html2canvas(gridEl, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            useCORS: true,
+            width: gridEl.scrollWidth,
+          })
+
+          hidden.forEach((el) => { el.style.display = '' })
+          gridEl.style.overflow = origOverflow
+        }
+        setBulkRenderData(null)
+
+        // --- 2. Capture Cursograma ---
+        setBulkCursoRenderData({ ops: fullOps, rules: modelRules, modeloNum })
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))
+        })
+
+        let cursoCanvas: HTMLCanvasElement | null = null
+        const diagramEl = bulkCursoContainerRef.current?.querySelector('[data-cursograma-root]') as HTMLElement | null
+        if (diagramEl) {
+          const hidden: HTMLElement[] = []
+          diagramEl.querySelectorAll('[data-export-hide]').forEach((el) => {
+            (el as HTMLElement).style.display = 'none'
+            hidden.push(el as HTMLElement)
+          })
+          const scroller = diagramEl.querySelector('[data-cursograma-scroll]') as HTMLElement | null
+          const prevMaxH = scroller?.style.maxHeight
+          const prevOverflow = scroller?.style.overflow
+          if (scroller) {
+            scroller.style.maxHeight = 'none'
+            scroller.style.overflow = 'visible'
+          }
+
+          cursoCanvas = await html2canvas(diagramEl, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            useCORS: true,
+            width: diagramEl.scrollWidth,
+            windowWidth: diagramEl.scrollWidth,
+          })
+
+          hidden.forEach((el) => { el.style.display = '' })
+          if (scroller) {
+            scroller.style.maxHeight = prevMaxH || ''
+            scroller.style.overflow = prevOverflow || ''
+          }
+        }
+        setBulkCursoRenderData(null)
+
+        // --- 3. Layout on landscape letter page: cascada top / cursograma bottom ---
+        if (!firstPage) pdf.addPage()
+        firstPage = false
+
+        const pageW = pdf.internal.pageSize.getWidth()
+        const pageH = pdf.internal.pageSize.getHeight()
+        const margin = 8
+        const headerH = 12
+        const sectionGap = 4
+        const sectionLabelH = 5
+        const regionW = pageW - margin * 2
+        const availH = pageH - margin - headerH - margin - sectionGap - sectionLabelH * 2
+
+        // Independent scaling: each image fills regionW width; heights capped to avoid
+        // cursograma ballooning when its natural aspect is near-square.
+        const cascadaMaxH = 70 // mm
+        const cursoMaxH = 120 // mm
+
+        let cascadaW = 0, cascadaH = 0
+        if (cascadaCanvas) {
+          const sw = regionW / cascadaCanvas.width
+          const hAtFullW = cascadaCanvas.height * sw
+          if (hAtFullW <= cascadaMaxH) {
+            cascadaW = regionW
+            cascadaH = hAtFullW
+          } else {
+            const sh = cascadaMaxH / cascadaCanvas.height
+            cascadaW = cascadaCanvas.width * sh
+            cascadaH = cascadaMaxH
+          }
+        }
+
+        let cursoW = 0, cursoH = 0
+        if (cursoCanvas) {
+          const sw = regionW / cursoCanvas.width
+          const hAtFullW = cursoCanvas.height * sw
+          if (hAtFullW <= cursoMaxH) {
+            cursoW = regionW
+            cursoH = hAtFullW
+          } else {
+            const sh = cursoMaxH / cursoCanvas.height
+            cursoW = cursoCanvas.width * sh
+            cursoH = cursoMaxH
+          }
+        }
+
+        // If combined still exceeds page, uniform downscale
+        const totalH = cascadaH + cursoH
+        if (totalH > availH) {
+          const fit = availH / totalH
+          cascadaW *= fit; cascadaH *= fit
+          cursoW *= fit; cursoH *= fit
+        }
+
+        // Title
+        pdf.setFontSize(14)
+        pdf.setTextColor(0)
+        pdf.text(`Reglas — Modelo ${modeloNum}`, margin, margin + 5)
+        pdf.setFontSize(8)
+        pdf.setTextColor(120)
+        pdf.text(new Date().toLocaleDateString('es-MX'), pageW - margin - 25, margin + 5)
+        pdf.setTextColor(0)
+
+        let y = margin + headerH
+
+        // Cascada
+        pdf.setFontSize(10)
+        pdf.setTextColor(30, 58, 95)
+        pdf.text('CASCADA DE PRECEDENCIAS', margin, y + 3.5)
+        y += sectionLabelH
+        if (cascadaCanvas && cascadaH > 0) {
+          const ox = margin + (regionW - cascadaW) / 2
+          pdf.addImage(cascadaCanvas.toDataURL('image/png'), 'PNG', ox, y, cascadaW, cascadaH)
+          y += cascadaH
+        } else {
+          pdf.setFontSize(9)
+          pdf.setTextColor(150)
+          pdf.text('Sin precedencias definidas', margin, y + 6)
+          y += 10
+        }
+        y += sectionGap
+
+        // Cursograma
+        pdf.setFontSize(10)
+        pdf.setTextColor(30, 58, 95)
+        pdf.text('CURSOGRAMA ANALITICO DEL PROCESO', margin, y + 3.5)
+        y += sectionLabelH
+        if (cursoCanvas && cursoH > 0) {
+          const ox = margin + (regionW - cursoW) / 2
+          pdf.addImage(cursoCanvas.toDataURL('image/png'), 'PNG', ox, y, cursoW, cursoH)
+        }
+        pdf.setTextColor(0)
+      }
+
+      root.classList.remove('light')
+      if (wasDark) root.classList.add('dark')
+
+      pdf.save('Reglas-Cascada-Cursograma.pdf')
+    } catch (err) {
+      console.error('[ReglasTab] Bulk combined PDF export failed:', err)
+    } finally {
+      setBulkCombinedExporting(false)
+      setBulkRenderData(null)
+      setBulkCursoRenderData(null)
+      setBulkCombinedProgress({ current: 0, total: 0, modelo: '' })
+    }
+  }
+
   async function handleAdd() {
     const parametros = nota ? { ...params, nota } : params
     await reglas.addRegla({
@@ -436,11 +833,35 @@ export function ReglasTab() {
               </>
             ) : (
               <>
-                <Download className="mr-1 h-3 w-3" /> Descargar Todas PDF
+                <Download className="mr-1 h-3 w-3" /> Descargar Todas Cascadas PDF
               </>
             )}
           </Button>
         )}
+        <Button size="sm" variant="outline" onClick={exportAllCursogramasPdf} disabled={bulkCursoExporting}>
+          {bulkCursoExporting ? (
+            <>
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              {bulkCursoProgress.current}/{bulkCursoProgress.total} — {bulkCursoProgress.modelo}
+            </>
+          ) : (
+            <>
+              <Download className="mr-1 h-3 w-3" /> Descargar Todos Cursogramas PDF
+            </>
+          )}
+        </Button>
+        <Button size="sm" onClick={exportAllCombinedPdf} disabled={bulkCombinedExporting}>
+          {bulkCombinedExporting ? (
+            <>
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              {bulkCombinedProgress.current}/{bulkCombinedProgress.total} — {bulkCombinedProgress.modelo}
+            </>
+          ) : (
+            <>
+              <Download className="mr-1 h-3 w-3" /> Descargar Cascada + Cursograma PDF
+            </>
+          )}
+        </Button>
         {reglas.reglas.length > 0 && (
           <Button size="sm" variant="ghost" className="text-destructive"
             onClick={() => setShowClearAll(true)}
@@ -633,6 +1054,23 @@ export function ReglasTab() {
             onUpdateBuffer={async () => {}}
             title={bulkRenderData.title}
           />
+        </div>
+      )}
+
+      {/* Hidden offscreen container for bulk cursograma PDF rendering */}
+      {bulkCursoRenderData && (
+        <div
+          ref={bulkCursoContainerRef}
+          className="light"
+          style={{ position: 'fixed', left: '-9999px', top: 0, background: 'white', zIndex: -1, overflow: 'visible' }}
+        >
+          <div data-cursograma-root>
+            <ProcessFlowDiagram
+              operaciones={bulkCursoRenderData.ops}
+              reglas={bulkCursoRenderData.rules}
+              modeloNum={bulkCursoRenderData.modeloNum}
+            />
+          </div>
         </div>
       )}
     </div>

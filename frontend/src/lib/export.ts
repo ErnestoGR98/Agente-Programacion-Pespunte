@@ -775,6 +775,216 @@ function _thinBorder() {
 
 type StyledCell = { v: string | number; s?: Record<string, unknown> }
 
+/* ================================================================
+   CURSOGRAMA ANALITICO — Excel formateado
+   ================================================================ */
+
+export type CursogramaStage = 'PRELIMINARES' | 'ROBOT' | 'POST' | 'MAQUILA' | 'N/A PRELIMINAR'
+
+export interface CursogramaExcelRow {
+  num: number
+  fraccion: number
+  operacion: string
+  recurso: string
+  seg: number
+  rate: number
+  stage: CursogramaStage
+  robots: string[]
+}
+
+export interface CursogramaExcelSummary {
+  counts: Record<CursogramaStage, number>
+  totalOps: number
+  totalSec: number
+}
+
+const CURSOGRAMA_STAGE_COLORS: Record<CursogramaStage, string> = {
+  PRELIMINARES: 'FFF59E0B',
+  ROBOT: 'FF10B981',
+  POST: 'FFEC4899',
+  MAQUILA: 'FF8B5CF6',
+  'N/A PRELIMINAR': 'FF94A3B8',
+}
+
+const CURSOGRAMA_STAGE_LABELS: Record<CursogramaStage, string> = {
+  PRELIMINARES: 'Preliminares',
+  ROBOT: 'Robot',
+  POST: 'Post',
+  MAQUILA: 'Maquila',
+  'N/A PRELIMINAR': 'N/A Preliminar',
+}
+
+const CURSOGRAMA_STAGE_SHORT: Record<CursogramaStage, string> = {
+  PRELIMINARES: 'PRE',
+  ROBOT: 'ROB',
+  POST: 'POST',
+  MAQUILA: 'MAQ',
+  'N/A PRELIMINAR': 'N/A',
+}
+
+const CURSOGRAMA_STAGE_MARK: Record<CursogramaStage, string> = {
+  PRELIMINARES: '●',
+  ROBOT: '⬢',
+  POST: '◆',
+  MAQUILA: '▲',
+  'N/A PRELIMINAR': '○',
+}
+
+const CURSOGRAMA_STAGE_ORDER: CursogramaStage[] = ['PRELIMINARES', 'ROBOT', 'POST', 'MAQUILA', 'N/A PRELIMINAR']
+
+export function exportCursogramaExcel(
+  title: string,
+  modeloNum: string,
+  rows: CursogramaExcelRow[],
+  summary: CursogramaExcelSummary,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSXStyle = require('xlsx-js-style')
+
+  const aoa: StyledCell[][] = []
+
+  const border = _thinBorder()
+  const darkBg = { fill: { fgColor: { rgb: 'FF1E3A5F' } }, font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11 }, alignment: { horizontal: 'center', vertical: 'center' }, border }
+  const titleSt = { fill: { fgColor: { rgb: 'FF0F172A' } }, font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 14 }, alignment: { horizontal: 'left', vertical: 'center' }, border }
+  const subTitleSt = { fill: { fgColor: { rgb: 'FFF1F5F9' } }, font: { italic: true, sz: 10, color: { rgb: 'FF475569' } }, alignment: { horizontal: 'left' }, border }
+
+  const totalCols = 12 // #, F, Desc, Recurso, Seg, Rate, PRE, ROB, POST, MAQ, N/A, Robot
+
+  // Row 1: Title
+  const titleRow: StyledCell[] = [{ v: `CURSOGRAMA ANALITICO DEL PROCESO`, s: titleSt }]
+  for (let i = 1; i < totalCols; i++) titleRow.push({ v: '', s: titleSt })
+  aoa.push(titleRow)
+
+  // Row 2: Subtitle (modelo + fecha)
+  const subtitleRow: StyledCell[] = [{ v: `Modelo: ${modeloNum}   —   ${new Date().toLocaleDateString('es-MX')}`, s: subTitleSt }]
+  for (let i = 1; i < totalCols; i++) subtitleRow.push({ v: '', s: subTitleSt })
+  aoa.push(subtitleRow)
+
+  // Row 3: Header
+  const headerLabels = ['#', 'F', 'Descripcion del Proceso', 'Recurso', 'Seg', 'Rate',
+    ...CURSOGRAMA_STAGE_ORDER.map((s) => CURSOGRAMA_STAGE_SHORT[s]), 'Robot']
+  aoa.push(headerLabels.map((h, idx) => {
+    // Color-code stage short labels in header
+    if (idx >= 6 && idx < 6 + CURSOGRAMA_STAGE_ORDER.length) {
+      const stage = CURSOGRAMA_STAGE_ORDER[idx - 6]
+      const color = CURSOGRAMA_STAGE_COLORS[stage]
+      return { v: h, s: { ...darkBg, font: { bold: true, color: { rgb: color }, sz: 10 } } }
+    }
+    return { v: h, s: darkBg }
+  }))
+
+  // Data rows
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    const stageColor = CURSOGRAMA_STAGE_COLORS[r.stage]
+    const stageBg = lightenArgb(stageColor, 0.88)
+    const altBg = i % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC'
+
+    const row: StyledCell[] = [
+      { v: r.num, s: { fill: { fgColor: { rgb: altBg } }, font: { sz: 9, color: { rgb: 'FF64748B' } }, alignment: { horizontal: 'center' }, border } },
+      { v: r.fraccion, s: { fill: { fgColor: { rgb: altBg } }, font: { bold: true, sz: 10, color: { rgb: stageColor } }, alignment: { horizontal: 'center' }, border } },
+      { v: r.operacion, s: { fill: { fgColor: { rgb: altBg } }, font: { sz: 10 }, alignment: { horizontal: 'left', vertical: 'center' }, border: { ...border, left: { style: 'medium', color: { rgb: stageColor } } } } },
+      { v: r.recurso, s: { fill: { fgColor: { rgb: altBg } }, font: { sz: 9, color: { rgb: 'FF475569' } }, alignment: { horizontal: 'center' }, border } },
+      { v: r.seg, s: { fill: { fgColor: { rgb: altBg } }, font: { sz: 9 }, alignment: { horizontal: 'center' }, border } },
+      { v: r.rate, s: { fill: { fgColor: { rgb: altBg } }, font: { sz: 9, bold: true }, alignment: { horizontal: 'center' }, border } },
+    ]
+
+    // Stage symbol columns
+    for (const s of CURSOGRAMA_STAGE_ORDER) {
+      if (r.stage === s) {
+        row.push({
+          v: CURSOGRAMA_STAGE_MARK[s],
+          s: { fill: { fgColor: { rgb: stageBg } }, font: { bold: true, sz: 14, color: { rgb: stageColor } }, alignment: { horizontal: 'center', vertical: 'center' }, border },
+        })
+      } else {
+        row.push({ v: '', s: { fill: { fgColor: { rgb: altBg } }, border } })
+      }
+    }
+
+    // Robot column
+    row.push({
+      v: r.robots.length > 0 ? '✓' : '',
+      s: { fill: { fgColor: { rgb: altBg } }, font: { bold: true, sz: 10, color: { rgb: 'FF10B981' } }, alignment: { horizontal: 'center' }, border },
+    })
+
+    aoa.push(row)
+  }
+
+  // Blank separator
+  aoa.push([{ v: '', s: {} }])
+
+  // RESUMEN section
+  const resumenTitleSt = { fill: { fgColor: { rgb: 'FF1E3A5F' } }, font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11 }, alignment: { horizontal: 'center' }, border }
+  const resumenRow: StyledCell[] = [{ v: 'RESUMEN', s: resumenTitleSt }]
+  for (let i = 1; i < 3; i++) resumenRow.push({ v: '', s: resumenTitleSt })
+  aoa.push(resumenRow)
+
+  const resHeadSt = { fill: { fgColor: { rgb: 'FFF1F5F9' } }, font: { bold: true, sz: 10, color: { rgb: 'FF475569' } }, alignment: { horizontal: 'center' }, border }
+  aoa.push([
+    { v: '', s: resHeadSt },
+    { v: 'Actividad', s: { ...resHeadSt, alignment: { horizontal: 'left' } } },
+    { v: 'Act.', s: resHeadSt },
+  ])
+
+  for (const s of CURSOGRAMA_STAGE_ORDER) {
+    const color = CURSOGRAMA_STAGE_COLORS[s]
+    aoa.push([
+      { v: CURSOGRAMA_STAGE_MARK[s], s: { font: { bold: true, sz: 14, color: { rgb: color } }, alignment: { horizontal: 'center' }, border } },
+      { v: CURSOGRAMA_STAGE_LABELS[s], s: { font: { sz: 10 }, alignment: { horizontal: 'left' }, border } },
+      { v: summary.counts[s], s: { font: { bold: true, sz: 10 }, alignment: { horizontal: 'right' }, border } },
+    ])
+  }
+
+  const totalSt = { fill: { fgColor: { rgb: 'FFF1F5F9' } }, font: { bold: true, sz: 10 }, border }
+  aoa.push([
+    { v: '', s: totalSt },
+    { v: 'Total actividades', s: { ...totalSt, alignment: { horizontal: 'left' } } },
+    { v: summary.totalOps, s: { ...totalSt, alignment: { horizontal: 'right' } } },
+  ])
+  aoa.push([
+    { v: '', s: totalSt },
+    { v: 'Tiempo seg/par', s: { ...totalSt, alignment: { horizontal: 'left' } } },
+    { v: summary.totalSec, s: { ...totalSt, alignment: { horizontal: 'right' } } },
+  ])
+
+  const ws = XLSXStyle.utils.aoa_to_sheet(aoa)
+
+  // Column widths
+  ws['!cols'] = [
+    { wch: 4 },   // #
+    { wch: 4 },   // F
+    { wch: 42 },  // Descripcion
+    { wch: 10 },  // Recurso
+    { wch: 6 },   // Seg
+    { wch: 6 },   // Rate
+    { wch: 6 },   // PRE
+    { wch: 6 },   // ROB
+    { wch: 6 },   // POST
+    { wch: 6 },   // MAQ
+    { wch: 6 },   // N/A
+    { wch: 8 },   // Robot
+  ]
+
+  // Row heights
+  ws['!rows'] = [
+    { hpt: 24 },  // Title
+    { hpt: 18 },  // Subtitle
+    { hpt: 22 },  // Header
+  ]
+
+  // Merges: title row + subtitle row + RESUMEN title row
+  const resumenTitleRowIdx = 3 + rows.length + 1 // headers=3 (title+sub+header), rows, blank
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } },
+    { s: { r: resumenTitleRowIdx, c: 0 }, e: { r: resumenTitleRowIdx, c: 2 } },
+  ]
+
+  const wb = XLSXStyle.utils.book_new()
+  XLSXStyle.utils.book_append_sheet(wb, ws, title.slice(0, 31))
+  XLSXStyle.writeFile(wb, `${title}.xlsx`)
+}
+
 export function exportSabanaExcel(
   title: string,
   dayNames: string[],
