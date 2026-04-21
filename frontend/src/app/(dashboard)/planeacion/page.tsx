@@ -70,6 +70,65 @@ function etapaShort(input_o_proceso: string): string {
   return ETAPA_LABEL[input_o_proceso] ?? input_o_proceso
 }
 
+// Meses abreviados en espanol para nombrar planes (criterio: "SEM17 · Abr 20-24")
+const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+/** Semana ISO (1-53) y anio ISO para una fecha */
+function getISOWeekInfo(date: Date): { year: number; week: number } {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = target.getUTCDay() || 7
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1))
+  const week = Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+  return { year: target.getUTCFullYear(), week }
+}
+
+/** Lunes y viernes (dia 4) de la semana ISO dada */
+function getISOWeekMonFri(year: number, week: number): { monday: Date; friday: Date } {
+  const jan4 = new Date(Date.UTC(year, 0, 4))
+  const jan4Day = jan4.getUTCDay() || 7
+  const mondayWeek1 = new Date(jan4)
+  mondayWeek1.setUTCDate(jan4.getUTCDate() - (jan4Day - 1))
+  const monday = new Date(mondayWeek1)
+  monday.setUTCDate(mondayWeek1.getUTCDate() + (week - 1) * 7)
+  const friday = new Date(monday)
+  friday.setUTCDate(monday.getUTCDate() + 4)
+  return { monday, friday }
+}
+
+/**
+ * Formatea nombre de plan con criterio "SEM{N} · {Mes} {dd}-{dd}" si la semana
+ * cae en el mismo mes, o "SEM{N} · {Mes} {dd}-{dd} {Mes2}" si cruza meses.
+ */
+function formatPlanName(year: number, week: number): string {
+  const { monday, friday } = getISOWeekMonFri(year, week)
+  const mMonth = MONTHS_ES[monday.getUTCMonth()]
+  const fMonth = MONTHS_ES[friday.getUTCMonth()]
+  const mDay = String(monday.getUTCDate()).padStart(2, '0')
+  const fDay = String(friday.getUTCDate()).padStart(2, '0')
+  if (mMonth === fMonth) return `SEM${week} · ${mMonth} ${mDay}-${fDay}`
+  return `SEM${week} · ${mMonth} ${mDay}-${fDay} ${fMonth}`
+}
+
+/** Decide cual es el proximo nombre a sugerir basado en los SEM# ya usados. */
+function computeNextPlanName(existingNames: string[]): string {
+  const usedWeeks = new Set<number>()
+  for (const name of existingNames) {
+    const m = /SEM(\d+)/i.exec(name)
+    if (m) usedWeeks.add(Number(m[1]))
+  }
+  const now = new Date()
+  const { year: currentYear, week: currentWeek } = getISOWeekInfo(now)
+  // Empezar desde la semana actual y avanzar hasta encontrar una no usada
+  let year = currentYear
+  let week = currentWeek
+  while (usedWeeks.has(week)) {
+    week += 1
+    if (week > 52) { week = 1; year += 1 }
+  }
+  return formatPlanName(year, week)
+}
+
 function etapaColor(short: string): string {
   const map: Record<string, string> = {
     PREL: STAGE_COLORS.PRELIMINAR,
@@ -136,7 +195,10 @@ export default function PlaneacionPage() {
         alternativas: m.alternativas ?? [],
         operaciones: opsByModel.get(m.id) ?? [],
       })))
-      setSavedPlans((plansRes.data || []) as PlanHeader[])
+      const planHeaders = (plansRes.data || []) as PlanHeader[]
+      setSavedPlans(planHeaders)
+      // Auto-fill nombre sugerido si no hay plan cargado ni nombre tecleado
+      setPlanName((prev) => (prev.trim() === '' ? computeNextPlanName(planHeaders.map((p) => p.nombre)) : prev))
       setLoadingCat(false)
     })()
   }, [])
@@ -309,11 +371,11 @@ export default function PlaneacionPage() {
   // --- New plan ---
   const newPlan = useCallback(() => {
     setPlanId(null)
-    setPlanName('')
+    setPlanName(computeNextPlanName(savedPlans.map((p) => p.nombre)))
     setRows([])
     setExpandedModels(new Set())
     setDirty(false)
-  }, [])
+  }, [savedPlans])
 
   // --- Download template ---
   const downloadTemplate = useCallback(async () => {
