@@ -9,6 +9,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { cn } from '@/lib/utils'
 import {
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
+import { ComparativoTab } from './ComparativoTab'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,6 +101,9 @@ export default function PlaneacionPage() {
 
   // --- Saved plans list ---
   const [savedPlans, setSavedPlans] = useState<PlanHeader[]>([])
+
+  // --- Tab state ---
+  const [tab, setTab] = useState<'editor' | 'comparativo'>('editor')
 
   // --- Load catalog + saved plans ---
   useEffect(() => {
@@ -614,15 +619,23 @@ export default function PlaneacionPage() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      {/* Title + controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Planeacion de Horas</h1>
-          <p className="text-sm text-muted-foreground">
-            Asigna pares por modelo y dia para ver las horas requeridas por fraccion
-          </p>
-        </div>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+      {/* Title */}
+      <div>
+        <h1 className="text-xl font-bold">Planeacion de Horas</h1>
+        <p className="text-sm text-muted-foreground">
+          Asigna pares por modelo y dia para ver las horas requeridas por fraccion
+        </p>
+      </div>
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'editor' | 'comparativo')}>
+        <TabsList>
+          <TabsTrigger value="editor">Editor</TabsTrigger>
+          <TabsTrigger value="comparativo">Comparativo</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="editor" className="space-y-6 mt-4">
+      {/* Editor controls */}
+      <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Plan selector */}
           {savedPlans.length > 0 && (
             <Select
@@ -686,7 +699,6 @@ export default function PlaneacionPage() {
             <Download className="h-4 w-4 mr-1" />
             Excel
           </Button>
-        </div>
       </div>
 
       {/* KPI cards */}
@@ -1068,6 +1080,12 @@ export default function PlaneacionPage() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+
+        <TabsContent value="comparativo" className="mt-4">
+          <ComparativoTab />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
