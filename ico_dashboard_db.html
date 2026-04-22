@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard ICO — Perfilamiento (DB)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f5f4f0; color: #1a1a18; padding: 24px; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .top-bar-left .subtitle { font-size: 11px; color: #888780; margin-bottom: 4px; }
+  .top-bar-left .title { font-size: 22px; font-weight: 500; color: #1a1a18; }
+  .top-bar-left .source { font-size: 11px; color: #3B6D11; margin-top: 4px; font-weight: 500; }
+  .btn-group { display: flex; gap: 8px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 0.5px solid; transition: opacity .15s; text-decoration: none; }
+  .btn:active { opacity: .7; }
+  .btn-pdf { background: #FCEBEB; color: #A32D2D; border-color: #F7C1C1; }
+  .btn-pdf:hover { background: #F7C1C1; }
+  .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
+  .kpi { background: #fff; border: 0.5px solid rgba(0,0,0,0.12); border-radius: 8px; padding: 14px 16px; }
+  .kpi-label { font-size: 11px; color: #888780; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .kpi-value { font-size: 26px; font-weight: 500; color: #1a1a18; line-height: 1; }
+  .kpi-sub { font-size: 11px; color: #b4b2a9; margin-top: 4px; }
+
+  .card { background: #fff; border: 0.5px solid rgba(0,0,0,0.12); border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; }
+  h2 { font-size: 13px; font-weight: 500; color: #5f5e5a; margin-bottom: 14px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5f5e5a; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  .chart-wrapper { position: relative; width: 100%; height: 800px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; font-size: 11px; font-weight: 500; color: #888780; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,0.1); white-space: nowrap; }
+  thead th:not(.th-left) { text-align: right; }
+  tbody tr:hover { background: #f5f4f0; }
+  tbody td { padding: 9px 10px; border-bottom: 0.5px solid rgba(0,0,0,0.07); color: #1a1a18; vertical-align: middle; }
+  tbody td:not(.td-left) { text-align: right; color: #444441; }
+  .model-cell { display: flex; align-items: center; gap: 10px; }
+  .model-img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.1); background: #f5f4f0; flex-shrink: 0; }
+  .model-img-placeholder { width: 48px; height: 48px; border-radius: 6px; background: repeating-linear-gradient(45deg, #f5f4f0, #f5f4f0 4px, #eae9e4 4px, #eae9e4 8px); display: flex; align-items: center; justify-content: center; font-size: 9px; color: #888780; flex-shrink: 0; }
+  .model-info { display: flex; flex-direction: column; }
+  .model-name { font-weight: 500; }
+  .model-code { font-size: 11px; color: #888780; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 4px; }
+  .badge-a { background: #FCEBEB; color: #A32D2D; }
+  .badge-b { background: #FAEEDA; color: #854F0B; }
+  .badge-c { background: #EAF3DE; color: #3B6D11; }
+  .nivel-muy-alto { color: #A32D2D; font-weight: 500; }
+  .nivel-alto { color: #854F0B; font-weight: 500; }
+  .nivel-medio { color: #185FA5; font-weight: 500; }
+  .regla { background: #EEEDFE; border-radius: 8px; padding: 12px 16px; margin-top: 20px; font-size: 13px; color: #3C3489; font-weight: 500; }
+  .note { background: #FAEEDA; border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 12px; color: #854F0B; }
+
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .gallery-item { background: #fafaf7; border: 0.5px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .gallery-item img, .gallery-item .gallery-placeholder { width: 100%; height: 140px; object-fit: cover; border-radius: 6px; background: #f0efea; margin-bottom: 8px; }
+  .gallery-item .gallery-placeholder { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888780; background: repeating-linear-gradient(45deg, #f5f4f0, #f5f4f0 6px, #eae9e4 6px, #eae9e4 12px); }
+  .gallery-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+  .gallery-meta { font-size: 11px; color: #888780; }
+  .gallery-ico { font-size: 15px; font-weight: 600; color: #1a1a18; margin-top: 6px; }
+
+  .btn-resumen { background: #EAF3DE; color: #3B6D11; border-color: #C9E0A8; }
+  .btn-resumen:hover { background: #D9EAC0; }
+
+  .resumen-card { border: 1px solid rgba(0,0,0,0.15); }
+  .resumen-title-bar { background: #1E3A6B; color: #fff; text-align: center; font-size: 14px; font-weight: 500; padding: 10px 14px; margin: -20px -24px 0 -24px; border-top-left-radius: 12px; border-top-right-radius: 12px; letter-spacing: 0.02em; }
+  .resumen-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+  .resumen-table thead th { background: #fafaf7; font-size: 11px; font-weight: 500; color: #5f5e5a; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 12px; border: 1px solid rgba(0,0,0,0.1); text-align: center; }
+  .resumen-table thead th.regla-th { text-align: left; padding-left: 16px; }
+  .resumen-table tbody td { padding: 8px 12px; border: 1px solid rgba(0,0,0,0.08); vertical-align: middle; color: #1a1a18; text-align: left; }
+  .resumen-table td.perfil-cell { text-align: center; color: #fff; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; padding: 10px 8px; width: 120px; border-color: rgba(0,0,0,0.05); }
+  .resumen-table td.perfil-A, .leyenda-tag.perfil-A { background: #D85A5A; }
+  .resumen-table td.perfil-B, .leyenda-tag.perfil-B { background: #E69138; }
+  .resumen-table td.perfil-C, .leyenda-tag.perfil-C { background: #6BAA3C; }
+  .resumen-table td.foto-cell { width: 90px; text-align: center; }
+  .resumen-img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 0.5px solid rgba(0,0,0,0.1); background: #f5f4f0; }
+  .resumen-img-placeholder { width: 64px; height: 64px; border-radius: 4px; background: repeating-linear-gradient(45deg, #f5f4f0, #f5f4f0 4px, #eae9e4 4px, #eae9e4 8px); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #888780; }
+  .resumen-table td.modelo-cell { width: 110px; font-weight: 500; font-size: 14px; color: #1a1a18; text-align: center; }
+  .resumen-table td.regla-cell { color: #3c3a35; line-height: 1.45; text-align: left; padding-left: 16px; }
+  .leyenda-perfiles { margin-top: 18px; border: 1px solid rgba(0,0,0,0.12); border-radius: 0; overflow: hidden; }
+  .leyenda-header { background: #fafaf7; padding: 8px 12px; font-weight: 600; font-size: 12px; color: #1a1a18; border-bottom: 1px solid rgba(0,0,0,0.08); letter-spacing: 0.04em; }
+  .leyenda-row { display: grid; grid-template-columns: 160px 1fr; align-items: stretch; border-bottom: 1px solid rgba(0,0,0,0.06); }
+  .leyenda-row:last-child { border-bottom: none; }
+  .leyenda-tag { color: #fff; font-weight: 600; font-size: 12px; padding: 10px 12px; text-align: center; letter-spacing: 0.04em; display: flex; align-items: center; justify-content: center; }
+  .leyenda-desc { padding: 10px 14px; font-size: 12.5px; color: #3c3a35; background: #fff; display: flex; align-items: center; }
+  .regla-oro-bar { margin-top: 14px; background: #1E3A6B; color: #fff; text-align: center; font-size: 13px; font-weight: 500; padding: 11px 14px; border-radius: 4px; letter-spacing: 0.02em; }
+
+  body.print-resumen-only .top-bar-left,
+  body.print-resumen-only .btn-group,
+  body.print-resumen-only .kpi-grid,
+  body.print-resumen-only > .card:not(.resumen-card) { display: none !important; }
+
+  /* Modo compacto: solo aplicado temporalmente al generar PDF */
+  .resumen-card.pdf-compact { padding: 14px 18px; }
+  .resumen-card.pdf-compact .resumen-title-bar { padding: 7px 14px; font-size: 13px; margin: -14px -18px 0 -18px; }
+  .resumen-card.pdf-compact .resumen-table { margin-top: 10px; font-size: 11.5px; }
+  .resumen-card.pdf-compact .resumen-table thead th { padding: 5px 10px; font-size: 10px; }
+  .resumen-card.pdf-compact .resumen-table tbody td { padding: 5px 10px; }
+  .resumen-card.pdf-compact .resumen-table td.perfil-cell { padding: 6px 6px; font-size: 10.5px; width: 100px; }
+  .resumen-card.pdf-compact .resumen-table td.foto-cell { width: 86px; }
+  .resumen-card.pdf-compact .resumen-img,
+  .resumen-card.pdf-compact .resumen-img-placeholder { width: 56px; height: 56px; }
+  .resumen-card.pdf-compact .resumen-table td.modelo-cell { width: 80px; font-size: 12px; }
+  .resumen-card.pdf-compact .leyenda-perfiles { margin-top: 10px; }
+  .resumen-card.pdf-compact .leyenda-header { padding: 5px 10px; font-size: 10.5px; }
+  .resumen-card.pdf-compact .leyenda-tag { padding: 6px 10px; font-size: 10.5px; }
+  .resumen-card.pdf-compact .leyenda-desc { padding: 6px 12px; font-size: 11px; }
+  .resumen-card.pdf-compact .leyenda-row { grid-template-columns: 130px 1fr; }
+  .resumen-card.pdf-compact .regla-oro-bar { padding: 7px 12px; font-size: 11.5px; margin-top: 10px; }
+
+  @media print {
+    body { background: #fff; padding: 12px; }
+    .btn-group { display: none !important; }
+    .chart-wrapper { height: 600px; }
+    .card { border: 1px solid #ddd; break-inside: avoid; }
+    .resumen-card { page-break-before: always; }
+    body.print-resumen-only .resumen-card { page-break-before: auto; }
+  }
+  @media (max-width: 600px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .chart-wrapper { height: 1100px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="top-bar-left">
+    <div class="subtitle">Perfilamiento de modelos · Sem 15–16 · 14/abr/2026</div>
+    <div class="title">Dashboard ICO — datos desde DB (Supabase)</div>
+    <div class="source">✓ Reconstruido desde catalogo_modelos + catalogo_operaciones (proyecto folmyddedsdzlbegumbo)</div>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-resumen" onclick="printResumen()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="13" y2="17"/></svg>
+      Vista Resumen PDF
+    </button>
+    <button class="btn btn-pdf" onclick="window.print()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      Descargar PDF completo
+    </button>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-label">Modelos con ICO</div><div class="kpi-value">18</div><div class="kpi-sub">100% validados en DB</div></div>
+  <div class="kpi"><div class="kpi-label">Con imagen en bucket</div><div class="kpi-value">18</div><div class="kpi-sub">100% cobertura</div></div>
+  <div class="kpi"><div class="kpi-label">ICO interno total</div><div class="kpi-value">117.6</div><div class="kpi-sub">min/par acumulado</div></div>
+  <div class="kpi"><div class="kpi-label">ICO + maquila</div><div class="kpi-value">140.9</div><div class="kpi-sub">min/par acumulado</div></div>
+</div>
+
+<div class="card">
+  <h2>ICO por modelo — desglose reconstruido desde DB</h2>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#B5D4F4;"></div>PREL (pre-robot)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#1D9E75;"></div>Robot</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#FAC775;"></div>POST</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#AFA9EC;"></div>N/A prel</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#F09595;"></div>Maquila</div>
+  </div>
+  <div class="chart-wrapper">
+    <canvas id="icoChart"></canvas>
+  </div>
+  <div class="note">Reglas de clasificación de etapa: <b>recurso=MAQUILA</b> o etapa=MAQUILA → Maquila · <b>recurso=ROBOT</b> → Robot · <b>etapa=N/A</b> → N/A · <b>etapa empieza con PRE</b> → PREL · <b>etapa empieza con POST</b> → POST · resto → según posición vs primer ROBOT (antes=PREL, después=POST).</div>
+</div>
+
+<div class="card">
+  <h2>Galería de modelos (ordenados por ICO interno)</h2>
+  <div class="gallery" id="gallery"></div>
+</div>
+
+<div class="card">
+  <h2>Tabla resumen ICO — ranking por complejidad interna</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="th-left">#  Modelo</th>
+          <th class="th-left">Perfil</th>
+          <th>PREL</th>
+          <th>Robot</th>
+          <th>POST</th>
+          <th>N/A</th>
+          <th>Maquila</th>
+          <th>ICO interno</th>
+          <th>ICO total</th>
+          <th class="th-left">Nivel</th>
+        </tr>
+      </thead>
+      <tbody id="tabla"></tbody>
+    </table>
+  </div>
+  <div class="regla">Regla de oro: 1 Ancla + 1–2 Balancers + 1 Filler → ~90% utilización sin cuellos (ajustar mezcla para no duplicar modelos con POST alto por la restricción lineas_post=1)</div>
+</div>
+
+<div class="card resumen-card">
+  <div class="resumen-title-bar">Vista Resumen — Perfilamiento de modelos · Sem 15–16</div>
+  <table class="resumen-table">
+    <thead>
+      <tr>
+        <th style="width:120px;">Perfil</th>
+        <th style="width:90px;">Foto</th>
+        <th style="width:110px;">Modelo</th>
+        <th class="regla-th">Regla operativa</th>
+      </tr>
+    </thead>
+    <tbody id="resumen-tbody"></tbody>
+  </table>
+
+  <div class="leyenda-perfiles">
+    <div class="leyenda-header">LEYENDA DE PERFILES</div>
+    <div class="leyenda-row">
+      <div class="leyenda-tag perfil-A">A - ANCLAS</div>
+      <div class="leyenda-desc">Definen el día. Máximo 1 ancla POST + 1 ancla Robot por día. Lotes &gt;=300, skill alto.</div>
+    </div>
+    <div class="leyenda-row">
+      <div class="leyenda-tag perfil-B">B - BALANCERS</div>
+      <div class="leyenda-desc">Mid-load. Acompañan a un ancla si usan otra etapa. Lotes 200–400.</div>
+    </div>
+    <div class="leyenda-row">
+      <div class="leyenda-tag perfil-C">C - FILLERS</div>
+      <div class="leyenda-desc">Carga interna mínima. Distribuir libre 50–200/día. Buffer ante imprevistos.</div>
+    </div>
+  </div>
+
+  <div class="regla-oro-bar">REGLA DE ORO: 1 Ancla + 1–2 Balancers + 1 Filler ≈ 90% utilización sin cuellos</div>
+</div>
+
+<script>
+const models = [
+  {num:'62100', sufijo:'BL',       prel:2.23, robot:3.13, post:10.18, na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/62100_BL.jpeg'},
+  {num:'61748', sufijo:'KR',       prel:3.00, robot:3.00, post:5.00,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/61748_KR.jpeg'},
+  {num:'65422', sufijo:'KL/HU',    prel:1.50, robot:2.58, post:4.77,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/65422_KL.jpeg'},
+  {num:'94751', sufijo:'RO',       prel:0,    robot:2.55, post:5.40,  na:0,    maq:1.20, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/94751_RO.jpeg'},
+  {num:'68127', sufijo:'NE',       prel:1.80, robot:4.38, post:1.20,  na:0.60, maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/68127.avif'},
+  {num:'61747', sufijo:'GC',       prel:0.60, robot:1.00, post:6.00,  na:0,    maq:7.07, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/61747_GC.jpeg'},
+  {num:'88186', sufijo:'NE',       prel:2.40, robot:2.42, post:2.40,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/88186_NE.jpeg'},
+  {num:'90842', sufijo:'BE',       prel:2.12, robot:0,    post:3.20,  na:0,    maq:1.15, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/90842_BE.jpeg'},
+  {num:'65568', sufijo:'HU/RO/NE', prel:1.80, robot:1.52, post:1.80,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/65568.jpeg'},
+  {num:'93346', sufijo:'NE',       prel:1.42, robot:2.77, post:0.43,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/93346.png'},
+  {num:'65413', sufijo:'NE/GC/VI', prel:0,    robot:2.08, post:2.40,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/65413.avif'},
+  {num:'93347', sufijo:'KR',       prel:1.53, robot:2.12, post:0.43,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/93347.png'},
+  {num:'94750', sufijo:'AA',       prel:1.20, robot:1.67, post:0.60,  na:0,    maq:2.00, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/94750.jpeg'},
+  {num:'64197', sufijo:'NE/RO/HU', prel:0,    robot:0.78, post:2.40,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/64197_NE.jpeg'},
+  {num:'94749', sufijo:'MI',       prel:0,    robot:0.60, post:1.20,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/94749_MI.jpeg'},
+  {num:'77525', sufijo:'NE',       prel:0,    robot:0,    post:1.80,  na:0,    maq:7.80, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/77525.avif'},
+  {num:'93349', sufijo:'RS',       prel:0,    robot:0.90, post:0.43,  na:0,    maq:4.00, img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/93349_RS.png'},
+  {num:'69906', sufijo:'BL',       prel:1.28, robot:2.68, post:5.27,  na:0,    maq:0,    img:'https://folmyddedsdzlbegumbo.supabase.co/storage/v1/object/public/modelos/69906_BL.jpeg'},
+];
+
+// Clasificar por ICO interno (sin maquila, porque maquila no consume capacidad interna)
+function interno(m){ return +(m.prel+m.robot+m.post+m.na).toFixed(2); }
+function total(m)  { return +(interno(m)+m.maq).toFixed(2); }
+function perfilOf(m){
+  const x = interno(m);
+  if (x >= 7.0) return 'A';
+  if (x >= 3.5) return 'B';
+  return 'C';
+}
+models.forEach(m => { m.interno = interno(m); m.total = total(m); m.perfil = perfilOf(m); });
+models.sort((a,b) => b.interno - a.interno);
+
+// Pre-cargar imágenes para el plugin
+const imgCache = {};
+models.forEach(m => {
+  if (m.img) {
+    const im = new Image();
+    im.src = m.img;
+    im.onload = () => { imgCache[m.num] = im; if (window.icoChartInstance) window.icoChartInstance.update('none'); };
+    im.onerror = (e) => { console.warn('No cargó', m.num, m.img); };
+  }
+});
+
+// Plugin: dibujar foto a la izquierda de cada barra
+const IMG_SIZE = 42;
+const IMG_LEFT_PAD = 6;
+const yAxisImagesPlugin = {
+  id: 'yAxisImages',
+  afterDraw(chart) {
+    const { ctx, scales: { y } } = chart;
+    const xPos = IMG_LEFT_PAD;
+    models.forEach((m, i) => {
+      const yPos = y.getPixelForValue(i);
+      ctx.save();
+      // Placeholder con bordes redondeados
+      ctx.fillStyle = '#f5f4f0';
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 0.5;
+      const r = 5;
+      const top = yPos - IMG_SIZE/2;
+      ctx.beginPath();
+      ctx.moveTo(xPos + r, top);
+      ctx.lineTo(xPos + IMG_SIZE - r, top);
+      ctx.quadraticCurveTo(xPos + IMG_SIZE, top, xPos + IMG_SIZE, top + r);
+      ctx.lineTo(xPos + IMG_SIZE, top + IMG_SIZE - r);
+      ctx.quadraticCurveTo(xPos + IMG_SIZE, top + IMG_SIZE, xPos + IMG_SIZE - r, top + IMG_SIZE);
+      ctx.lineTo(xPos + r, top + IMG_SIZE);
+      ctx.quadraticCurveTo(xPos, top + IMG_SIZE, xPos, top + IMG_SIZE - r);
+      ctx.lineTo(xPos, top + r);
+      ctx.quadraticCurveTo(xPos, top, xPos + r, top);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Imagen (cover, recortada al cuadro)
+      const im = imgCache[m.num];
+      if (im && im.complete && im.naturalWidth) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(xPos, top, IMG_SIZE, IMG_SIZE);
+        ctx.clip();
+        const ratio = Math.max(IMG_SIZE / im.naturalWidth, IMG_SIZE / im.naturalHeight);
+        const drawW = im.naturalWidth * ratio;
+        const drawH = im.naturalHeight * ratio;
+        ctx.drawImage(im, xPos + (IMG_SIZE - drawW)/2, top + (IMG_SIZE - drawH)/2, drawW, drawH);
+        ctx.restore();
+      }
+      ctx.restore();
+    });
+  }
+};
+
+// Chart
+const ctx = document.getElementById('icoChart').getContext('2d');
+window.icoChartInstance = new Chart(ctx, {
+  type:'bar',
+  data:{
+    labels: models.map(m=>m.num),
+    datasets:[
+      {label:'PREL',    data:models.map(m=>m.prel),  backgroundColor:'#B5D4F4'},
+      {label:'Robot',   data:models.map(m=>m.robot), backgroundColor:'#1D9E75'},
+      {label:'POST',    data:models.map(m=>m.post),  backgroundColor:'#FAC775'},
+      {label:'N/A prel',data:models.map(m=>m.na),    backgroundColor:'#AFA9EC'},
+      {label:'Maquila', data:models.map(m=>m.maq),   backgroundColor:'#F09595'},
+    ]
+  },
+  options:{
+    indexAxis:'y', responsive:true, maintainAspectRatio:false,
+    layout:{ padding:{ left: 56 } }, // 42 img + 6 pad + 8 gap
+    plugins:{
+      legend:{display:false},
+      tooltip:{callbacks:{
+        label:(c)=> ' '+c.dataset.label+': '+c.parsed.x.toFixed(2)+' mp'
+      }}
+    },
+    scales:{
+      x:{stacked:true, grid:{color:'rgba(0,0,0,0.06)'}, ticks:{font:{size:11},color:'#888780',callback:v=>v.toFixed(0)+' mp'}},
+      y:{stacked:true, grid:{display:false}, ticks:{font:{size:12,weight:'500'},color:'#444441',padding:8}}
+    }
+  },
+  plugins: [yAxisImagesPlugin]
+});
+
+// Gallery
+const gallery = document.getElementById('gallery');
+models.forEach(m => {
+  const card = document.createElement('div');
+  card.className = 'gallery-item';
+  const imgPart = m.img
+    ? `<img src="${m.img}" alt="${m.name}" loading="lazy" onerror="this.outerHTML='<div class=gallery-placeholder>sin imagen</div>'">`
+    : `<div class="gallery-placeholder">sin imagen en DB</div>`;
+  const [plab, pcls] = {A:['A — Ancla','badge-a'], B:['B — Balancer','badge-b'], C:['C — Filler','badge-c']}[m.perfil];
+  card.innerHTML = `
+    ${imgPart}
+    <div class="gallery-name">${m.num}</div>
+    <div class="gallery-meta" style="margin-bottom:6px;">${m.sufijo || ''}</div>
+    <div class="gallery-meta"><span class="badge ${pcls}">${plab}</span></div>
+    <div class="gallery-ico">${m.interno.toFixed(2)} mp interno</div>
+    <div class="gallery-meta">${m.total.toFixed(2)} mp total</div>
+  `;
+  gallery.appendChild(card);
+});
+
+// Tabla
+const perfilMap = {A:['A — Ancla','badge-a'], B:['B — Balancer','badge-b'], C:['C — Filler','badge-c']};
+const nivelMap  = {A:['MUY ALTO','nivel-muy-alto'], B:['ALTO','nivel-alto'], C:['MEDIO','nivel-medio']};
+const tbody = document.getElementById('tabla');
+models.forEach((m,i)=>{
+  const [plab,pcls] = perfilMap[m.perfil];
+  const [nlab,ncls] = nivelMap[m.perfil];
+  const imgPart = m.img
+    ? `<img class="model-img" src="${m.img}" alt="${m.name}" loading="lazy" onerror="this.outerHTML='<div class=model-img-placeholder>s/img</div>'">`
+    : `<div class="model-img-placeholder">s/img</div>`;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="td-left">
+      <div class="model-cell">
+        ${imgPart}
+        <div class="model-info">
+          <div class="model-name">${i+1}. ${m.num}</div>
+          <div class="model-code">${m.sufijo || ''}</div>
+        </div>
+      </div>
+    </td>
+    <td class="td-left"><span class="badge ${pcls}">${plab}</span></td>
+    <td>${m.prel>0?m.prel.toFixed(2):'—'}</td>
+    <td>${m.robot>0?m.robot.toFixed(2):'—'}</td>
+    <td>${m.post>0?m.post.toFixed(2):'—'}</td>
+    <td>${m.na>0?m.na.toFixed(2):'—'}</td>
+    <td>${m.maq>0?m.maq.toFixed(2):'—'}</td>
+    <td><b>${m.interno.toFixed(2)}</b></td>
+    <td>${m.total.toFixed(2)}</td>
+    <td class="td-left ${ncls}">${nlab}</td>
+  `;
+  tbody.appendChild(tr);
+});
+
+// Vista Resumen — reglas operativas + perfil override manual (algunos B bajan por maquila alta)
+const reglasOperativas = {
+  '62100': { perfil:'A', regla:'Cuello conveyor POST. Solo en días dedicados.' },
+  '61748': { perfil:'A', regla:'3 ops robot largos. No mezclar con 68127.' },
+  '65422': { perfil:'A', regla:'Doble carga. No mezclar con otra ancla POST.' },
+  '68127': { perfil:'A', regla:'Satura robots 3020/6040. No mezclar con 61748.' },
+  '88186': { perfil:'A', regla:'Robot pesado de fondo.' },
+  '94751': { perfil:'A', regla:'Ancla POST con maquila ligera. Distribuir en día dedicado.' },
+  '69906': { perfil:'A', regla:'Ancla nueva. POST alto y 4 ops robot.' },
+  '61747': { perfil:'B', regla:'Parte sale a maquila. Buen acompañante de ancla robot.' },
+  '65568': { perfil:'B', regla:'Distribución equilibrada. Flexible para cualquier día.' },
+  '90842': { perfil:'B', regla:'Sin carga robot. Libera capacidad para anclas robot.' },
+  '93346': { perfil:'B', regla:'Robot dominante. Pareja natural con 93347.' },
+  '65413': { perfil:'B', regla:'Robot ligero, parte en maquila.' },
+  '93347': { perfil:'B', regla:'Robot medio, POST mínimo. Pareja con 93346.' },
+  '94750': { perfil:'B', regla:'Carga interna baja por maquila. Acompañante ideal.' },
+  '64197': { perfil:'C', regla:'Distribuir libre. Filler de fondo.' },
+  '94749': { perfil:'C', regla:'Filler de bajo impacto. Meter en huecos de ancla.' },
+  '77525': { perfil:'C', regla:'Casi cero HC interno. Meter donde haya hueco.' },
+  '93349': { perfil:'C', regla:'Grueso a maquila. Filler mínimo interno.' },
+};
+
+const perfilLabel = { A:'A - ANCLAS', B:'B - BALANCERS', C:'C - FILLERS' };
+
+// Orden: A → B → C, dentro de cada grupo por ICO interno desc
+const perfilOrden = { A:0, B:1, C:2 };
+const resumenModels = [...models].map(m => {
+  const r = reglasOperativas[m.num] || { perfil: m.perfil, regla: '—' };
+  return { ...m, perfilResumen: r.perfil, regla: r.regla };
+}).sort((a,b) => {
+  if (perfilOrden[a.perfilResumen] !== perfilOrden[b.perfilResumen]) {
+    return perfilOrden[a.perfilResumen] - perfilOrden[b.perfilResumen];
+  }
+  return b.interno - a.interno;
+});
+
+const resumenTbody = document.getElementById('resumen-tbody');
+resumenModels.forEach(m => {
+  const imgPart = m.img
+    ? `<img class="resumen-img" src="${m.img}" alt="${m.num}" loading="lazy" onerror="this.outerHTML='<div class=resumen-img-placeholder>sin foto</div>'">`
+    : `<div class="resumen-img-placeholder">sin foto</div>`;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="perfil-cell perfil-${m.perfilResumen}">${perfilLabel[m.perfilResumen]}</td>
+    <td class="foto-cell">${imgPart}</td>
+    <td class="modelo-cell">${m.num}</td>
+    <td class="regla-cell">${m.regla}</td>
+  `;
+  resumenTbody.appendChild(tr);
+});
+
+function printResumen(){
+  const elem = document.querySelector('.resumen-card');
+  if (!elem) return;
+  const btn = document.querySelector('.btn-resumen');
+  const originalText = btn ? btn.innerHTML : '';
+  if (btn) { btn.innerHTML = 'Generando PDF…'; btn.disabled = true; }
+
+  // Aplicar modo compacto temporal (sin afectar la vista en pantalla)
+  elem.classList.add('pdf-compact');
+
+  const cleanup = () => {
+    elem.classList.remove('pdf-compact');
+    if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+  };
+
+  const opt = {
+    margin:      [6, 6, 6, 6],
+    filename:    'perfilamiento-modelos-sem15-16.pdf',
+    image:       { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+    jsPDF:       { unit: 'mm', format: 'letter', orientation: 'portrait' },
+    pagebreak:   { mode: ['css', 'legacy'], avoid: ['tr', '.leyenda-row'] }
+  };
+
+  // Pequeño delay para que el navegador aplique la clase antes de capturar
+  setTimeout(() => {
+    html2pdf().set(opt).from(elem).save().then(cleanup).catch(err => {
+      console.error('Error generando PDF:', err);
+      cleanup();
+      alert('Error generando PDF. Revisá la consola del navegador.');
+    });
+  }, 50);
+}
+</script>
+</body>
+</html>
