@@ -21,6 +21,8 @@ export interface CascadeEditorProps {
   onUpdateBuffer: (reglaId: string, buffer: number | 'todo' | 'rate' | 'dia') => Promise<void>
   /** Optional title used for the PDF export filename */
   title?: string
+  /** If true, hides edit actions (drag-drop, connect, delete, resize). Visualization stays the same. */
+  readOnly?: boolean
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -170,7 +172,7 @@ function processColor(proceso: string): string {
 // ─── Component ───────────────────────────────────────────────────────
 
 export function CascadeEditor({
-  operaciones, reglas, onConnect, onDeleteEdge, onUpdateBuffer, title,
+  operaciones, reglas, onConnect, onDeleteEdge, onUpdateBuffer, title, readOnly = false,
 }: CascadeEditorProps) {
   // ─── Stage collapsing ──────────────────────────────────────────────
   const [collapsedStages, setCollapsedStages] = useState<Set<string>>(new Set())
@@ -836,9 +838,9 @@ export function CascadeEditor({
       <div className="flex flex-wrap gap-0.5 mt-1">
         {badges.map((b) => (
           <button key={`${b.dir}-${b.fromFrac}`}
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 hover:bg-violet-500/30 cursor-pointer transition-colors"
-            onClick={(e) => { e.stopPropagation(); openBufferEdit(b.dir === 'in' ? b.fromFrac : frac, b.dir === 'in' ? frac : b.fromFrac) }}
-            title={`${b.dir === 'in' ? `F${b.fromFrac} → F${frac}` : `F${frac} → F${b.fromFrac}`} (clic para editar buffer)`}
+            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-violet-500/30 cursor-pointer'}`}
+            onClick={readOnly ? undefined : (e) => { e.stopPropagation(); openBufferEdit(b.dir === 'in' ? b.fromFrac : frac, b.dir === 'in' ? frac : b.fromFrac) }}
+            title={`${b.dir === 'in' ? `F${b.fromFrac} → F${frac}` : `F${frac} → F${b.fromFrac}`}${readOnly ? '' : ' (clic para editar buffer)'}`}
           >
             <span className="text-[8px] font-bold">{b.dir === 'in' ? `← F${b.fromFrac}` : `→ F${b.fromFrac}`}</span>
             <span className="text-[8px] font-bold">{b.arrow.buffer === 'todo' ? 'Todo' : b.arrow.buffer === 'rate' ? '1h rate' : b.arrow.buffer === 'dia' ? '1 día' : `${b.arrow.buffer || 0}p`}</span>
@@ -902,15 +904,15 @@ export function CascadeEditor({
         {hasDirectPair && (
           directRule ? (
             <button
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors cursor-pointer text-emerald-400"
-              onClick={() => openBufferEdit(curFrac!, nxtFrac!)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 transition-colors text-emerald-400 ${readOnly ? 'cursor-default' : 'hover:bg-emerald-500/20 cursor-pointer'}`}
+              onClick={readOnly ? undefined : () => openBufferEdit(curFrac!, nxtFrac!)}
             >
               <span className="text-[10px] font-bold whitespace-nowrap">
                 {directRule.buffer === 'todo' ? 'Todo' : directRule.buffer === 'rate' ? '1h rate' : directRule.buffer === 'dia' ? '1 día' : `${directRule.buffer || 0}p`}
               </span>
               <span className="text-sm font-bold">&rarr;</span>
             </button>
-          ) : showFadedArrow ? (
+          ) : showFadedArrow && !readOnly ? (
             <button
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-muted-foreground/20 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-colors cursor-pointer text-muted-foreground/30 hover:text-emerald-400"
               onClick={() => openBufferEdit(curFrac!, nxtFrac!)}
@@ -928,8 +930,8 @@ export function CascadeEditor({
           return (
             <button
               key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors cursor-pointer text-cyan-400"
-              onClick={() => openBufferEdit(c.fromFrac, c.toFrac)}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 transition-colors text-cyan-400 ${readOnly ? 'cursor-default' : 'hover:bg-cyan-500/20 cursor-pointer'}`}
+              onClick={readOnly ? undefined : () => openBufferEdit(c.fromFrac, c.toFrac)}
               title={`F${c.fromFrac} \u2192 F${c.toFrac}`}
             >
               <span className="text-[8px] font-semibold">{label}</span>
@@ -1120,14 +1122,16 @@ export function CascadeEditor({
 
   return (
     <div className="space-y-3">
-      {/* Operations palette */}
+      {/* Operations palette / toolbar */}
       <div className="border rounded-lg bg-muted/30 p-3">
         <div className="flex items-center justify-between mb-2">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Operaciones — arrastra a la tabla ({unplacedCount} sin asignar)
+            {readOnly
+              ? 'Cascada de precedencias (solo lectura)'
+              : `Operaciones — arrastra a la tabla (${unplacedCount} sin asignar)`}
           </h4>
           <div className="flex items-center gap-1.5">
-            {linkFrom != null ? (
+            {!readOnly && (linkFrom != null ? (
               <Button size="sm" variant="destructive" className="h-7 text-[10px] animate-pulse" onClick={() => setLinkFrom(null)}>
                 <X className="mr-1 h-3 w-3" />
                 {linkFrom === -1 ? 'Selecciona origen...' : `F${linkFrom} → selecciona destino...`}
@@ -1136,7 +1140,7 @@ export function CascadeEditor({
               <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => setLinkFrom(-1)}>
                 <Link className="mr-1 h-3 w-3" /> Conectar
               </Button>
-            )}
+            ))}
             <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={exportPdf} disabled={exporting}>
               <Download className="mr-1 h-3 w-3" /> {exporting ? 'Exportando...' : 'PDF'}
             </Button>
@@ -1168,7 +1172,7 @@ export function CascadeEditor({
             })}
           </div>
         )}
-        <div className="flex flex-wrap gap-2">
+        {!readOnly && <div className="flex flex-wrap gap-2">
           {effectiveOps.map((op) => {
             const isPlaced = placed.has(op.fraccion)
             const color = processColor(op.input_o_proceso)
@@ -1176,8 +1180,8 @@ export function CascadeEditor({
             return gi ? (
               <div
                 key={`g-${op.fraccion}`}
-                draggable={!isPlaced}
-                onDragStart={!isPlaced ? (e) => handleDragStart(e, op.fraccion) : undefined}
+                draggable={!readOnly && !isPlaced}
+                onDragStart={!readOnly && !isPlaced ? (e) => handleDragStart(e, op.fraccion) : undefined}
                 className={`rounded-md border-l-4 bg-card border shadow-sm px-2.5 py-1.5 w-48 select-none transition-opacity ${
                   isPlaced ? 'opacity-30 cursor-default' : 'cursor-grab active:cursor-grabbing hover:shadow-md'
                 }`}
@@ -1194,8 +1198,8 @@ export function CascadeEditor({
             ) : (
               <div
                 key={op.fraccion}
-                draggable={!isPlaced}
-                onDragStart={!isPlaced ? (e) => handleDragStart(e, op.fraccion) : undefined}
+                draggable={!readOnly && !isPlaced}
+                onDragStart={!readOnly && !isPlaced ? (e) => handleDragStart(e, op.fraccion) : undefined}
                 className={`rounded-md border-l-4 bg-card border shadow-sm px-2.5 py-1.5 w-40 select-none transition-opacity ${
                   isPlaced ? 'opacity-30 cursor-default' : 'cursor-grab active:cursor-grabbing hover:shadow-md'
                 }`}
@@ -1208,7 +1212,7 @@ export function CascadeEditor({
               </div>
             )
           })}
-        </div>
+        </div>}
       </div>
 
       {/* Grid */}
@@ -1227,8 +1231,10 @@ export function CascadeEditor({
                 </Fragment>
               ))}
               <th className="px-2 py-2 w-20">
-                <Button size="sm" variant="ghost" className="h-6 text-[10px]"
-                  onClick={() => setExtraCols((c) => c + 1)}>AGREGAR +</Button>
+                {!readOnly && (
+                  <Button size="sm" variant="ghost" className="h-6 text-[10px]"
+                    onClick={() => setExtraCols((c) => c + 1)}>AGREGAR +</Button>
+                )}
               </th>
             </tr>
           </thead>
@@ -1275,9 +1281,9 @@ export function CascadeEditor({
                         className={`px-2 py-2 border-r min-w-[140px] align-middle ${
                           frac == null && dragFrac != null ? 'bg-muted/5' : ''
                         } ${isDropHere ? 'bg-indigo-500/10' : ''} ${isResizeSource && resizeSpan!.span > 1 ? 'bg-indigo-500/5' : ''}`}
-                        onDragOver={frac == null ? (e) => handleDragOver(e, cellId) : undefined}
-                        onDragLeave={frac == null ? handleDragLeave : undefined}
-                        onDrop={frac == null ? (e) => handleDrop(e, rowIdx, colIdx) : undefined}
+                        onDragOver={!readOnly && frac == null ? (e) => handleDragOver(e, cellId) : undefined}
+                        onDragLeave={!readOnly && frac == null ? handleDragLeave : undefined}
+                        onDrop={!readOnly && frac == null ? (e) => handleDrop(e, rowIdx, colIdx) : undefined}
                       >
                         {op && groupInfo.has(frac!) ? (() => {
                           const gi = groupInfo.get(frac!)!
@@ -1325,24 +1331,28 @@ export function CascadeEditor({
                             style={{ borderLeftColor: color }}
                             onClick={linkFrom != null ? () => handleCardClick(frac!) : undefined}
                           >
-                            <button
-                              className="absolute -top-1.5 -right-1.5 bg-destructive/80 hover:bg-destructive rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                              onClick={() => removeOperation(frac!)}>
-                              <X className="h-2.5 w-2.5 text-white" />
-                            </button>
+                            {!readOnly && (
+                              <button
+                                className="absolute -top-1.5 -right-1.5 bg-destructive/80 hover:bg-destructive rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                onClick={() => removeOperation(frac!)}>
+                                <X className="h-2.5 w-2.5 text-white" />
+                              </button>
+                            )}
                             <div className="text-[10px] text-muted-foreground font-mono font-bold">F{frac}</div>
                             <div className="text-xs font-medium truncate" title={op.operacion}>{op.operacion}</div>
                             <span className="text-[8px] font-semibold px-1 py-0.5 rounded-full mt-0.5 inline-block"
                               style={{ backgroundColor: color + '20', color }}>{op.input_o_proceso}</span>
                             {renderCrossColBadges(frac!, colIdx)}
                             {/* Resize handle — drag to stretch card across rows */}
-                            <div
-                              className="absolute -bottom-1 left-2 right-2 h-3 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex justify-center items-center"
-                              onMouseDown={(e) => startResize(e, rowIdx, colIdx, frac!, span || 1)}
-                              title="Arrastra para estirar"
-                            >
-                              <div className="w-8 h-[3px] bg-indigo-400/50 rounded-full hover:bg-indigo-400" />
-                            </div>
+                            {!readOnly && (
+                              <div
+                                className="absolute -bottom-1 left-2 right-2 h-3 cursor-ns-resize opacity-0 group-hover:opacity-100 transition-opacity flex justify-center items-center"
+                                onMouseDown={(e) => startResize(e, rowIdx, colIdx, frac!, span || 1)}
+                                title="Arrastra para estirar"
+                              >
+                                <div className="w-8 h-[3px] bg-indigo-400/50 rounded-full hover:bg-indigo-400" />
+                              </div>
+                            )}
                           </div>
                           )
                         })() : isDropHere ? (
@@ -1370,12 +1380,14 @@ export function CascadeEditor({
                 <td className="px-2 py-2" />
               </tr>
             )})}
-            <tr>
-              <td colSpan={totalCols * 2} className="px-3 py-2 text-center">
-                <Button size="sm" variant="ghost" className="text-xs text-muted-foreground"
-                  onClick={() => setExtraRows((r) => r + 1)}>AGREGAR +</Button>
-              </td>
-            </tr>
+            {!readOnly && (
+              <tr>
+                <td colSpan={totalCols * 2} className="px-3 py-2 text-center">
+                  <Button size="sm" variant="ghost" className="text-xs text-muted-foreground"
+                    onClick={() => setExtraRows((r) => r + 1)}>AGREGAR +</Button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 

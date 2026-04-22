@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useCatalogo } from '@/lib/hooks/useCatalogo'
+import { useProfile } from '@/lib/hooks/useProfile'
 import type { Restriccion, ConstraintType } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,10 +26,12 @@ const STAGE_BADGE: Record<string, string> = {
 
 export function ReferenciaTab() {
   const { modelos, loading: loadingCat } = useCatalogo()
+  const { isAdmin } = useProfile()
   const [modeloNum, setModeloNum] = useState<string>('')
   const [reglas, setReglas] = useState<Restriccion[]>([])
   const [loadingReglas, setLoadingReglas] = useState(false)
   const [subtab, setSubtab] = useState<'operaciones' | 'cursograma' | 'precedencias'>('operaciones')
+
 
   // Pre-seleccionar el primer modelo cuando termina de cargar el catalogo
   useEffect(() => {
@@ -297,19 +300,21 @@ export function ReferenciaTab() {
           <TabsContent value="precedencias" className="mt-4">
             <Card>
               <CardContent className="p-4 space-y-4">
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={autoGenerateBlocks}>
-                    <Wand2 className="mr-1 h-3 w-3" /> Auto-generar por bloques
-                  </Button>
-                  {precedencias.length > 0 && (
-                    <Button size="sm" variant="ghost" className="text-destructive" onClick={deletePrecedencias}>
-                      <Trash2 className="mr-1 h-3 w-3" /> Borrar todas
+                {isAdmin && (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={autoGenerateBlocks}>
+                      <Wand2 className="mr-1 h-3 w-3" /> Auto-generar por bloques
                     </Button>
-                  )}
-                  <span className="text-xs text-muted-foreground max-w-[420px]">
-                    Arrastra operaciones a las cascadas. Click en una flecha para editar buffer o eliminar.
-                  </span>
-                </div>
+                    {precedencias.length > 0 && (
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={deletePrecedencias}>
+                        <Trash2 className="mr-1 h-3 w-3" /> Borrar todas
+                      </Button>
+                    )}
+                    <span className="text-xs text-muted-foreground max-w-[420px]">
+                      Arrastra operaciones a las cascadas. Click en una flecha para editar buffer o eliminar.
+                    </span>
+                  </div>
+                )}
                 {loadingReglas ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-5 w-5 animate-spin" />
@@ -322,6 +327,7 @@ export function ReferenciaTab() {
                     onDeleteEdge={deleteRegla}
                     onUpdateBuffer={updateBuffer}
                     title={`Cascada-${modeloNum}`}
+                    readOnly={!isAdmin}
                   />
                 )}
               </CardContent>
@@ -332,3 +338,4 @@ export function ReferenciaTab() {
     </div>
   )
 }
+

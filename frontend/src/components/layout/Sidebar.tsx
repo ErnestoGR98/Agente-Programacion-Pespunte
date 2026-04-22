@@ -10,8 +10,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useProfile } from '@/lib/hooks/useProfile'
+import { USER_ALLOWED_ROUTES } from '@/lib/permissions'
 import { useTheme } from 'next-themes'
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect, useMemo, createContext, useContext } from 'react'
 
 // Context to share sidebar state with layout
 interface SidebarContextType {
@@ -91,10 +93,22 @@ export function Sidebar() {
   const pathname = usePathname()
   const appStep = useAppStore((s) => s.appStep)
   const { user, signOut } = useAuth()
+  const { isAdmin, loading: loadingProfile } = useProfile()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const { open, setOpen, pinned, setPinned } = useSidebar()
   useEffect(() => setMounted(true), [])
+
+  const visibleNavGroups = useMemo(() => {
+    if (loadingProfile) return [] as NavGroup[]
+    if (isAdmin) return NAV_GROUPS
+    return NAV_GROUPS
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((i) => USER_ALLOWED_ROUTES.includes(i.href)),
+      }))
+      .filter((g) => g.items.length > 0)
+  }, [isAdmin, loadingProfile])
 
   // Close overlay on route change (only when not pinned)
   useEffect(() => {
@@ -131,9 +145,13 @@ export function Sidebar() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold">Pespunte Agent</p>
             <p className="text-xs text-muted-foreground">
-              {appStep === 0 && 'Sin datos'}
-              {appStep === 1 && 'Pedido cargado'}
-              {appStep === 2 && 'Optimizado'}
+              {!isAdmin && !loadingProfile ? 'Usuario' : (
+                <>
+                  {appStep === 0 && 'Sin datos'}
+                  {appStep === 1 && 'Pedido cargado'}
+                  {appStep === 2 && 'Optimizado'}
+                </>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-0.5">
@@ -169,7 +187,7 @@ export function Sidebar() {
 
         {/* Navegacion */}
         <nav className="flex-1 overflow-y-auto px-2 py-3">
-          {NAV_GROUPS.map((group, gi) => (
+          {visibleNavGroups.map((group, gi) => (
             <div key={group.label} className={gi > 0 ? 'mt-3' : ''}>
               <div className="rounded-lg bg-muted/60 border border-border/50 px-1 py-2">
                 <p className="px-2 mb-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground/60">
@@ -241,23 +259,25 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Step indicator */}
-        <div className="border-t px-4 py-3">
-          <div className="flex items-center gap-1">
-            {[0, 1, 2].map((step) => (
-              <div
-                key={step}
-                className={cn(
-                  'h-1.5 flex-1 rounded-full',
-                  step <= appStep ? 'bg-primary' : 'bg-muted',
-                )}
-              />
-            ))}
+        {/* Step indicator — solo admin (los usuarios no siguen el flujo de 3 pasos) */}
+        {isAdmin && (
+          <div className="border-t px-4 py-3">
+            <div className="flex items-center gap-1">
+              {[0, 1, 2].map((step) => (
+                <div
+                  key={step}
+                  className={cn(
+                    'h-1.5 flex-1 rounded-full',
+                    step <= appStep ? 'bg-primary' : 'bg-muted',
+                  )}
+                />
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground text-center">
+              Paso {appStep + 1} de 3
+            </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground text-center">
-            Paso {appStep + 1} de 3
-          </p>
-        </div>
+        )}
       </aside>
     </>
   )

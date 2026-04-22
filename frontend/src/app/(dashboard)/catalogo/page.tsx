@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useCatalogo } from '@/lib/hooks/useCatalogo'
+import { useProfile } from '@/lib/hooks/useProfile'
 import type { ModeloFull, OperacionFull } from '@/lib/hooks/useCatalogo'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -41,6 +42,7 @@ import { OperacionDialog } from './OperacionDialog'
 export default function CatalogoPage() {
   const catalogo = useCatalogo()
   const { loading, modelos, robots } = catalogo
+  const { isAdmin } = useProfile()
   const [sortMode, setSortMode] = useState<string>('nombre_asc')
   const [modeloDialog, setModeloDialog] = useState<{ open: boolean; modelo: ModeloFull | null }>({ open: false, modelo: null })
   const [confirmModelo, setConfirmModelo] = useState<{ open: boolean; action: () => Promise<void>; title: string; desc: string }>({
@@ -168,9 +170,11 @@ export default function CatalogoPage() {
             </SelectContent>
           </Select>
           <TableExport title="catalogo_completo" headers={globalExportHeaders} rows={globalExportRows} onCustomPDF={handleGlobalPDF} />
-          <Button size="sm" onClick={() => setModeloDialog({ open: true, modelo: null })}>
-            <Plus className="mr-1 h-3 w-3" /> Nuevo Modelo
-          </Button>
+          {isAdmin && (
+            <Button size="sm" onClick={() => setModeloDialog({ open: true, modelo: null })}>
+              <Plus className="mr-1 h-3 w-3" /> Nuevo Modelo
+            </Button>
+          )}
         </div>
       </div>
 
@@ -206,6 +210,7 @@ export default function CatalogoPage() {
             robots={robots}
             catalogo={catalogo}
             allRecursos={allRecursos}
+            isAdmin={isAdmin}
             onEdit={() => confirmEditModelo(m)}
             onDelete={() => confirmDeleteModelo(m)}
             onExportPDF={() => {
@@ -269,11 +274,12 @@ export default function CatalogoPage() {
   )
 }
 
-function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, onExportPDF }: {
+function ModeloCard({ modelo, robots, catalogo, allRecursos, isAdmin, onEdit, onDelete, onExportPDF }: {
   modelo: ModeloFull
   robots: Robot[]
   allRecursos: string[]
   catalogo: ReturnType<typeof useCatalogo>
+  isAdmin: boolean
   onEdit: () => void
   onDelete: () => void
   onExportPDF: () => void
@@ -430,39 +436,43 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
             <span>{modelo.operaciones.length} ops</span>
             {robotOps > 0 && <span>{robotOps} en robot</span>}
             <span>{modelo.total_sec_per_pair} sec/par</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[10px] px-2"
-              onClick={(e) => { e.stopPropagation(); setRulesOpen(true) }}
-            >
-              <ScrollText className="mr-1 h-3 w-3" /> Reglas
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={(e) => { e.stopPropagation(); onEdit() }}
-            >
-              <Pencil className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-            >
-              <Trash2 className="h-3 w-3 text-destructive" />
-            </Button>
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[10px] px-2"
+                  onClick={(e) => { e.stopPropagation(); setRulesOpen(true) }}
+                >
+                  <ScrollText className="mr-1 h-3 w-3" /> Reglas
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => { e.stopPropagation(); onEdit() }}
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => { e.stopPropagation(); onDelete() }}
+                >
+                  <Trash2 className="h-3 w-3 text-destructive" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </CardHeader>
 
       {open && (
         <CardContent className="pt-0 overflow-x-auto">
-          {/* Edit mode toolbar */}
+          {/* Edit mode toolbar — solo admin */}
           <div className="flex items-center gap-2 mb-2">
-            {editing ? (
+            {isAdmin && (editing ? (
               <>
                 <Button
                   size="sm"
@@ -492,7 +502,7 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
               >
                 <Pencil className="mr-1 h-3 w-3" /> Editar tabla
               </Button>
-            )}
+            ))}
             <div className="ml-auto">
               <TableExport
                 title={`catalogo_${modelo.modelo_num}`}
@@ -704,7 +714,7 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
 
                     {/* ACTIONS */}
                     <td className="px-1 py-0.5">
-                      {!editing && (
+                      {isAdmin && !editing && (
                         <button
                           className="p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                           onClick={() => confirmDeleteOp(op)}
@@ -722,16 +732,18 @@ function ModeloCard({ modelo, robots, catalogo, allRecursos, onEdit, onDelete, o
             </tbody>
           </table>
           </div>
-          <div className="mt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[10px] px-2"
-              onClick={() => setOpDialog({ open: true, op: null })}
-            >
-              <Plus className="mr-1 h-3 w-3" /> Operacion
-            </Button>
-          </div>
+          {isAdmin && (
+            <div className="mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-[10px] px-2"
+                onClick={() => setOpDialog({ open: true, op: null })}
+              >
+                <Plus className="mr-1 h-3 w-3" /> Operacion
+              </Button>
+            </div>
+          )}
         </CardContent>
       )}
 
