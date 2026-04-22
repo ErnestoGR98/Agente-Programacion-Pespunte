@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import { BarChart3, Layers, TrendingUp, X, ChevronRight, ChevronDown } from 'lucide-react'
 
-const ETAPAS = ['PREL', 'ROBOT', 'POST', 'N/A', 'MAQ'] as const
+const ETAPAS = ['MAQ', 'PREL', 'ROBOT', 'POST', 'N/A'] as const
 type Etapa = typeof ETAPAS[number]
 
 const ETAPA_COLOR: Record<Etapa, string> = {

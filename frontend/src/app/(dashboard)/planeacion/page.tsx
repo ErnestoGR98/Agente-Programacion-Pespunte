@@ -19,6 +19,7 @@ import {
 import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
 import { ComparativoTab } from './ComparativoTab'
+import { ReferenciaTab } from './ReferenciaTab'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +163,7 @@ export default function PlaneacionPage() {
   const [savedPlans, setSavedPlans] = useState<PlanHeader[]>([])
 
   // --- Tab state ---
-  const [tab, setTab] = useState<'editor' | 'comparativo'>('editor')
+  const [tab, setTab] = useState<'editor' | 'comparativo' | 'referencia'>('editor')
 
   // --- Load catalog + saved plans ---
   useEffect(() => {
@@ -683,16 +684,17 @@ export default function PlaneacionPage() {
     <div className="space-y-6 p-4 md:p-6">
       {/* Title */}
       <div>
-        <h1 className="text-xl font-bold">Planeacion de Horas</h1>
+        <h1 className="text-xl font-bold">Planeador de tiempos por proceso</h1>
         <p className="text-sm text-muted-foreground">
           Asigna pares por modelo y dia para ver las horas requeridas por fraccion
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'editor' | 'comparativo')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'editor' | 'comparativo' | 'referencia')}>
         <TabsList>
           <TabsTrigger value="editor">Editor</TabsTrigger>
           <TabsTrigger value="comparativo">Comparativo</TabsTrigger>
+          <TabsTrigger value="referencia">Referencia</TabsTrigger>
         </TabsList>
 
         <TabsContent value="editor" className="space-y-6 mt-4">
@@ -1146,6 +1148,10 @@ export default function PlaneacionPage() {
 
         <TabsContent value="comparativo" className="mt-4">
           <ComparativoTab />
+        </TabsContent>
+
+        <TabsContent value="referencia" className="mt-4">
+          <ReferenciaTab />
         </TabsContent>
       </Tabs>
     </div>

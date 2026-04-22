@@ -53,7 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Herramientas',
     items: [
-      { href: '/planeacion', label: 'Planeacion Horas', icon: Clock, minStep: 0 },
+      { href: '/planeacion', label: 'Planeador Tiempos', icon: Clock, minStep: 0 },
       { href: '/balance-backlog', label: 'Propuesta Backlog', icon: Wand2, minStep: 0 },
       { href: '/configuracion', label: 'Configuracion', icon: Settings, minStep: 0 },
     ],
