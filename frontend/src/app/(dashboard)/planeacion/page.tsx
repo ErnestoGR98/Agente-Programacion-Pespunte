@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { KpiCard } from '@/components/shared/KpiCard'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import {
   Plus, Trash2, Download, Clock, Calculator, ChevronDown, ChevronRight,
@@ -161,6 +162,10 @@ export default function PlaneacionPage() {
 
   // --- Saved plans list ---
   const [savedPlans, setSavedPlans] = useState<PlanHeader[]>([])
+
+  // --- Delete plan flow (doble confirmacion) ---
+  const [deleteStep1, setDeleteStep1] = useState(false)
+  const [deleteStep2, setDeleteStep2] = useState(false)
 
   // --- Tab state ---
   const [tab, setTab] = useState<'editor' | 'comparativo' | 'referencia'>('editor')
@@ -377,6 +382,23 @@ export default function PlaneacionPage() {
     setExpandedModels(new Set())
     setDirty(false)
   }, [savedPlans])
+
+  // --- Delete plan (cascade borra plan_semanal_items) ---
+  const deletePlan = useCallback(async () => {
+    if (!planId) return
+    await supabase.from('planes_semanales').delete().eq('id', planId)
+    const { data: plansData } = await supabase
+      .from('planes_semanales')
+      .select('id, nombre, semana, nota, created_at')
+      .order('created_at', { ascending: false })
+    const remaining = (plansData || []) as PlanHeader[]
+    setSavedPlans(remaining)
+    setPlanId(null)
+    setPlanName(computeNextPlanName(remaining.map((p) => p.nombre)))
+    setRows([])
+    setExpandedModels(new Set())
+    setDirty(false)
+  }, [planId])
 
   // --- Download template ---
   const downloadTemplate = useCallback(async () => {
@@ -727,6 +749,17 @@ export default function PlaneacionPage() {
             onChange={(e) => { setPlanName(e.target.value); setDirty(true) }}
             className="w-56"
           />
+          {planId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setDeleteStep1(true)}
+              title="Eliminar plan cargado"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant={dirty ? 'default' : 'outline'}
             size="sm"
@@ -1154,6 +1187,24 @@ export default function PlaneacionPage() {
           <ReferenciaTab />
         </TabsContent>
       </Tabs>
+
+      {/* Eliminar plan — doble confirmacion */}
+      <ConfirmDialog
+        open={deleteStep1}
+        onOpenChange={setDeleteStep1}
+        title={`Eliminar plan "${planName}"`}
+        description="Se eliminara el plan y todos sus items. Esta accion no se puede deshacer."
+        simple
+        onConfirm={() => { setDeleteStep2(true) }}
+      />
+      <ConfirmDialog
+        open={deleteStep2}
+        onOpenChange={setDeleteStep2}
+        title="Confirmacion final"
+        description={`Para eliminar definitivamente "${planName}", escribe ELIMINAR abajo.`}
+        confirmWord="ELIMINAR"
+        onConfirm={deletePlan}
+      />
     </div>
   )
 }
