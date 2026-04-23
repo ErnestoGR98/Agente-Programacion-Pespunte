@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { ModeloImg } from '@/components/shared/ModeloImg'
+import { useCatalogoImages } from '@/lib/hooks/useCatalogoImages'
 import { cn } from '@/lib/utils'
 import {
   Plus, Trash2, Download, Clock, Calculator, ChevronDown, ChevronRight,
@@ -55,6 +57,14 @@ interface PlanHeader {
   semana: string | null
   nota: string
   created_at: string
+}
+
+// Generador de id estable para React keys (no depende de modelo/color)
+function genRowId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
 // Etapa label mapping
@@ -150,6 +160,7 @@ export default function PlaneacionPage() {
   // --- Catalog data ---
   const [catalogo, setCatalogo] = useState<CatModelo[]>([])
   const [loadingCat, setLoadingCat] = useState(true)
+  const images = useCatalogoImages()
 
   // --- Plan state ---
   const [planId, setPlanId] = useState<string | null>(null)
@@ -237,22 +248,50 @@ export default function PlaneacionPage() {
     return m
   }, [catalogo])
 
-  const modelsInPlan = useMemo(() => new Set(rows.map((r) => r.key)), [rows])
+  // Map: modelo_num -> colores ya usados por filas existentes
+  const usedColorsByModel = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    for (const r of rows) {
+      if (!m.has(r.modelo_num)) m.set(r.modelo_num, new Set())
+      m.get(r.modelo_num)!.add(r.color)
+    }
+    return m
+  }, [rows])
 
-  const addModel = useCallback((modeloNum: string, color: string) => {
-    const key = color ? `${modeloNum} ${color}` : modeloNum
-    if (modelsInPlan.has(key)) return
+  // Disponibilidad de un modelo para el dropdown
+  function modelAvailability(cat: CatModelo): { canAdd: boolean; nextColor: string } {
+    const used = usedColorsByModel.get(cat.modelo_num) ?? new Set()
+    if (cat.alternativas && cat.alternativas.length > 0) {
+      const next = cat.alternativas.find((a) => !used.has(a))
+      return { canAdd: next !== undefined, nextColor: next ?? '' }
+    }
+    return { canAdd: !used.has(''), nextColor: '' }
+  }
+
+  const addModel = useCallback((modeloNum: string) => {
+    const cat = catalogoMap.get(modeloNum)
+    if (!cat) return
+    const { canAdd, nextColor } = modelAvailability(cat)
+    if (!canAdd) return
     setRows((prev) => [
       ...prev,
       {
-        key,
+        key: genRowId(),
         modelo_num: modeloNum,
-        color,
+        color: nextColor,
         pares: Object.fromEntries(activeDays.map((d) => [d, 0])) as Record<DayName, number>,
       },
     ])
     setDirty(true)
-  }, [activeDays, modelsInPlan])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDays, catalogoMap, usedColorsByModel])
+
+  const updateColor = useCallback((rowKey: string, color: string) => {
+    setRows((prev) =>
+      prev.map((r) => (r.key === rowKey ? { ...r, color } : r)),
+    )
+    setDirty(true)
+  }, [])
 
   const removeRow = useCallback((key: string) => {
     setRows((prev) => prev.filter((r) => r.key !== key))
@@ -331,19 +370,22 @@ export default function PlaneacionPage() {
     if (!items) return
 
     // Group items into rows (preservando orden guardado)
+    // groupKey interno combina modelo_num+color para detectar filas distintas en DB,
+    // pero la key React de cada fila se genera fresca (UUID) para que no cambie
+    // al editar el color despues.
     const rowMap = new Map<string, PlanRow & { orden: number }>()
     for (const item of items) {
-      const key = item.color ? `${item.modelo_num} ${item.color}` : item.modelo_num
-      if (!rowMap.has(key)) {
-        rowMap.set(key, {
-          key,
+      const groupKey = `${item.modelo_num}|${item.color || ''}`
+      if (!rowMap.has(groupKey)) {
+        rowMap.set(groupKey, {
+          key: genRowId(),
           modelo_num: item.modelo_num,
           color: item.color || '',
           orden: item.orden ?? 0,
           pares: Object.fromEntries(activeDays.map((d) => [d, 0])) as Record<DayName, number>,
         })
       }
-      const row = rowMap.get(key)!
+      const row = rowMap.get(groupKey)!
       if (item.dia in row.pares || activeDays.includes(item.dia as DayName)) {
         row.pares[item.dia as DayName] = item.pares
       }
@@ -544,9 +586,9 @@ export default function PlaneacionPage() {
       if (!modeloNum || !catalogoMap.has(modeloNum)) continue
 
       const color = String(row[1] || '').trim()
-      const key = color ? `${modeloNum} ${color}` : modeloNum
-      if (seen.has(key)) continue
-      seen.add(key)
+      const dedupeKey = `${modeloNum}|${color}`
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
 
       const pares = Object.fromEntries(activeDays.map((d) => [d, 0])) as Record<DayName, number>
       for (const { day, col } of dayColMap) {
@@ -554,7 +596,7 @@ export default function PlaneacionPage() {
         if (val > 0) pares[day] = Math.round(val)
       }
 
-      newRows.push({ key, modelo_num: modeloNum, color, pares })
+      newRows.push({ key: genRowId(), modelo_num: modeloNum, color, pares })
     }
 
     if (newRows.length === 0) {
@@ -901,33 +943,41 @@ export default function PlaneacionPage() {
                   />
                   <div className="max-h-60 overflow-y-auto space-y-1">
                     {filteredCatalog.map((c) => {
-                      const alts = c.alternativas?.length ? c.alternativas : ['']
-                      return alts.map((alt) => {
-                        const key = alt ? `${c.modelo_num} ${alt}` : c.modelo_num
-                        const inPlan = modelsInPlan.has(key)
-                        return (
-                          <button
-                            key={key}
-                            disabled={inPlan}
-                            onClick={() => {
-                              addModel(c.modelo_num, alt)
-                              setSelectorOpen(false)
-                              setSelectorSearch('')
-                            }}
-                            className={cn(
-                              'w-full text-left px-2 py-1.5 rounded text-sm',
-                              inPlan
-                                ? 'text-muted-foreground/40 cursor-not-allowed'
-                                : 'hover:bg-accent',
-                            )}
-                          >
-                            {key}
-                            {inPlan && (
-                              <span className="ml-2 text-xs text-muted-foreground">(ya agregado)</span>
-                            )}
-                          </button>
-                        )
-                      })
+                      const { canAdd, nextColor } = modelAvailability(c)
+                      const hasAlts = (c.alternativas?.length ?? 0) > 0
+                      const used = usedColorsByModel.get(c.modelo_num)?.size ?? 0
+                      return (
+                        <button
+                          key={c.modelo_num}
+                          disabled={!canAdd}
+                          onClick={() => {
+                            addModel(c.modelo_num)
+                            setSelectorOpen(false)
+                            setSelectorSearch('')
+                          }}
+                          className={cn(
+                            'w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2',
+                            !canAdd
+                              ? 'text-muted-foreground/40 cursor-not-allowed'
+                              : 'hover:bg-accent',
+                          )}
+                        >
+                          <ModeloImg
+                            images={images}
+                            modeloNum={c.modelo_num}
+                            color={nextColor || undefined}
+                            className="h-7 w-7 rounded border object-cover bg-white shrink-0"
+                          />
+                          <span className="flex-1">{c.modelo_num}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {hasAlts
+                              ? `${used}/${c.alternativas.length} alt${canAdd ? '' : ' (todas usadas)'}`
+                              : used > 0
+                                ? '(ya agregado)'
+                                : ''}
+                          </span>
+                        </button>
+                      )
                     })}
                     {filteredCatalog.length === 0 && (
                       <p className="text-xs text-muted-foreground px-2 py-3">Sin resultados</p>
@@ -964,6 +1014,8 @@ export default function PlaneacionPage() {
                     const rowTotal = activeDays.reduce((s, d) => s + (row.pares[d] || 0), 0)
                     const isDragging = dragKey === row.key
                     const isDragOver = dragOverKey === row.key && dragKey !== row.key
+                    const cat = catalogoMap.get(row.modelo_num)
+                    const hasAlts = (cat?.alternativas?.length ?? 0) > 0
                     return (
                       <tr
                         key={row.key}
@@ -1002,7 +1054,34 @@ export default function PlaneacionPage() {
                             >
                               <GripVertical className="h-3.5 w-3.5" />
                             </span>
-                            {row.key}
+                            <ModeloImg
+                              images={images}
+                              modeloNum={row.modelo_num}
+                              color={row.color || undefined}
+                              className="h-8 w-8 rounded border object-cover bg-white shrink-0"
+                            />
+                            <span>{row.modelo_num}</span>
+                            {hasAlts ? (
+                              <Select value={row.color || '__none__'} onValueChange={(v) => updateColor(row.key, v === '__none__' ? '' : v)}>
+                                <SelectTrigger className="h-6 w-20 text-xs px-2">
+                                  <SelectValue placeholder="color" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {cat!.alternativas.map((a) => {
+                                    const usedByOther = rows.some(
+                                      (r) => r.key !== row.key && r.modelo_num === row.modelo_num && r.color === a,
+                                    )
+                                    return (
+                                      <SelectItem key={a} value={a} disabled={usedByOther}>
+                                        {a}{usedByOther ? ' (ocupado)' : ''}
+                                      </SelectItem>
+                                    )
+                                  })}
+                                </SelectContent>
+                              </Select>
+                            ) : row.color ? (
+                              <span className="text-xs text-muted-foreground">{row.color}</span>
+                            ) : null}
                           </div>
                         </td>
                         {activeDays.map((d) => (

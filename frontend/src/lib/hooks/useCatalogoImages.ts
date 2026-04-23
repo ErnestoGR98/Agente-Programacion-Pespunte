@@ -40,7 +40,9 @@ export function useCatalogoImages() {
 
 /**
  * Get the best image URL for a modelo + optional color.
- * Prefers alternativa-specific image, falls back to main model image.
+ * 1. alternativa-specific image (if color given and exists)
+ * 2. main model image
+ * 3. any alternativa image (last resort — garantiza mostrar algo si existe)
  */
 export function getModeloImageUrl(
   images: CatalogoImageMap,
@@ -50,5 +52,11 @@ export function getModeloImageUrl(
   if (color && images.alts[modeloNum]?.[color]) {
     return images.alts[modeloNum][color]
   }
-  return images.main[modeloNum] || null
+  if (images.main[modeloNum]) return images.main[modeloNum]
+  const altMap = images.alts[modeloNum]
+  if (altMap) {
+    const firstAlt = Object.values(altMap).find(Boolean)
+    if (firstAlt) return firstAlt
+  }
+  return null
 }
