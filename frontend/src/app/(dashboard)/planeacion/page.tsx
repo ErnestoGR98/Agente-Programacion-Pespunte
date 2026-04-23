@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import {
   Plus, Trash2, Download, Clock, Calculator, ChevronDown, ChevronRight,
-  Save, FolderOpen, Upload, FileSpreadsheet,
+  Save, FolderOpen, Upload, FileSpreadsheet, GripVertical,
 } from 'lucide-react'
 import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
@@ -167,6 +167,10 @@ export default function PlaneacionPage() {
   const [deleteStep1, setDeleteStep1] = useState(false)
   const [deleteStep2, setDeleteStep2] = useState(false)
 
+  // --- Drag-n-drop de filas (reorder) ---
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+
   // --- Tab state ---
   const [tab, setTab] = useState<'editor' | 'comparativo' | 'referencia'>('editor')
 
@@ -267,6 +271,20 @@ export default function PlaneacionPage() {
     setDirty(true)
   }, [])
 
+  const moveRow = useCallback((fromKey: string, toKey: string) => {
+    if (fromKey === toKey) return
+    setRows((prev) => {
+      const fromIdx = prev.findIndex((r) => r.key === fromKey)
+      const toIdx = prev.findIndex((r) => r.key === toKey)
+      if (fromIdx < 0 || toIdx < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      return next
+    })
+    setDirty(true)
+  }, [])
+
   const toggleExpand = useCallback((key: string) => {
     setExpandedModels((prev) => {
       const next = new Set(prev)
@@ -283,13 +301,14 @@ export default function PlaneacionPage() {
 
     const { data: items } = await supabase
       .from('plan_semanal_items')
-      .select('modelo_num, color, dia, pares')
+      .select('modelo_num, color, dia, pares, orden')
       .eq('plan_id', id)
+      .order('orden', { ascending: true })
 
     if (!items) return
 
-    // Group items into rows
-    const rowMap = new Map<string, PlanRow>()
+    // Group items into rows (preservando orden guardado)
+    const rowMap = new Map<string, PlanRow & { orden: number }>()
     for (const item of items) {
       const key = item.color ? `${item.modelo_num} ${item.color}` : item.modelo_num
       if (!rowMap.has(key)) {
@@ -297,6 +316,7 @@ export default function PlaneacionPage() {
           key,
           modelo_num: item.modelo_num,
           color: item.color || '',
+          orden: item.orden ?? 0,
           pares: Object.fromEntries(activeDays.map((d) => [d, 0])) as Record<DayName, number>,
         })
       }
@@ -306,9 +326,13 @@ export default function PlaneacionPage() {
       }
     }
 
+    const ordered = Array.from(rowMap.values())
+      .sort((a, b) => a.orden - b.orden)
+      .map(({ orden: _orden, ...rest }) => rest)
+
     setPlanId(id)
     setPlanName(plan.nombre)
-    setRows(Array.from(rowMap.values()))
+    setRows(ordered)
     setExpandedModels(new Set())
     setDirty(false)
   }, [savedPlans, activeDays])
@@ -342,8 +366,8 @@ export default function PlaneacionPage() {
       }
 
       // Insert items (only days with pares > 0)
-      const items: { plan_id: string; modelo_num: string; color: string; dia: string; pares: number }[] = []
-      for (const row of rows) {
+      const items: { plan_id: string; modelo_num: string; color: string; dia: string; pares: number; orden: number }[] = []
+      for (const [idx, row] of rows.entries()) {
         for (const d of activeDays) {
           if ((row.pares[d] || 0) > 0) {
             items.push({
@@ -352,6 +376,7 @@ export default function PlaneacionPage() {
               color: row.color,
               dia: d,
               pares: row.pares[d],
+              orden: idx,
             })
           }
         }
@@ -902,9 +927,49 @@ export default function PlaneacionPage() {
                   {rows.map((row) => {
                     const hd = hoursData.find((h) => h.key === row.key)
                     const rowTotal = activeDays.reduce((s, d) => s + (row.pares[d] || 0), 0)
+                    const isDragging = dragKey === row.key
+                    const isDragOver = dragOverKey === row.key && dragKey !== row.key
                     return (
-                      <tr key={row.key} className="border-b hover:bg-muted/30">
-                        <td className="py-1.5 px-2 font-medium">{row.key}</td>
+                      <tr
+                        key={row.key}
+                        onDragOver={(e) => {
+                          if (dragKey && dragKey !== row.key) {
+                            e.preventDefault()
+                            setDragOverKey(row.key)
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverKey === row.key) setDragOverKey(null)
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          if (dragKey && dragKey !== row.key) moveRow(dragKey, row.key)
+                          setDragKey(null)
+                          setDragOverKey(null)
+                        }}
+                        className={cn(
+                          'border-b transition-colors',
+                          isDragging ? 'opacity-40' : 'hover:bg-muted/30',
+                          isDragOver && 'bg-primary/10 ring-1 ring-inset ring-primary/50',
+                        )}
+                      >
+                        <td className="py-1.5 px-2 font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              draggable
+                              onDragStart={(e) => {
+                                setDragKey(row.key)
+                                e.dataTransfer.effectAllowed = 'move'
+                              }}
+                              onDragEnd={() => { setDragKey(null); setDragOverKey(null) }}
+                              className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground"
+                              title="Arrastra para reordenar"
+                            >
+                              <GripVertical className="h-3.5 w-3.5" />
+                            </span>
+                            {row.key}
+                          </div>
+                        </td>
                         {activeDays.map((d) => (
                           <td key={d} className="py-1.5 px-1 text-center">
                             <Input
