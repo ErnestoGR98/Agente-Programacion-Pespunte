@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import {
   Plus, Trash2, Download, Clock, Calculator, ChevronDown, ChevronRight,
-  Save, FolderOpen, Upload, FileSpreadsheet, GripVertical,
+  Save, FolderOpen, Upload, FileSpreadsheet, GripVertical, Workflow,
 } from 'lucide-react'
 import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
@@ -284,6 +284,29 @@ export default function PlaneacionPage() {
     })
     setDirty(true)
   }, [])
+
+  const sortCascade = useCallback(() => {
+    setRows((prev) => {
+      const scored = prev.map((r) => {
+        let firstDay = activeDays.length
+        let lastDay = -1
+        for (let i = 0; i < activeDays.length; i++) {
+          if ((r.pares[activeDays[i]] || 0) > 0) {
+            if (firstDay === activeDays.length) firstDay = i
+            lastDay = i
+          }
+        }
+        return { row: r, firstDay, lastDay }
+      })
+      scored.sort((a, b) => {
+        if (a.firstDay !== b.firstDay) return a.firstDay - b.firstDay
+        if (a.lastDay !== b.lastDay) return a.lastDay - b.lastDay
+        return a.row.key.localeCompare(b.row.key)
+      })
+      return scored.map((s) => s.row)
+    })
+    setDirty(true)
+  }, [activeDays])
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedModels((prev) => {
@@ -848,7 +871,18 @@ export default function PlaneacionPage() {
               <Calculator className="h-4 w-4" />
               Plan Semanal
             </h2>
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={sortCascade}
+                disabled={rows.length < 2}
+                title="Ordenar filas en cascada (por primer dia con pares)"
+              >
+                <Workflow className="h-4 w-4 mr-1" />
+                Ordenar en cascada
+              </Button>
+              <div className="relative">
               <Button
                 variant="outline"
                 size="sm"
@@ -901,6 +935,7 @@ export default function PlaneacionPage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
           </div>
 
