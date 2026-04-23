@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 import { STAGE_COLORS, CHART_COLORS } from '@/types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  ComposedChart, Line,
+  ComposedChart, Line, LabelList,
 } from 'recharts'
-import { BarChart3, Layers, TrendingUp, X, ChevronRight, ChevronDown } from 'lucide-react'
+import { BarChart3, Bot, Layers, TrendingUp, X, ChevronRight, ChevronDown } from 'lucide-react'
 
 const ETAPAS = ['MAQ', 'PREL', 'ROBOT', 'POST', 'N/A'] as const
 type Etapa = typeof ETAPAS[number]
@@ -23,12 +23,42 @@ const ETAPA_COLOR: Record<Etapa, string> = {
   MAQ: STAGE_COLORS.MAQUILA,
 }
 
+// Paleta vibrante para detalle por modelo (independiente de CHART_COLORS
+// que representan semanas)
+const DETAIL_COLORS = [
+  '#ef4444', // red
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#84cc16', // lime
+  '#f97316', // orange
+  '#6366f1', // indigo
+]
+
 const PROCESO_TO_ETAPA: Record<string, Etapa> = {
   PRELIMINARES: 'PREL',
   ROBOT: 'ROBOT',
   POST: 'POST',
   MAQUILA: 'MAQ',
   'N/A PRELIMINAR': 'N/A',
+}
+
+interface RobotOpContribution {
+  modelo_num: string
+  color: string
+  fraccion: number
+  operacion: string
+  hrs: number
+  /** solo en vista asignada: porcentaje del robot en esa op */
+  pct?: number
+}
+
+interface RobotLoad {
+  total: number
+  byOp: RobotOpContribution[]
 }
 
 interface PlanStats {
@@ -44,11 +74,20 @@ interface PlanStats {
   totalHrs: number
   totalPares: number
   modelosActivos: number
+  /** Carga por robot: reparto equitativo entre los robots con estado=TIENE */
+  loadByRobotAuto: Record<string, RobotLoad>
+  /** Carga por robot: segun asignacion manual (plan_robot_asignacion) */
+  loadByRobotAsignado: Record<string, RobotLoad>
+  /** Horas ROBOT del plan que no se pudieron distribuir (ninguna entrada en matriz) */
+  horasRobotSinMatriz: number
 }
+
+interface RobotLite { id: string; nombre: string; estado: string }
 
 export function ComparativoTab() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<PlanStats[]>([])
+  const [robots, setRobots] = useState<RobotLite[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedEtapa, setSelectedEtapa] = useState<Etapa | null>(null)
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
@@ -57,16 +96,46 @@ export function ComparativoTab() {
   useEffect(() => {
     ;(async () => {
       setLoading(true)
-      const [planesRes, itemsRes, modsRes, opsRes] = await Promise.all([
+      const [planesRes, itemsRes, modsRes, opsRes, robotsRes, programaRes, asignRes] = await Promise.all([
         supabase.from('planes_semanales').select('id, nombre, semana, created_at'),
         supabase.from('plan_semanal_items').select('plan_id, modelo_num, color, pares'),
         supabase.from('catalogo_modelos').select('id, modelo_num'),
         supabase.from('catalogo_operaciones').select('modelo_id, fraccion, operacion, input_o_proceso, rate').order('fraccion'),
+        supabase.from('robots').select('id, nombre, estado').order('nombre'),
+        supabase.from('robot_programa').select('robot_id, modelo_num, fraccion, estado'),
+        supabase.from('plan_robot_asignacion').select('plan_id, modelo_num, fraccion, robot_id, porcentaje'),
       ])
       const planes = (planesRes.data || []) as { id: string; nombre: string; semana: string | null; created_at: string }[]
       const items = (itemsRes.data || []) as { plan_id: string; modelo_num: string; color: string | null; pares: number }[]
       const mods = (modsRes.data || []) as { id: string; modelo_num: string }[]
       const ops = (opsRes.data || []) as { modelo_id: string; fraccion: number; operacion: string; input_o_proceso: string; rate: number | string }[]
+      const robotsData = (robotsRes.data || []) as RobotLite[]
+      const programaData = (programaRes.data || []) as { robot_id: string; modelo_num: string; fraccion: number; estado: 'TIENE' | 'FALTA' }[]
+      const asignData = (asignRes.data || []) as { plan_id: string; modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[]
+
+      // Matriz[modelo_num][fraccion] = lista de robot_id con estado TIENE
+      const matrizTiene = new Map<string, Map<number, string[]>>()
+      const robotIdsEnMatriz = new Set<string>()
+      for (const p of programaData) {
+        robotIdsEnMatriz.add(p.robot_id)
+        if (p.estado !== 'TIENE') continue
+        let porModelo = matrizTiene.get(p.modelo_num)
+        if (!porModelo) { porModelo = new Map(); matrizTiene.set(p.modelo_num, porModelo) }
+        const arr = porModelo.get(p.fraccion) ?? []
+        arr.push(p.robot_id)
+        porModelo.set(p.fraccion, arr)
+      }
+
+      // Filtrar robots a los que aparecen en la matriz (excluir plana/zigzag/pintura)
+      const robotsFiltrados = robotsData.filter((r) => robotIdsEnMatriz.has(r.id))
+      setRobots(robotsFiltrados)
+
+      // Asignaciones por plan
+      const asignByPlan = new Map<string, { modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[]>()
+      for (const a of asignData) {
+        if (!asignByPlan.has(a.plan_id)) asignByPlan.set(a.plan_id, [])
+        asignByPlan.get(a.plan_id)!.push(a)
+      }
 
       const modIdToNum = new Map<string, string>()
       for (const m of mods) modIdToNum.set(m.id, m.modelo_num)
@@ -107,6 +176,75 @@ export function ComparativoTab() {
           })
           totalPares += it.pares
         }
+        // Pares por (modelo, color) → sirve para mostrar el color en el detalle.
+        // Pares por modelo (consolida alternativas) para el calculo de hrs por op.
+        const paresByModelo = new Map<string, number>()
+        const colorsByModelo = new Map<string, Set<string>>()
+        for (const { modelo_num, pares } of paresByKey.values()) {
+          paresByModelo.set(modelo_num, (paresByModelo.get(modelo_num) ?? 0) + pares)
+        }
+        for (const [key, { modelo_num }] of paresByKey) {
+          const color = key.startsWith(modelo_num + ' ') ? key.slice(modelo_num.length + 1) : ''
+          if (!colorsByModelo.has(modelo_num)) colorsByModelo.set(modelo_num, new Set())
+          colorsByModelo.get(modelo_num)!.add(color)
+        }
+
+        function colorLabelFor(modelo_num: string): string {
+          const cs = [...(colorsByModelo.get(modelo_num) ?? [])].filter(Boolean)
+          return cs.join('/')
+        }
+
+        function pushLoad(map: Record<string, RobotLoad>, robotId: string, contribution: RobotOpContribution) {
+          let bucket = map[robotId]
+          if (!bucket) { bucket = { total: 0, byOp: [] }; map[robotId] = bucket }
+          bucket.total += contribution.hrs
+          bucket.byOp.push(contribution)
+        }
+
+        // Vista automatica: reparto equitativo entre robots con TIENE
+        const loadByRobotAuto: Record<string, RobotLoad> = {}
+        let horasRobotSinMatriz = 0
+        for (const [modelo_num, paresModelo] of paresByModelo) {
+          const modOps = opsByNum.get(modelo_num) ?? []
+          const colorLabel = colorLabelFor(modelo_num)
+          for (const op of modOps) {
+            if (op.etapa !== 'ROBOT' || op.rate <= 0) continue
+            const hrsOp = paresModelo / op.rate
+            const robotsTiene = matrizTiene.get(modelo_num)?.get(op.fraccion) ?? []
+            if (robotsTiene.length === 0) {
+              horasRobotSinMatriz += hrsOp
+              continue
+            }
+            const share = hrsOp / robotsTiene.length
+            for (const rid of robotsTiene) {
+              pushLoad(loadByRobotAuto, rid, {
+                modelo_num, color: colorLabel, fraccion: op.fraccion, operacion: op.operacion, hrs: share,
+              })
+            }
+          }
+        }
+
+        // Vista asignada (plan_robot_asignacion)
+        const loadByRobotAsignado: Record<string, RobotLoad> = {}
+        const asignsPlan = asignByPlan.get(p.id) ?? []
+        for (const a of asignsPlan) {
+          const paresModelo = paresByModelo.get(a.modelo_num) ?? 0
+          if (paresModelo === 0) continue
+          const opsMod = opsByNum.get(a.modelo_num) ?? []
+          const op = opsMod.find((o) => o.fraccion === a.fraccion)
+          if (!op || op.rate <= 0) continue
+          const hrsOp = paresModelo / op.rate
+          const pct = Number(a.porcentaje)
+          pushLoad(loadByRobotAsignado, a.robot_id, {
+            modelo_num: a.modelo_num,
+            color: colorLabelFor(a.modelo_num),
+            fraccion: a.fraccion,
+            operacion: op.operacion,
+            hrs: hrsOp * (pct / 100),
+            pct,
+          })
+        }
+
         for (const [key, { modelo_num, pares }] of paresByKey) {
           const modOps = opsByNum.get(modelo_num) ?? []
           for (const op of modOps) {
@@ -132,6 +270,9 @@ export function ComparativoTab() {
           totalHrs,
           totalPares,
           modelosActivos: paresByKey.size,
+          loadByRobotAuto,
+          loadByRobotAsignado,
+          horasRobotSinMatriz,
         })
       }
 
@@ -679,8 +820,550 @@ export function ComparativoTab() {
             </Card>
             )
           })()}
+
+          {/* --- CARGA POR ROBOT: comparativo entre semanas --- */}
+          {visible.length > 0 && robots.length > 0 && (
+            <RobotComparativeSection visible={visible} robots={robots} />
+          )}
+
+          {/* --- CARGA POR ROBOT: detalle del plan activo --- */}
+          {drillPlan && (
+            <RobotLoadSection
+              plans={visible}
+              defaultPlanId={drillPlan.id}
+              robots={robots}
+            />
+          )}
         </>
       )}
+    </div>
+  )
+}
+
+/** Custom tick para XAxis: parte el nombre del robot en lineas
+ *  - "2A-3020-M1" -> "2A-3020" / "M1"
+ *  - "M048-CHACHE" -> "M048" / "CHACHE"
+ *  - "6040-M5"    -> "6040"    / "M5"
+ */
+interface RobotTickProps {
+  x?: number
+  y?: number
+  payload?: { value?: string }
+}
+function RobotTick(props: RobotTickProps) {
+  const { x = 0, y = 0, payload } = props
+  const raw = payload?.value ?? ''
+  const parts = raw.split('-')
+  const lines = parts.length >= 3
+    ? [parts.slice(0, -1).join('-'), parts[parts.length - 1]]
+    : parts
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={0}
+          y={14 + i * 13}
+          textAnchor="middle"
+          fontSize={11}
+          fontFamily="var(--font-mono, monospace)"
+          fill="currentColor"
+          className="fill-muted-foreground"
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  )
+}
+
+// ─── Comparativo entre semanas: Carga por Robot ──────────────────────────
+
+function RobotComparativeSection({
+  visible, robots,
+}: {
+  visible: PlanStats[]
+  robots: RobotLite[]
+}) {
+  const ROBOT_WEEKLY_CAPACITY = 50
+  const [vista, setVista] = useState<'auto' | 'asignado'>('auto')
+  const [selected, setSelected] = useState<{ planId: string; robotName: string } | null>(null)
+
+  function handleBarClick(planId: string, robotName: string) {
+    setSelected((prev) => (prev?.planId === planId && prev?.robotName === robotName ? null : { planId, robotName }))
+  }
+
+  // Solo mostrar la opcion 'asignado' si al menos un plan tiene asignaciones
+  const hayAsignaciones = visible.some((p) => Object.keys(p.loadByRobotAsignado).length > 0)
+
+  // Construir data para el BarChart: filas = robots con carga > 0
+  // y una columna por cada plan visible con el valor en horas
+  const chartData = useMemo(() => {
+    const pick = (p: PlanStats) => vista === 'auto' ? p.loadByRobotAuto : p.loadByRobotAsignado
+    const rows: Record<string, string | number>[] = []
+    for (const r of robots) {
+      const row: Record<string, string | number> = { robot: r.nombre }
+      let totalAcrossWeeks = 0
+      for (const p of visible) {
+        const v = Math.round((pick(p)[r.id]?.total ?? 0) * 10) / 10
+        row[p.nombre] = v
+        totalAcrossWeeks += v
+      }
+      if (totalAcrossWeeks > 0) rows.push(row)
+    }
+    // Ordenar por suma total descendente
+    rows.sort((a, b) => {
+      const sumA = visible.reduce((s, p) => s + (Number(a[p.nombre]) || 0), 0)
+      const sumB = visible.reduce((s, p) => s + (Number(b[p.nombre]) || 0), 0)
+      return sumB - sumA
+    })
+    return rows
+  }, [robots, visible, vista])
+
+  if (chartData.length === 0) {
+    return null
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            Carga por Robot — Comparativo entre semanas
+            <span className="text-xs text-muted-foreground font-normal ml-2">
+              Capacidad ~{ROBOT_WEEKLY_CAPACITY} h/semana
+            </span>
+          </h3>
+          {hayAsignaciones && (
+            <div className="inline-flex rounded-md border text-xs overflow-hidden">
+              <button
+                className={cn('px-3 py-1 transition-colors', vista === 'asignado' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent')}
+                onClick={() => setVista('asignado')}
+              >
+                Asignada
+              </button>
+              <button
+                className={cn('px-3 py-1 transition-colors', vista === 'auto' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent')}
+                onClick={() => setVista('auto')}
+              >
+                Automatica
+              </button>
+            </div>
+          )}
+        </div>
+        <div style={{ width: '100%', height: 520 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              margin={{ top: 10, right: 24, left: 8, bottom: 60 }}
+              barGap={4}
+              barCategoryGap="25%"
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="robot"
+                type="category"
+                interval={0}
+                height={56}
+                tickMargin={6}
+                tick={<RobotTick />}
+              />
+              <YAxis
+                type="number"
+                tick={{ fontSize: 11 }}
+                label={{ value: 'Horas', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: 'var(--muted-foreground)' } }}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', fontSize: 12 }}
+                formatter={(v) => `${Number(v ?? 0).toFixed(1)} h`}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} verticalAlign="top" />
+              {visible.map((p, i) => (
+                <Bar
+                  key={p.id}
+                  dataKey={p.nombre}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  maxBarSize={60}
+                  cursor="pointer"
+                  onClick={(data) => {
+                    const payload = (data as { payload?: { robot?: string } })?.payload
+                    if (payload?.robot) handleBarClick(p.id, payload.robot)
+                  }}
+                >
+                  <LabelList
+                    dataKey={p.nombre}
+                    position="top"
+                    formatter={(v) => {
+                      const n = Number(v ?? 0)
+                      return n > 0 ? n.toFixed(1) : ''
+                    }}
+                    style={{ fontSize: 10, fill: 'var(--foreground)', fontWeight: 600 }}
+                  />
+                </Bar>
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Panel de detalle al hacer click en una barra */}
+        {selected && (() => {
+          const planIndex = visible.findIndex((p) => p.id === selected.planId)
+          const plan = visible[planIndex]
+          const robot = robots.find((r) => r.nombre === selected.robotName)
+          if (!plan || !robot) return null
+          const color = CHART_COLORS[planIndex % CHART_COLORS.length]
+          const load = vista === 'auto' ? plan.loadByRobotAuto[robot.id] : plan.loadByRobotAsignado[robot.id]
+          if (!load || load.total === 0) {
+            return (
+              <div className="rounded border overflow-hidden">
+                <div
+                  className="flex items-center justify-between px-3 py-2 text-xs text-white"
+                  style={{ backgroundColor: color }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-semibold">{robot.nombre}</span>
+                    <span className="opacity-70">·</span>
+                    <span>{plan.nombre}</span>
+                  </div>
+                  <button type="button" onClick={() => setSelected(null)} title="Cerrar"><X className="h-3.5 w-3.5" /></button>
+                </div>
+                <div className="p-3 text-xs text-muted-foreground">Sin carga en esta vista.</div>
+              </div>
+            )
+          }
+          const maxHrs = Math.max(...load.byOp.map((c) => c.hrs))
+          return (
+            <div className="rounded border overflow-hidden">
+              <div
+                className="flex items-center justify-between px-3 py-2 text-xs text-white"
+                style={{ backgroundColor: color }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold">{robot.nombre}</span>
+                  <span className="opacity-70">·</span>
+                  <span>{plan.nombre}</span>
+                  <span className="opacity-70">·</span>
+                  <span className="font-semibold">{load.total.toFixed(1)} h</span>
+                </div>
+                <button type="button" onClick={() => setSelected(null)} title="Cerrar">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-muted/20 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-3 py-1.5 w-28">Modelo</th>
+                      <th className="text-left px-3 py-1.5 w-12">Frac</th>
+                      <th className="text-left px-3 py-1.5 w-56">Operacion</th>
+                      <th className="text-left px-3 py-1.5">Aporte</th>
+                      {vista === 'asignado' && <th className="text-right px-3 py-1.5 w-12">%</th>}
+                      <th className="text-right px-3 py-1.5 w-16">Horas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...load.byOp]
+                      .sort((a, b) => b.hrs - a.hrs)
+                      .map((c, i) => {
+                        const barWidth = maxHrs > 0 ? (c.hrs / maxHrs) * 100 : 0
+                        return (
+                          <tr key={i} className="border-t border-border/30">
+                            <td className="px-3 py-1 font-mono">
+                              {c.modelo_num}{c.color ? ` ${c.color}` : ''}
+                            </td>
+                            <td className="px-3 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
+                            <td className="px-3 py-1 truncate" title={c.operacion}>{c.operacion}</td>
+                            <td className="px-3 py-1">
+                              <div className="h-3 w-full bg-muted/30 rounded overflow-hidden">
+                                <div
+                                  className="h-full rounded"
+                                  style={{ width: `${barWidth}%`, backgroundColor: color }}
+                                />
+                              </div>
+                            </td>
+                            {vista === 'asignado' && (
+                              <td className="px-3 py-1 text-right font-mono">
+                                {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
+                              </td>
+                            )}
+                            <td className="px-3 py-1 text-right font-mono">{c.hrs.toFixed(2)}</td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border/50 bg-muted/20 font-semibold">
+                      <td className="px-3 py-1" colSpan={vista === 'asignado' ? 5 : 4}>Total</td>
+                      <td className="px-3 py-1 text-right font-mono">{load.total.toFixed(2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )
+        })()}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Carga por Robot (2 vistas: automatica y asignada) ───────────────────
+
+function RobotLoadSection({
+  plans, defaultPlanId, robots,
+}: {
+  plans: PlanStats[]
+  defaultPlanId: string
+  robots: RobotLite[]
+}) {
+  const ROBOT_WEEKLY_CAPACITY = 50
+  // Selector interno de plan. Si el default externo cambia (por click en otro
+  // chart), sincronizamos; si el usuario ya eligio uno, lo respetamos mientras
+  // siga existiendo en la lista.
+  const [localPlanId, setLocalPlanId] = useState<string>(defaultPlanId)
+  useEffect(() => {
+    if (!plans.some((p) => p.id === localPlanId)) {
+      setLocalPlanId(defaultPlanId)
+    }
+  }, [plans, defaultPlanId, localPlanId])
+
+  const plan = plans.find((p) => p.id === localPlanId) ?? plans.find((p) => p.id === defaultPlanId) ?? plans[0]
+
+  // Se mantiene un solo estado de expansion por vista para que cada una
+  // pueda tener su propio detalle abierto sin interferirse.
+  const [expandedAsignado, setExpandedAsignado] = useState<string | null>(null)
+  const [expandedAuto, setExpandedAuto] = useState<string | null>(null)
+
+  if (!plan) return null
+
+  const hasAsignado = Object.keys(plan.loadByRobotAsignado).length > 0
+  const hasAuto = Object.keys(plan.loadByRobotAuto).length > 0
+
+  function buildRows(load: Record<string, RobotLoad>) {
+    const arr: { id: string; nombre: string; estado: string; load: RobotLoad }[] = []
+    for (const r of robots) {
+      const entry = load[r.id]
+      if (!entry || entry.total <= 0) continue
+      arr.push({ id: r.id, nombre: r.nombre, estado: r.estado, load: entry })
+    }
+    return arr.sort((a, b) => b.load.total - a.load.total)
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Bot className="h-4 w-4 shrink-0" />
+          <h3 className="font-semibold shrink-0">Carga por Robot</h3>
+          <select
+            value={localPlanId}
+            onChange={(e) => setLocalPlanId(e.target.value)}
+            className="ml-1 text-sm bg-background border rounded-md px-2 py-1 hover:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          >
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground ml-auto">
+            Capacidad ~{ROBOT_WEEKLY_CAPACITY} h/semana por robot
+          </span>
+        </div>
+
+        {/* Vista ASIGNADA — principal */}
+        <div className="space-y-2">
+          <div className="flex items-baseline gap-2">
+            <h4 className="text-sm font-semibold">Segun asignacion del plan</h4>
+            {!hasAsignado && (
+              <span className="text-xs text-muted-foreground">
+                (sin asignaciones capturadas todavia)
+              </span>
+            )}
+          </div>
+          {hasAsignado ? (
+            <RobotBars
+              rows={buildRows(plan.loadByRobotAsignado)}
+              capacity={ROBOT_WEEKLY_CAPACITY}
+              expandedId={expandedAsignado}
+              onToggle={(id) => setExpandedAsignado((cur) => (cur === id ? null : id))}
+              showPct
+            />
+          ) : (
+            <div className="text-xs text-muted-foreground italic py-2">
+              Captura los robots reales por fraccion en el tab Editor para ver esta vista.
+            </div>
+          )}
+        </div>
+
+        {/* Vista AUTOMATICA — informativa */}
+        <div className="space-y-2 pt-3 border-t border-border/50">
+          <div className="flex items-baseline gap-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Distribucion automatica (informativa)
+            </h4>
+            <span className="text-[10px] text-muted-foreground">
+              Reparto equitativo entre robots con programa cargado
+            </span>
+          </div>
+          {hasAuto ? (
+            <div className="opacity-80">
+              <RobotBars
+                rows={buildRows(plan.loadByRobotAuto)}
+                capacity={ROBOT_WEEKLY_CAPACITY}
+                muted
+                expandedId={expandedAuto}
+                onToggle={(id) => setExpandedAuto((cur) => (cur === id ? null : id))}
+              />
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground italic py-2">
+              Ninguna operacion ROBOT del plan tiene entrada en la matriz.
+            </div>
+          )}
+          {plan.horasRobotSinMatriz > 0 && (
+            <p className="text-[10px] text-yellow-500">
+              {plan.horasRobotSinMatriz.toFixed(1)} horas ROBOT no se distribuyeron (sin datos en la matriz para esas fracciones).
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function RobotBars({
+  rows, capacity, muted, expandedId, onToggle, showPct,
+}: {
+  rows: { id: string; nombre: string; estado: string; load: RobotLoad }[]
+  capacity: number
+  muted?: boolean
+  expandedId?: string | null
+  onToggle?: (id: string) => void
+  showPct?: boolean
+}) {
+  if (rows.length === 0) return null
+  const maxTotal = Math.max(capacity, ...rows.map((r) => r.load.total))
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => {
+        const widthPct = Math.min(100, (r.load.total / maxTotal) * 100)
+        const capPct = Math.min(100, (capacity / maxTotal) * 100)
+        const over = r.load.total > capacity
+        const activo = r.estado === 'ACTIVO'
+        const isExpanded = expandedId === r.id
+        return (
+          <div key={r.id} className="space-y-1">
+            <div
+              className={cn(
+                'flex items-center gap-2 text-xs rounded transition-colors',
+                onToggle && 'cursor-pointer hover:bg-accent/30',
+                isExpanded && 'bg-accent/40',
+              )}
+              onClick={() => onToggle?.(r.id)}
+              role={onToggle ? 'button' : undefined}
+              title={onToggle ? 'Clic para ver detalle' : undefined}
+            >
+              <div className="w-5 shrink-0 flex justify-center">
+                {onToggle && (
+                  isExpanded
+                    ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                )}
+              </div>
+              <div
+                className={cn('w-28 shrink-0 truncate font-mono', !activo && 'line-through text-muted-foreground')}
+                title={activo ? r.nombre : `${r.nombre} (fuera de servicio)`}
+              >
+                {r.nombre}
+              </div>
+              <div className="flex-1 relative h-5 bg-muted/40 rounded overflow-hidden">
+                <div
+                  className="absolute top-0 bottom-0 border-l border-dashed border-foreground/40 z-10"
+                  style={{ left: `${capPct}%` }}
+                  title={`Capacidad ${capacity}h`}
+                />
+                <div
+                  className={cn('h-full', muted ? 'bg-primary/40' : 'bg-primary', over && 'bg-destructive')}
+                  style={{ width: `${widthPct}%` }}
+                />
+                <div
+                  className={cn(
+                    'absolute top-0 bottom-0 right-0 flex items-center pr-2 text-[10px] font-semibold',
+                    over ? 'text-destructive' : 'text-foreground',
+                  )}
+                  style={{ left: `${widthPct}%`, minWidth: 'fit-content' }}
+                >
+                  <span className="ml-1">{r.load.total.toFixed(1)}h</span>
+                </div>
+              </div>
+            </div>
+            {isExpanded && (() => {
+              const sorted = [...r.load.byOp].sort((a, b) => b.hrs - a.hrs)
+              const maxHrs = Math.max(...sorted.map((c) => c.hrs), 0.001)
+              // Paleta de colores por modelo (consistente entre filas del mismo modelo)
+              const modelColor = new Map<string, string>()
+              let colorIdx = 0
+              for (const c of sorted) {
+                if (!modelColor.has(c.modelo_num)) {
+                  modelColor.set(c.modelo_num, DETAIL_COLORS[colorIdx % DETAIL_COLORS.length])
+                  colorIdx++
+                }
+              }
+              return (
+                <div className="ml-7 mr-0 rounded border overflow-hidden">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/30 text-muted-foreground">
+                      <tr>
+                        <th className="text-left px-2 py-1 w-28">Modelo</th>
+                        <th className="text-left px-2 py-1 w-12">Frac</th>
+                        <th className="text-left px-2 py-1 w-52">Operacion</th>
+                        <th className="text-left px-2 py-1">Aporte</th>
+                        {showPct && <th className="text-right px-2 py-1 w-12">%</th>}
+                        <th className="text-right px-2 py-1 w-16">Horas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((c, i) => {
+                        const col = modelColor.get(c.modelo_num) ?? DETAIL_COLORS[0]
+                        const barW = (c.hrs / maxHrs) * 100
+                        return (
+                          <tr key={i} className="border-t border-border/30 hover:bg-muted/20">
+                            <td className="px-2 py-1 font-mono font-semibold" style={{ color: col }}>
+                              {c.modelo_num}{c.color ? ` ${c.color}` : ''}
+                            </td>
+                            <td className="px-2 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
+                            <td className="px-2 py-1 truncate" title={c.operacion}>{c.operacion}</td>
+                            <td className="px-2 py-1">
+                              <div className="h-3 w-full bg-muted/30 rounded overflow-hidden">
+                                <div
+                                  className="h-full rounded transition-all"
+                                  style={{ width: `${barW}%`, backgroundColor: col }}
+                                />
+                              </div>
+                            </td>
+                            {showPct && (
+                              <td className="px-2 py-1 text-right font-mono">
+                                {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
+                              </td>
+                            )}
+                            <td className="px-2 py-1 text-right font-mono font-semibold">{c.hrs.toFixed(2)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot className="bg-muted/30">
+                      <tr className="border-t border-border/50 font-semibold">
+                        <td className="px-2 py-1" colSpan={showPct ? 5 : 4}>Total</td>
+                        <td className="px-2 py-1 text-right font-mono">{r.load.total.toFixed(2)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,7 @@ import { useCatalogoImages } from '@/lib/hooks/useCatalogoImages'
 import { cn } from '@/lib/utils'
 import {
   Plus, Trash2, Download, Clock, Calculator, ChevronDown, ChevronRight,
-  Save, FolderOpen, Upload, FileSpreadsheet, GripVertical, Workflow,
+  Save, FolderOpen, Upload, FileSpreadsheet, GripVertical, Workflow, Bot, X,
 } from 'lucide-react'
 import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
@@ -29,12 +29,15 @@ import { ReferenciaTab } from './ReferenciaTab'
 // ---------------------------------------------------------------------------
 
 interface CatOp {
+  id: string
   fraccion: number
   operacion: string
   input_o_proceso: ProcessType
   etapa: string
   recurso: string
   rate: number
+  /** IDs de robots compatibles del catalogo (relacion catalogo_operacion_robots) */
+  compatibleRobots: string[]
 }
 
 interface CatModelo {
@@ -43,6 +46,27 @@ interface CatModelo {
   alternativas: string[]
   operaciones: CatOp[]
 }
+
+interface RobotLite {
+  id: string
+  nombre: string
+  estado: string // 'ACTIVO' | 'FUERA DE SERVICIO'
+}
+
+/** Estado del programa para (modelo, fraccion, robot) en la matriz global */
+type ProgramaEstado = 'TIENE' | 'FALTA'
+
+/** Map modelo_num -> fraccion -> robot_id -> estado */
+type ProgramaMatriz = Record<string, Record<number, Record<string, ProgramaEstado>>>
+
+/** Asignacion robot -> porcentaje para una operacion ROBOT especifica */
+interface RobotAssign {
+  robot_id: string
+  porcentaje: number
+}
+
+/** modelo_num -> fraccion -> lista de asignaciones */
+type AsignacionesMap = Record<string, Record<number, RobotAssign[]>>
 
 interface PlanRow {
   key: string
@@ -159,8 +183,15 @@ function etapaColor(short: string): string {
 export default function PlaneacionPage() {
   // --- Catalog data ---
   const [catalogo, setCatalogo] = useState<CatModelo[]>([])
+  const [robots, setRobots] = useState<RobotLite[]>([])
   const [loadingCat, setLoadingCat] = useState(true)
   const images = useCatalogoImages()
+
+  // --- Asignaciones de robots por plan ---
+  const [asignaciones, setAsignaciones] = useState<AsignacionesMap>({})
+
+  // --- Matriz global robot × (modelo, fraccion) ---
+  const [programaMatriz, setProgramaMatriz] = useState<ProgramaMatriz>({})
 
   // --- Plan state ---
   const [planId, setPlanId] = useState<string | null>(null)
@@ -189,27 +220,57 @@ export default function PlaneacionPage() {
   useEffect(() => {
     ;(async () => {
       setLoadingCat(true)
-      const [modRes, opsRes, plansRes] = await Promise.all([
+      const [modRes, opsRes, opRobotsRes, robotsRes, plansRes, programaRes] = await Promise.all([
         supabase.from('catalogo_modelos').select('id, modelo_num, alternativas').order('modelo_num'),
-        supabase.from('catalogo_operaciones').select('modelo_id, fraccion, operacion, input_o_proceso, etapa, recurso, rate').order('fraccion'),
+        supabase.from('catalogo_operaciones').select('id, modelo_id, fraccion, operacion, input_o_proceso, etapa, recurso, rate').order('fraccion'),
+        supabase.from('catalogo_operacion_robots').select('operacion_id, robot_id'),
+        supabase.from('robots').select('id, nombre, estado').order('nombre'),
         supabase.from('planes_semanales').select('id, nombre, semana, nota, created_at').order('created_at', { ascending: false }),
+        supabase.from('robot_programa').select('robot_id, modelo_num, fraccion, estado'),
       ])
       const mods = (modRes.data || []) as { id: string; modelo_num: string; alternativas: string[] }[]
-      const ops = (opsRes.data || []) as (CatOp & { modelo_id: string })[]
+      const ops = (opsRes.data || []) as { id: string; modelo_id: string; fraccion: number; operacion: string; input_o_proceso: ProcessType; etapa: string; recurso: string; rate: number | string }[]
+      const opRobots = (opRobotsRes.data || []) as { operacion_id: string; robot_id: string }[]
+      const robotsData = (robotsRes.data || []) as RobotLite[]
+      const programaData = (programaRes.data || []) as { robot_id: string; modelo_num: string; fraccion: number; estado: ProgramaEstado }[]
+
+      const matriz: ProgramaMatriz = {}
+      const robotIdsEnMatriz = new Set<string>()
+      for (const p of programaData) {
+        if (!matriz[p.modelo_num]) matriz[p.modelo_num] = {}
+        if (!matriz[p.modelo_num][p.fraccion]) matriz[p.modelo_num][p.fraccion] = {}
+        matriz[p.modelo_num][p.fraccion][p.robot_id] = p.estado
+        robotIdsEnMatriz.add(p.robot_id)
+      }
+      setProgramaMatriz(matriz)
+
+      // operacion_id -> [robot_id, ...]
+      const opRobotsMap = new Map<string, string[]>()
+      for (const r of opRobots) {
+        if (!opRobotsMap.has(r.operacion_id)) opRobotsMap.set(r.operacion_id, [])
+        opRobotsMap.get(r.operacion_id)!.push(r.robot_id)
+      }
 
       const opsByModel = new Map<string, CatOp[]>()
       for (const op of ops) {
         if (!opsByModel.has(op.modelo_id)) opsByModel.set(op.modelo_id, [])
         opsByModel.get(op.modelo_id)!.push({
+          id: op.id,
           fraccion: op.fraccion,
           operacion: op.operacion,
           input_o_proceso: op.input_o_proceso,
           etapa: op.etapa,
           recurso: op.recurso,
           rate: Number(op.rate),
+          compatibleRobots: opRobotsMap.get(op.id) ?? [],
         })
       }
 
+      // Solo consideramos 'robots' los que aparecen en la matriz de programas.
+      // La tabla 'robots' de la DB incluye otras maquinas (plana, zigzag, pintura)
+      // que no son robots de costura.
+      const robotsFiltered = robotsData.filter((r) => robotIdsEnMatriz.has(r.id))
+      setRobots(robotsFiltered)
       setCatalogo(mods.map((m) => ({
         id: m.id,
         modelo_num: m.modelo_num,
@@ -293,6 +354,73 @@ export default function PlaneacionPage() {
     setDirty(true)
   }, [])
 
+  // --- Asignaciones helpers -----------------------------------------------
+  const setAssignList = useCallback((modeloNum: string, fraccion: number, next: RobotAssign[]) => {
+    setAsignaciones((prev) => {
+      const byModel = { ...(prev[modeloNum] ?? {}) }
+      if (next.length === 0) {
+        delete byModel[fraccion]
+      } else {
+        byModel[fraccion] = next
+      }
+      const out = { ...prev }
+      if (Object.keys(byModel).length === 0) delete out[modeloNum]
+      else out[modeloNum] = byModel
+      return out
+    })
+    setDirty(true)
+  }, [])
+
+  const toggleRobotAssign = useCallback((modeloNum: string, fraccion: number, robotId: string) => {
+    setAsignaciones((prev) => {
+      const cur = prev[modeloNum]?.[fraccion] ?? []
+      const exists = cur.some((a) => a.robot_id === robotId)
+      const nextList = exists
+        ? cur.filter((a) => a.robot_id !== robotId)
+        : [...cur, { robot_id: robotId, porcentaje: 0 }]
+      // Redistribuir equitativamente
+      const n = nextList.length
+      const even = n > 0 ? Math.round((100 / n) * 100) / 100 : 0
+      const distributed = nextList.map((a, i) => ({
+        robot_id: a.robot_id,
+        porcentaje: i === n - 1 ? Math.round((100 - even * (n - 1)) * 100) / 100 : even,
+      }))
+      const byModel = { ...(prev[modeloNum] ?? {}) }
+      if (distributed.length === 0) delete byModel[fraccion]
+      else byModel[fraccion] = distributed
+      const out = { ...prev }
+      if (Object.keys(byModel).length === 0) delete out[modeloNum]
+      else out[modeloNum] = byModel
+      return out
+    })
+    setDirty(true)
+  }, [])
+
+  const setAssignPercent = useCallback((modeloNum: string, fraccion: number, robotId: string, pct: number) => {
+    setAsignaciones((prev) => {
+      const cur = prev[modeloNum]?.[fraccion] ?? []
+      const clamped = Math.max(0, Math.min(100, pct))
+      const others = cur.filter((a) => a.robot_id !== robotId)
+      const remaining = Math.max(0, 100 - clamped)
+      // Reparto equitativo del remaining entre los otros
+      const n = others.length
+      const evenShare = n > 0 ? Math.round((remaining / n) * 100) / 100 : 0
+      const redistOthers = others.map((a, i) => ({
+        robot_id: a.robot_id,
+        porcentaje: i === n - 1 ? Math.round((remaining - evenShare * (n - 1)) * 100) / 100 : evenShare,
+      }))
+      const next = cur.map((a) =>
+        a.robot_id === robotId
+          ? { robot_id: robotId, porcentaje: clamped }
+          : redistOthers.find((o) => o.robot_id === a.robot_id) ?? a,
+      )
+      const byModel = { ...(prev[modeloNum] ?? {}) }
+      byModel[fraccion] = next
+      return { ...prev, [modeloNum]: byModel }
+    })
+    setDirty(true)
+  }, [])
+
   const removeRow = useCallback((key: string) => {
     setRows((prev) => prev.filter((r) => r.key !== key))
     setExpandedModels((prev) => {
@@ -361,11 +489,19 @@ export default function PlaneacionPage() {
     const plan = savedPlans.find((p) => p.id === id)
     if (!plan) return
 
-    const { data: items } = await supabase
-      .from('plan_semanal_items')
-      .select('modelo_num, color, dia, pares, orden')
-      .eq('plan_id', id)
-      .order('orden', { ascending: true })
+    const [itemsRes, asignRes] = await Promise.all([
+      supabase
+        .from('plan_semanal_items')
+        .select('modelo_num, color, dia, pares, orden')
+        .eq('plan_id', id)
+        .order('orden', { ascending: true }),
+      supabase
+        .from('plan_robot_asignacion')
+        .select('modelo_num, fraccion, robot_id, porcentaje')
+        .eq('plan_id', id),
+    ])
+    const items = itemsRes.data
+    const asignData = (asignRes.data || []) as { modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[]
 
     if (!items) return
 
@@ -395,9 +531,18 @@ export default function PlaneacionPage() {
       .sort((a, b) => a.orden - b.orden)
       .map(({ orden: _orden, ...rest }) => rest)
 
+    // Reconstruir AsignacionesMap
+    const asignMap: AsignacionesMap = {}
+    for (const a of asignData) {
+      if (!asignMap[a.modelo_num]) asignMap[a.modelo_num] = {}
+      if (!asignMap[a.modelo_num][a.fraccion]) asignMap[a.modelo_num][a.fraccion] = []
+      asignMap[a.modelo_num][a.fraccion].push({ robot_id: a.robot_id, porcentaje: Number(a.porcentaje) })
+    }
+
     setPlanId(id)
     setPlanName(plan.nombre)
     setRows(ordered)
+    setAsignaciones(asignMap)
     setExpandedModels(new Set())
     setDirty(false)
   }, [savedPlans, activeDays])
@@ -451,6 +596,29 @@ export default function PlaneacionPage() {
         await supabase.from('plan_semanal_items').insert(items)
       }
 
+      // Guardar asignaciones de robots (replace: borra y reinserta)
+      await supabase.from('plan_robot_asignacion').delete().eq('plan_id', id!)
+      const asignRows: { plan_id: string; modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[] = []
+      for (const [modeloNum, byFraccion] of Object.entries(asignaciones)) {
+        for (const [fraccionStr, list] of Object.entries(byFraccion)) {
+          const fraccion = Number(fraccionStr)
+          for (const a of list) {
+            if (a.porcentaje > 0) {
+              asignRows.push({
+                plan_id: id!,
+                modelo_num: modeloNum,
+                fraccion,
+                robot_id: a.robot_id,
+                porcentaje: a.porcentaje,
+              })
+            }
+          }
+        }
+      }
+      if (asignRows.length > 0) {
+        await supabase.from('plan_robot_asignacion').insert(asignRows)
+      }
+
       // Refresh plans list
       const { data: plansData } = await supabase
         .from('planes_semanales')
@@ -462,13 +630,14 @@ export default function PlaneacionPage() {
     } finally {
       setSaving(false)
     }
-  }, [planId, planName, rows, activeDays])
+  }, [planId, planName, rows, activeDays, asignaciones])
 
   // --- New plan ---
   const newPlan = useCallback(() => {
     setPlanId(null)
     setPlanName(computeNextPlanName(savedPlans.map((p) => p.nombre)))
     setRows([])
+    setAsignaciones({})
     setExpandedModels(new Set())
     setDirty(false)
   }, [savedPlans])
@@ -486,6 +655,7 @@ export default function PlaneacionPage() {
     setPlanId(null)
     setPlanName(computeNextPlanName(remaining.map((p) => p.nombre)))
     setRows([])
+    setAsignaciones({})
     setExpandedModels(new Set())
     setDirty(false)
   }, [planId])
@@ -704,6 +874,49 @@ export default function PlaneacionPage() {
     }
     return { totalHrs, totalPares, hrsByEtapa, hrsByDay, opsByEtapa, hrsByEtapaByDay }
   }, [hoursData, activeDays])
+
+  // --- Robot load: lista de ops ROBOT por modelo en el plan + horas ---
+  const robotOpsByRow = useMemo(() => {
+    const result: { rowKey: string; modelo_num: string; color: string; ops: { fraccion: number; operacion: string; rate: number; totalHrs: number }[] }[] = []
+    for (const row of rows) {
+      const cat = catalogoMap.get(row.modelo_num)
+      if (!cat) continue
+      const totalPares = activeDays.reduce((s, d) => s + (row.pares[d] || 0), 0)
+      if (totalPares === 0) continue
+      const robotOps: { fraccion: number; operacion: string; rate: number; totalHrs: number }[] = []
+      for (const op of cat.operaciones) {
+        const recs = op.recurso.split(',').map((s) => s.trim())
+        if (!recs.includes('ROBOT')) continue
+        const hrs = op.rate > 0 ? totalPares / op.rate : 0
+        robotOps.push({ fraccion: op.fraccion, operacion: op.operacion, rate: op.rate, totalHrs: hrs })
+      }
+      if (robotOps.length > 0) {
+        result.push({ rowKey: row.key, modelo_num: row.modelo_num, color: row.color, ops: robotOps })
+      }
+    }
+    return result
+  }, [rows, catalogoMap, activeDays])
+
+  // --- Carga total por robot (aplicando porcentajes) ---
+  const loadByRobot = useMemo(() => {
+    const byRobot = new Map<string, { totalHrs: number; byModel: Map<string, number> }>()
+    for (const group of robotOpsByRow) {
+      const modelKey = group.color ? `${group.modelo_num} ${group.color}` : group.modelo_num
+      for (const op of group.ops) {
+        const assigns = asignaciones[group.modelo_num]?.[op.fraccion] ?? []
+        for (const a of assigns) {
+          const hrs = op.totalHrs * (a.porcentaje / 100)
+          if (!byRobot.has(a.robot_id)) byRobot.set(a.robot_id, { totalHrs: 0, byModel: new Map() })
+          const bucket = byRobot.get(a.robot_id)!
+          bucket.totalHrs += hrs
+          bucket.byModel.set(modelKey, (bucket.byModel.get(modelKey) ?? 0) + hrs)
+        }
+      }
+    }
+    return byRobot
+  }, [robotOpsByRow, asignaciones])
+
+  const ROBOT_WEEKLY_CAPACITY = 50 // horas por robot por semana (L-V 540min + Sab 300min)
 
   // --- Model selector state ---
   const [selectorOpen, setSelectorOpen] = useState(false)
@@ -1356,6 +1569,94 @@ export default function PlaneacionPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* --- ASIGNACION DE ROBOTS --- */}
+      {robotOpsByRow.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Bot className="h-4 w-4" />
+                Asignacion de Robots
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                Elige los robots reales y, si se divide, ajusta %
+              </span>
+            </div>
+            <div className="space-y-4">
+              {robotOpsByRow.map((group) => {
+                const modelLabel = group.color ? `${group.modelo_num} ${group.color}` : group.modelo_num
+                return (
+                  <div key={group.rowKey} className="rounded-md border overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b">
+                      <ModeloImg
+                        images={images}
+                        modeloNum={group.modelo_num}
+                        color={group.color || undefined}
+                        className="h-7 w-7 rounded border object-cover bg-white shrink-0"
+                      />
+                      <span className="font-medium text-sm">{modelLabel}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {group.ops.length} op{group.ops.length !== 1 ? 's' : ''} robot
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/20">
+                          <tr className="border-b text-muted-foreground">
+                            <th className="text-left px-3 py-1.5 w-12">Frac</th>
+                            <th className="text-left px-3 py-1.5">Operacion</th>
+                            <th className="text-right px-3 py-1.5 w-20">Rate</th>
+                            <th className="text-right px-3 py-1.5 w-20">Horas</th>
+                            <th className="text-left px-3 py-1.5">Robots asignados</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.ops.map((op) => (
+                            <RobotAssignRow
+                              key={op.fraccion}
+                              modeloNum={group.modelo_num}
+                              fraccion={op.fraccion}
+                              operacion={op.operacion}
+                              rate={op.rate}
+                              totalHrs={op.totalHrs}
+                              assigns={asignaciones[group.modelo_num]?.[op.fraccion] ?? []}
+                              robots={robots}
+                              programaForOp={programaMatriz[group.modelo_num]?.[op.fraccion]}
+                              onToggle={(robotId) => toggleRobotAssign(group.modelo_num, op.fraccion, robotId)}
+                              onSetPercent={(robotId, pct) => setAssignPercent(group.modelo_num, op.fraccion, robotId, pct)}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* --- CARGA POR ROBOT --- */}
+      {loadByRobot.size > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Bot className="h-4 w-4" />
+              Carga por Robot
+              <span className="text-xs text-muted-foreground font-normal ml-2">
+                Capacidad semanal ~{ROBOT_WEEKLY_CAPACITY}h
+              </span>
+            </h2>
+            <RobotLoadChart
+              loadByRobot={loadByRobot}
+              robots={robots}
+              capacity={ROBOT_WEEKLY_CAPACITY}
+            />
+          </CardContent>
+        </Card>
+      )}
         </TabsContent>
 
         <TabsContent value="comparativo" className="mt-4">
@@ -1384,6 +1685,295 @@ export default function PlaneacionPage() {
         confirmWord="ELIMINAR"
         onConfirm={deletePlan}
       />
+    </div>
+  )
+}
+
+// ─── Sub-componentes ──────────────────────────────────────────────────────
+
+function RobotAssignRow({
+  fraccion, operacion, rate, totalHrs, assigns, robots, programaForOp, onToggle, onSetPercent,
+}: {
+  modeloNum: string
+  fraccion: number
+  operacion: string
+  rate: number
+  totalHrs: number
+  assigns: RobotAssign[]
+  robots: RobotLite[]
+  /** robot_id -> estado para esta (modelo, fraccion). undefined = sin matriz */
+  programaForOp: Record<string, ProgramaEstado> | undefined
+  onToggle: (robotId: string) => void
+  onSetPercent: (robotId: string, pct: number) => void
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const pickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handleClick(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [pickerOpen])
+
+  const robotsByID = useMemo(() => new Map(robots.map((r) => [r.id, r])), [robots])
+  const selectedIds = new Set(assigns.map((a) => a.robot_id))
+  const hasMatriz = programaForOp !== undefined
+
+  // Si hay matriz: solo se muestran robots con TIENE o FALTA para esta (modelo, fraccion)
+  // Si no hay matriz: todos los robots como fallback
+  // Prioridad: TIENE -> FALTA -> (sin info solo en fallback). Activos antes que fuera de servicio.
+  const available = useMemo(() => {
+    const q = search.toLowerCase()
+    const filter = (r: RobotLite) => {
+      if (selectedIds.has(r.id)) return false
+      if (!r.nombre.toLowerCase().includes(q)) return false
+      if (hasMatriz) return !!programaForOp![r.id]
+      return true
+    }
+    const rank = (r: RobotLite) => {
+      const estadoPrograma = programaForOp?.[r.id]
+      const activo = r.estado === 'ACTIVO'
+      let score = 0
+      if (estadoPrograma === 'TIENE') score -= 100
+      else if (estadoPrograma === 'FALTA') score -= 50
+      if (!activo) score += 10
+      return score
+    }
+    return robots.filter(filter).sort((a, b) => {
+      const diff = rank(a) - rank(b)
+      if (diff !== 0) return diff
+      return a.nombre.localeCompare(b.nombre)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [robots, assigns, search, programaForOp])
+
+  return (
+    <tr className="border-b hover:bg-muted/10 align-top">
+      <td className="px-3 py-1.5 font-mono text-muted-foreground">F{fraccion}</td>
+      <td className="px-3 py-1.5 truncate" title={operacion}>{operacion}</td>
+      <td className="px-3 py-1.5 text-right text-muted-foreground font-mono">{rate}</td>
+      <td className="px-3 py-1.5 text-right text-muted-foreground">{totalHrs.toFixed(1)}</td>
+      <td className="px-3 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {assigns.length === 0 && (
+            <span className="text-muted-foreground italic">Sin asignar</span>
+          )}
+          {assigns.map((a) => {
+            const r = robotsByID.get(a.robot_id)
+            const estadoPrograma = programaForOp?.[a.robot_id]
+            const activo = r ? r.estado === 'ACTIVO' : true
+            const warnings: string[] = []
+            if (!activo) warnings.push('fuera de servicio')
+            if (estadoPrograma === 'FALTA') warnings.push('programa no cargado')
+            const hasWarn = warnings.length > 0
+            return (
+              <div
+                key={a.robot_id}
+                className={cn(
+                  'inline-flex items-center gap-1 border rounded-md px-1.5 py-0.5',
+                  hasWarn ? 'border-yellow-500/50 bg-yellow-500/10' : 'bg-muted/30',
+                )}
+                title={hasWarn ? warnings.join(' · ') : undefined}
+              >
+                <span className={cn('font-medium', !activo && 'line-through opacity-70')}>
+                  {r?.nombre ?? a.robot_id.slice(0, 6)}
+                </span>
+                {estadoPrograma === 'FALTA' && (
+                  <span className="text-[9px] font-bold text-yellow-500">!</span>
+                )}
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={a.porcentaje}
+                  onChange={(e) => onSetPercent(a.robot_id, Number(e.target.value) || 0)}
+                  className="h-6 w-14 text-xs px-1 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-muted-foreground">%</span>
+                <button
+                  type="button"
+                  onClick={() => onToggle(a.robot_id)}
+                  className="rounded-full hover:bg-destructive/20 p-0.5"
+                  title="Quitar"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            )
+          })}
+          <div className="relative" ref={pickerRef}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 text-[10px] px-2"
+              onClick={() => setPickerOpen((v) => !v)}
+            >
+              <Plus className="h-3 w-3 mr-1" /> Agregar robot
+            </Button>
+            {pickerOpen && (
+              <div className="absolute z-50 top-full left-0 mt-1 w-60 bg-popover border rounded-lg shadow-lg p-2 space-y-2">
+                <Input
+                  placeholder="Buscar robot..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-7 text-xs"
+                  autoFocus
+                />
+                <div className="max-h-56 overflow-y-auto space-y-0.5">
+                  {!hasMatriz && (
+                    <p className="text-[10px] text-muted-foreground px-2 py-1 italic">
+                      Sin matriz para esta operacion — se muestran todos
+                    </p>
+                  )}
+                  {available.map((r) => {
+                    const estadoPrograma = programaForOp?.[r.id]
+                    const activo = r.estado === 'ACTIVO'
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => { onToggle(r.id); setSearch('') }}
+                        className={cn(
+                          'w-full text-left px-2 py-1 rounded text-xs hover:bg-accent flex items-center justify-between gap-2',
+                          !activo && 'opacity-60',
+                        )}
+                      >
+                        <span className={cn('font-medium', !activo && 'line-through')}>{r.nombre}</span>
+                        <span className="flex items-center gap-1 text-[9px]">
+                          {estadoPrograma === 'TIENE' && (
+                            <span className="px-1 py-0.5 rounded bg-green-500/15 text-green-500 font-semibold">TIENE</span>
+                          )}
+                          {estadoPrograma === 'FALTA' && (
+                            <span className="px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-500 font-semibold">FALTA</span>
+                          )}
+                          {!activo && (
+                            <span className="px-1 py-0.5 rounded bg-muted text-muted-foreground">FUERA SVC</span>
+                          )}
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {available.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground px-2 py-1">
+                      {robots.length === selectedIds.size
+                        ? 'Todos asignados'
+                        : hasMatriz
+                          ? 'Sin robots con programa'
+                          : 'Sin resultados'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function RobotLoadChart({
+  loadByRobot, robots, capacity,
+}: {
+  loadByRobot: Map<string, { totalHrs: number; byModel: Map<string, number> }>
+  robots: RobotLite[]
+  capacity: number
+}) {
+  // Ordenar: solo robots con carga > 0, desc por horas
+  const rows = useMemo(() => {
+    const arr: { id: string; nombre: string; total: number; byModel: [string, number][] }[] = []
+    for (const r of robots) {
+      const load = loadByRobot.get(r.id)
+      if (!load || load.totalHrs === 0) continue
+      arr.push({
+        id: r.id,
+        nombre: r.nombre,
+        total: load.totalHrs,
+        byModel: [...load.byModel.entries()].sort((a, b) => b[1] - a[1]),
+      })
+    }
+    return arr.sort((a, b) => b.total - a.total)
+  }, [loadByRobot, robots])
+
+  const maxTotal = Math.max(capacity, ...rows.map((r) => r.total))
+
+  // Paleta simple para modelos (cycle)
+  const MODEL_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+  const modelColor = useMemo(() => {
+    const allModels = new Set<string>()
+    for (const r of rows) for (const [m] of r.byModel) allModels.add(m)
+    const map = new Map<string, string>()
+    let i = 0
+    for (const m of [...allModels].sort()) {
+      map.set(m, MODEL_COLORS[i % MODEL_COLORS.length])
+      i++
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
+
+  if (rows.length === 0) {
+    return <div className="text-xs text-muted-foreground py-4 text-center">Ningun robot tiene carga asignada aun.</div>
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => {
+        const widthPct = Math.min(100, (r.total / maxTotal) * 100)
+        const capPct = Math.min(100, (capacity / maxTotal) * 100)
+        const over = r.total > capacity
+        return (
+          <div key={r.id} className="flex items-center gap-2 text-xs">
+            <div className="w-24 shrink-0 truncate font-mono" title={r.nombre}>{r.nombre}</div>
+            <div className="flex-1 relative h-5 bg-muted/40 rounded overflow-hidden">
+              {/* Marca de capacidad */}
+              <div
+                className="absolute top-0 bottom-0 border-l border-dashed border-foreground/40"
+                style={{ left: `${capPct}%` }}
+                title={`Capacidad ${capacity}h`}
+              />
+              {/* Barras stacked por modelo */}
+              <div className="absolute inset-0 flex">
+                {r.byModel.map(([m, hrs]) => {
+                  const pct = (hrs / maxTotal) * 100
+                  return (
+                    <div
+                      key={m}
+                      style={{ width: `${pct}%`, backgroundColor: modelColor.get(m) || '#999' }}
+                      title={`${m}: ${hrs.toFixed(1)} hrs`}
+                    />
+                  )
+                })}
+              </div>
+              {/* Total overlay */}
+              <div
+                className={cn(
+                  'absolute top-0 bottom-0 right-0 flex items-center pr-2 text-[10px] font-semibold',
+                  over ? 'text-destructive' : 'text-foreground',
+                )}
+                style={{ left: `${widthPct}%`, minWidth: 'fit-content' }}
+              >
+                <span className="ml-1">{r.total.toFixed(1)}h</span>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+      {/* Leyenda de modelos */}
+      <div className="flex flex-wrap gap-2 pt-2 text-[10px] text-muted-foreground">
+        {[...modelColor.entries()].map(([m, c]) => (
+          <div key={m} className="flex items-center gap-1">
+            <div className="h-2 w-2 rounded-sm" style={{ backgroundColor: c }} />
+            <span>{m}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
