@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { STAGE_COLORS, CHART_COLORS } from '@/types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  ComposedChart, Line, LabelList,
+  ComposedChart, Line, LabelList, Cell, ReferenceLine,
 } from 'recharts'
 import { BarChart3, Bot, Layers, TrendingUp, X, ChevronRight, ChevronDown } from 'lucide-react'
 
@@ -877,6 +877,33 @@ function RobotTick(props: RobotTickProps) {
   )
 }
 
+/** Custom tick para el mini chart del detalle: "65413 NE F3" →
+ *  linea 1 = "65413 NE" / linea 2 = "F3". En horizontal. */
+function DetailOpTick(props: RobotTickProps) {
+  const { x = 0, y = 0, payload } = props
+  const raw = payload?.value ?? ''
+  const match = raw.match(/^(.+?)\s+(F\d+)$/)
+  const lines = match ? [match[1], match[2]] : [raw]
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={0}
+          y={14 + i * 13}
+          textAnchor="middle"
+          fontSize={11}
+          fontFamily="var(--font-mono, monospace)"
+          fill="currentColor"
+          className="fill-muted-foreground"
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  )
+}
+
 // ─── Comparativo entre semanas: Carga por Robot ──────────────────────────
 
 function RobotComparativeSection({
@@ -1032,7 +1059,18 @@ function RobotComparativeSection({
               </div>
             )
           }
-          const maxHrs = Math.max(...load.byOp.map((c) => c.hrs))
+          const sortedOps = [...load.byOp].sort((a, b) => b.hrs - a.hrs)
+          // Dataset para el mini chart vertical: una entrada por op
+          const miniData = sortedOps.map((c, i) => ({
+            idx: i,
+            label: `${c.modelo_num}${c.color ? ' ' + c.color : ''} F${c.fraccion}`,
+            modelo_num: c.modelo_num,
+            color_var: c.color,
+            fraccion: c.fraccion,
+            operacion: c.operacion,
+            hrs: Math.round(c.hrs * 100) / 100,
+            pct: c.pct,
+          }))
           return (
             <div className="rounded border overflow-hidden">
               <div
@@ -1050,51 +1088,82 @@ function RobotComparativeSection({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="overflow-x-auto">
+              {/* Mini bar chart vertical: una barra por operacion */}
+              <div style={{ width: '100%', height: Math.max(360, 120 + miniData.length * 14) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={miniData}
+                    margin={{ top: 28, right: 24, left: 16, bottom: 52 }}
+                    barCategoryGap="10%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      interval={0}
+                      height={52}
+                      tickMargin={6}
+                      tick={<DetailOpTick />}
+                    />
+                    <YAxis
+                      type="number"
+                      tick={{ fontSize: 11 }}
+                      label={{ value: 'Horas', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: 'var(--muted-foreground)' } }}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', fontSize: 12 }}
+                      formatter={(v) => `${Number(v ?? 0).toFixed(2)} h`}
+                      labelFormatter={(_, payload) => {
+                        const d = payload?.[0]?.payload as typeof miniData[number] | undefined
+                        if (!d) return ''
+                        return `${d.modelo_num}${d.color_var ? ' ' + d.color_var : ''} F${d.fraccion} — ${d.operacion}`
+                      }}
+                    />
+                    <Bar dataKey="hrs" fill={color} maxBarSize={90}>
+                      <LabelList
+                        dataKey="hrs"
+                        position="top"
+                        formatter={(v) => {
+                          const n = Number(v ?? 0)
+                          return n > 0 ? n.toFixed(2) : ''
+                        }}
+                        style={{ fontSize: 11, fill: 'var(--foreground)', fontWeight: 600 }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {/* Tabla compacta con nombres completos */}
+              <div className="overflow-x-auto border-t">
                 <table className="w-full text-[11px]">
                   <thead className="bg-muted/20 text-muted-foreground">
                     <tr>
-                      <th className="text-left px-3 py-1.5 w-28">Modelo</th>
-                      <th className="text-left px-3 py-1.5 w-12">Frac</th>
-                      <th className="text-left px-3 py-1.5 w-56">Operacion</th>
-                      <th className="text-left px-3 py-1.5">Aporte</th>
-                      {vista === 'asignado' && <th className="text-right px-3 py-1.5 w-12">%</th>}
-                      <th className="text-right px-3 py-1.5 w-16">Horas</th>
+                      <th className="text-left px-3 py-1 w-28">Modelo</th>
+                      <th className="text-left px-3 py-1 w-12">Frac</th>
+                      <th className="text-left px-3 py-1">Operacion</th>
+                      {vista === 'asignado' && <th className="text-right px-3 py-1 w-12">%</th>}
+                      <th className="text-right px-3 py-1 w-16">Horas</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {[...load.byOp]
-                      .sort((a, b) => b.hrs - a.hrs)
-                      .map((c, i) => {
-                        const barWidth = maxHrs > 0 ? (c.hrs / maxHrs) * 100 : 0
-                        return (
-                          <tr key={i} className="border-t border-border/30">
-                            <td className="px-3 py-1 font-mono">
-                              {c.modelo_num}{c.color ? ` ${c.color}` : ''}
-                            </td>
-                            <td className="px-3 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
-                            <td className="px-3 py-1 truncate" title={c.operacion}>{c.operacion}</td>
-                            <td className="px-3 py-1">
-                              <div className="h-3 w-full bg-muted/30 rounded overflow-hidden">
-                                <div
-                                  className="h-full rounded"
-                                  style={{ width: `${barWidth}%`, backgroundColor: color }}
-                                />
-                              </div>
-                            </td>
-                            {vista === 'asignado' && (
-                              <td className="px-3 py-1 text-right font-mono">
-                                {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
-                              </td>
-                            )}
-                            <td className="px-3 py-1 text-right font-mono">{c.hrs.toFixed(2)}</td>
-                          </tr>
-                        )
-                      })}
+                    {sortedOps.map((c, i) => (
+                      <tr key={i} className="border-t border-border/30">
+                        <td className="px-3 py-1 font-mono">
+                          {c.modelo_num}{c.color ? ` ${c.color}` : ''}
+                        </td>
+                        <td className="px-3 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
+                        <td className="px-3 py-1 truncate" title={c.operacion}>{c.operacion}</td>
+                        {vista === 'asignado' && (
+                          <td className="px-3 py-1 text-right font-mono">
+                            {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
+                          </td>
+                        )}
+                        <td className="px-3 py-1 text-right font-mono">{c.hrs.toFixed(2)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-border/50 bg-muted/20 font-semibold">
-                      <td className="px-3 py-1" colSpan={vista === 'asignado' ? 5 : 4}>Total</td>
+                      <td className="px-3 py-1" colSpan={vista === 'asignado' ? 4 : 3}>Total</td>
                       <td className="px-3 py-1 text-right font-mono">{load.total.toFixed(2)}</td>
                     </tr>
                   </tfoot>
@@ -1242,128 +1311,216 @@ function RobotBars({
   showPct?: boolean
 }) {
   if (rows.length === 0) return null
-  const maxTotal = Math.max(capacity, ...rows.map((r) => r.load.total))
+
+  // Data con color por robot (paleta vibrante). Barras en rojo si exceden capacidad.
+  const chartData = rows.map((r, i) => ({
+    id: r.id,
+    nombre: r.nombre,
+    estado: r.estado,
+    total: Math.round(r.load.total * 100) / 100,
+    load: r.load,
+    _fill: r.load.total > capacity ? '#ef4444' : DETAIL_COLORS[i % DETAIL_COLORS.length],
+  }))
+
+  const selected = expandedId ? rows.find((r) => r.id === expandedId) : null
+  const selectedIdx = expandedId ? rows.findIndex((r) => r.id === expandedId) : -1
+
   return (
-    <div className="space-y-1.5">
-      {rows.map((r) => {
-        const widthPct = Math.min(100, (r.load.total / maxTotal) * 100)
-        const capPct = Math.min(100, (capacity / maxTotal) * 100)
-        const over = r.load.total > capacity
-        const activo = r.estado === 'ACTIVO'
-        const isExpanded = expandedId === r.id
-        return (
-          <div key={r.id} className="space-y-1">
-            <div
-              className={cn(
-                'flex items-center gap-2 text-xs rounded transition-colors',
-                onToggle && 'cursor-pointer hover:bg-accent/30',
-                isExpanded && 'bg-accent/40',
-              )}
-              onClick={() => onToggle?.(r.id)}
-              role={onToggle ? 'button' : undefined}
-              title={onToggle ? 'Clic para ver detalle' : undefined}
+    <div className="space-y-3">
+      {/* Chart vertical: una barra por robot */}
+      <div style={{ width: '100%', height: 380 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            margin={{ top: 28, right: 40, left: 16, bottom: 52 }}
+            barCategoryGap="15%"
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis
+              dataKey="nombre"
+              interval={0}
+              height={52}
+              tickMargin={6}
+              tick={<RobotTick />}
+            />
+            <YAxis
+              type="number"
+              tick={{ fontSize: 11 }}
+              label={{ value: 'Horas', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: 'var(--muted-foreground)' } }}
+            />
+            <ReferenceLine
+              y={capacity}
+              stroke="var(--foreground)"
+              strokeDasharray="4 4"
+              label={{ value: `Cap ${capacity}h`, position: 'right', fontSize: 10, fill: 'var(--muted-foreground)' }}
+            />
+            <Tooltip
+              contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', fontSize: 12 }}
+              formatter={(v) => `${Number(v ?? 0).toFixed(1)} h`}
+              labelFormatter={(l) => String(l)}
+            />
+            <Bar
+              dataKey="total"
+              maxBarSize={90}
+              cursor={onToggle ? 'pointer' : undefined}
+              onClick={(data) => {
+                const payload = (data as { payload?: { id?: string } })?.payload
+                if (payload?.id) onToggle?.(payload.id)
+              }}
             >
-              <div className="w-5 shrink-0 flex justify-center">
-                {onToggle && (
-                  isExpanded
-                    ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                    : <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                )}
-              </div>
-              <div
-                className={cn('w-28 shrink-0 truncate font-mono', !activo && 'line-through text-muted-foreground')}
-                title={activo ? r.nombre : `${r.nombre} (fuera de servicio)`}
-              >
-                {r.nombre}
-              </div>
-              <div className="flex-1 relative h-5 bg-muted/40 rounded overflow-hidden">
-                <div
-                  className="absolute top-0 bottom-0 border-l border-dashed border-foreground/40 z-10"
-                  style={{ left: `${capPct}%` }}
-                  title={`Capacidad ${capacity}h`}
+              {chartData.map((d, i) => (
+                <Cell
+                  key={d.id}
+                  fill={d._fill}
+                  fillOpacity={muted ? 0.55 : (selectedIdx === -1 || selectedIdx === i ? 1 : 0.4)}
+                  stroke={selectedIdx === i ? 'var(--foreground)' : undefined}
+                  strokeWidth={selectedIdx === i ? 2 : 0}
                 />
-                <div
-                  className={cn('h-full', muted ? 'bg-primary/40' : 'bg-primary', over && 'bg-destructive')}
-                  style={{ width: `${widthPct}%` }}
-                />
-                <div
-                  className={cn(
-                    'absolute top-0 bottom-0 right-0 flex items-center pr-2 text-[10px] font-semibold',
-                    over ? 'text-destructive' : 'text-foreground',
-                  )}
-                  style={{ left: `${widthPct}%`, minWidth: 'fit-content' }}
-                >
-                  <span className="ml-1">{r.load.total.toFixed(1)}h</span>
-                </div>
+              ))}
+              <LabelList
+                dataKey="total"
+                position="top"
+                formatter={(v) => {
+                  const n = Number(v ?? 0)
+                  return n > 0 ? n.toFixed(1) : ''
+                }}
+                style={{ fontSize: 11, fill: 'var(--foreground)', fontWeight: 600 }}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Detalle del robot seleccionado */}
+      {selected && (() => {
+        const color = chartData.find((d) => d.id === selected.id)?._fill ?? DETAIL_COLORS[0]
+        const activo = selected.estado === 'ACTIVO'
+        const sorted = [...selected.load.byOp].sort((a, b) => b.hrs - a.hrs)
+        const modelColor = new Map<string, string>()
+        let colorIdx = 0
+        for (const c of sorted) {
+          if (!modelColor.has(c.modelo_num)) {
+            modelColor.set(c.modelo_num, DETAIL_COLORS[colorIdx % DETAIL_COLORS.length])
+            colorIdx++
+          }
+        }
+        const miniData = sorted.map((c, i) => ({
+          idx: i,
+          label: `${c.modelo_num}${c.color ? ' ' + c.color : ''} F${c.fraccion}`,
+          modelo_num: c.modelo_num,
+          color_var: c.color,
+          fraccion: c.fraccion,
+          operacion: c.operacion,
+          hrs: Math.round(c.hrs * 100) / 100,
+          pct: c.pct,
+          _fill: modelColor.get(c.modelo_num) ?? DETAIL_COLORS[0],
+        }))
+        return (
+          <div className="rounded border overflow-hidden">
+            <div
+              className="flex items-center justify-between px-3 py-2 text-xs text-white"
+              style={{ backgroundColor: color }}
+            >
+              <div className={cn('flex items-center gap-2', !activo && 'line-through opacity-80')}>
+                <span className="font-mono font-semibold">{selected.nombre}</span>
+                <span className="opacity-70">·</span>
+                <span className="font-semibold">{selected.load.total.toFixed(1)} h</span>
+                {!activo && <span className="opacity-70 text-[10px]">(fuera de servicio)</span>}
               </div>
+              <button type="button" onClick={() => onToggle?.(selected.id)} title="Cerrar">
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
-            {isExpanded && (() => {
-              const sorted = [...r.load.byOp].sort((a, b) => b.hrs - a.hrs)
-              const maxHrs = Math.max(...sorted.map((c) => c.hrs), 0.001)
-              // Paleta de colores por modelo (consistente entre filas del mismo modelo)
-              const modelColor = new Map<string, string>()
-              let colorIdx = 0
-              for (const c of sorted) {
-                if (!modelColor.has(c.modelo_num)) {
-                  modelColor.set(c.modelo_num, DETAIL_COLORS[colorIdx % DETAIL_COLORS.length])
-                  colorIdx++
-                }
-              }
-              return (
-                <div className="ml-7 mr-0 rounded border overflow-hidden">
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-muted/30 text-muted-foreground">
-                      <tr>
-                        <th className="text-left px-2 py-1 w-28">Modelo</th>
-                        <th className="text-left px-2 py-1 w-12">Frac</th>
-                        <th className="text-left px-2 py-1 w-52">Operacion</th>
-                        <th className="text-left px-2 py-1">Aporte</th>
-                        {showPct && <th className="text-right px-2 py-1 w-12">%</th>}
-                        <th className="text-right px-2 py-1 w-16">Horas</th>
+            {/* Mini bar chart vertical: una barra por operacion, coloreada por modelo */}
+            <div style={{ width: '100%', height: Math.max(320, 120 + miniData.length * 12) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={miniData}
+                  margin={{ top: 28, right: 24, left: 16, bottom: 52 }}
+                  barCategoryGap="10%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    interval={0}
+                    height={52}
+                    tickMargin={6}
+                    tick={<DetailOpTick />}
+                  />
+                  <YAxis
+                    type="number"
+                    tick={{ fontSize: 11 }}
+                    label={{ value: 'Horas', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: 'var(--muted-foreground)' } }}
+                  />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', fontSize: 12 }}
+                    formatter={(v) => `${Number(v ?? 0).toFixed(2)} h`}
+                    labelFormatter={(_, payload) => {
+                      const d = payload?.[0]?.payload as typeof miniData[number] | undefined
+                      if (!d) return ''
+                      return `${d.modelo_num}${d.color_var ? ' ' + d.color_var : ''} F${d.fraccion} — ${d.operacion}`
+                    }}
+                  />
+                  <Bar dataKey="hrs" maxBarSize={80}>
+                    {miniData.map((d) => (
+                      <Cell key={d.idx} fill={d._fill} />
+                    ))}
+                    <LabelList
+                      dataKey="hrs"
+                      position="top"
+                      formatter={(v) => {
+                        const n = Number(v ?? 0)
+                        return n > 0 ? n.toFixed(2) : ''
+                      }}
+                      style={{ fontSize: 11, fill: 'var(--foreground)', fontWeight: 600 }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Tabla compacta con nombres completos */}
+            <div className="border-t overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead className="bg-muted/30 text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-2 py-1 w-28">Modelo</th>
+                    <th className="text-left px-2 py-1 w-12">Frac</th>
+                    <th className="text-left px-2 py-1">Operacion</th>
+                    {showPct && <th className="text-right px-2 py-1 w-12">%</th>}
+                    <th className="text-right px-2 py-1 w-16">Horas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((c, i) => {
+                    const col = modelColor.get(c.modelo_num) ?? DETAIL_COLORS[0]
+                    return (
+                      <tr key={i} className="border-t border-border/30 hover:bg-muted/20">
+                        <td className="px-2 py-1 font-mono font-semibold" style={{ color: col }}>
+                          {c.modelo_num}{c.color ? ` ${c.color}` : ''}
+                        </td>
+                        <td className="px-2 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
+                        <td className="px-2 py-1 truncate" title={c.operacion}>{c.operacion}</td>
+                        {showPct && (
+                          <td className="px-2 py-1 text-right font-mono">
+                            {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
+                          </td>
+                        )}
+                        <td className="px-2 py-1 text-right font-mono font-semibold">{c.hrs.toFixed(2)}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {sorted.map((c, i) => {
-                        const col = modelColor.get(c.modelo_num) ?? DETAIL_COLORS[0]
-                        const barW = (c.hrs / maxHrs) * 100
-                        return (
-                          <tr key={i} className="border-t border-border/30 hover:bg-muted/20">
-                            <td className="px-2 py-1 font-mono font-semibold" style={{ color: col }}>
-                              {c.modelo_num}{c.color ? ` ${c.color}` : ''}
-                            </td>
-                            <td className="px-2 py-1 font-mono text-muted-foreground">F{c.fraccion}</td>
-                            <td className="px-2 py-1 truncate" title={c.operacion}>{c.operacion}</td>
-                            <td className="px-2 py-1">
-                              <div className="h-3 w-full bg-muted/30 rounded overflow-hidden">
-                                <div
-                                  className="h-full rounded transition-all"
-                                  style={{ width: `${barW}%`, backgroundColor: col }}
-                                />
-                              </div>
-                            </td>
-                            {showPct && (
-                              <td className="px-2 py-1 text-right font-mono">
-                                {c.pct !== undefined ? `${c.pct.toFixed(0)}%` : '—'}
-                              </td>
-                            )}
-                            <td className="px-2 py-1 text-right font-mono font-semibold">{c.hrs.toFixed(2)}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                    <tfoot className="bg-muted/30">
-                      <tr className="border-t border-border/50 font-semibold">
-                        <td className="px-2 py-1" colSpan={showPct ? 5 : 4}>Total</td>
-                        <td className="px-2 py-1 text-right font-mono">{r.load.total.toFixed(2)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )
-            })()}
+                    )
+                  })}
+                </tbody>
+                <tfoot className="bg-muted/30">
+                  <tr className="border-t border-border/50 font-semibold">
+                    <td className="px-2 py-1" colSpan={showPct ? 4 : 3}>Total</td>
+                    <td className="px-2 py-1 text-right font-mono">{selected.load.total.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         )
-      })}
+      })()}
     </div>
   )
 }
