@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pespunte Agent",
+  title: "Footwear Robotics — Programación",
   description: "Sistema de optimizacion de programacion de pespunte",
 };
 
