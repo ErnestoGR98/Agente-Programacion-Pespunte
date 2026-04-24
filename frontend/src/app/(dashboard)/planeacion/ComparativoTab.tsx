@@ -821,11 +821,6 @@ export function ComparativoTab() {
             )
           })()}
 
-          {/* --- CARGA POR ROBOT: comparativo entre semanas --- */}
-          {visible.length > 0 && robots.length > 0 && (
-            <RobotComparativeSection visible={visible} robots={robots} />
-          )}
-
           {/* --- CARGA POR ROBOT: detalle del plan activo --- */}
           {drillPlan && (
             <RobotLoadSection
@@ -833,6 +828,11 @@ export function ComparativoTab() {
               defaultPlanId={drillPlan.id}
               robots={robots}
             />
+          )}
+
+          {/* --- CARGA POR ROBOT: comparativo entre semanas --- */}
+          {visible.length > 0 && robots.length > 0 && (
+            <RobotComparativeSection visible={visible} robots={robots} />
           )}
         </>
       )}
@@ -1209,6 +1209,9 @@ function RobotLoadSection({
   const hasAsignado = Object.keys(plan.loadByRobotAsignado).length > 0
   const hasAuto = Object.keys(plan.loadByRobotAuto).length > 0
 
+  const totalAsignado = Object.values(plan.loadByRobotAsignado).reduce((s, v) => s + v.total, 0)
+  const totalAuto = Object.values(plan.loadByRobotAuto).reduce((s, v) => s + v.total, 0)
+
   function buildRows(load: Record<string, RobotLoad>) {
     const arr: { id: string; nombre: string; estado: string; load: RobotLoad }[] = []
     for (const r of robots) {
@@ -1241,8 +1244,13 @@ function RobotLoadSection({
 
         {/* Vista ASIGNADA — principal */}
         <div className="space-y-2">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <h4 className="text-sm font-semibold">Segun asignacion del plan</h4>
+            {hasAsignado && (
+              <span className="text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                Total: {totalAsignado.toFixed(1)} h
+              </span>
+            )}
             {!hasAsignado && (
               <span className="text-xs text-muted-foreground">
                 (sin asignaciones capturadas todavia)
@@ -1266,10 +1274,15 @@ function RobotLoadSection({
 
         {/* Vista AUTOMATICA — informativa */}
         <div className="space-y-2 pt-3 border-t border-border/50">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Distribucion automatica (informativa)
             </h4>
+            {hasAuto && (
+              <span className="text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded bg-muted text-foreground/80">
+                Total: {totalAuto.toFixed(1)} h
+              </span>
+            )}
             <span className="text-[10px] text-muted-foreground">
               Reparto equitativo entre robots con programa cargado
             </span>
