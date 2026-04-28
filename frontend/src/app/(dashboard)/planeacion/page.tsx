@@ -27,6 +27,8 @@ import type { DayName, ProcessType } from '@/types'
 import { DAY_ORDER, STAGE_COLORS } from '@/types'
 import { ComparativoTab } from './ComparativoTab'
 import { ReferenciaTab } from './ReferenciaTab'
+import { DesgloseDiarioTab } from './DesgloseDiarioTab'
+import { TablaTab } from './TablaTab'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,7 +222,7 @@ export default function PlaneacionPage() {
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
 
   // --- Tab state ---
-  const [tab, setTab] = useState<'editor' | 'comparativo' | 'referencia'>('editor')
+  const [tab, setTab] = useState<'editor' | 'comparativo' | 'desglose' | 'tabla' | 'referencia'>('editor')
 
   // --- Load catalog + saved plans ---
   useEffect(() => {
@@ -1124,10 +1126,12 @@ export default function PlaneacionPage() {
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'editor' | 'comparativo' | 'referencia')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'editor' | 'comparativo' | 'desglose' | 'tabla' | 'referencia')}>
         <TabsList>
           <TabsTrigger value="editor">Editor</TabsTrigger>
           <TabsTrigger value="comparativo">Comparativo</TabsTrigger>
+          <TabsTrigger value="desglose">Desglose diario</TabsTrigger>
+          <TabsTrigger value="tabla">Tabla</TabsTrigger>
           <TabsTrigger value="referencia">Referencia</TabsTrigger>
         </TabsList>
 
@@ -1798,6 +1802,14 @@ export default function PlaneacionPage() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+
+        <TabsContent value="desglose" className="mt-4">
+          <DesgloseDiarioTab />
+        </TabsContent>
+
+        <TabsContent value="tabla" className="mt-4">
+          <TablaTab />
         </TabsContent>
 
         <TabsContent value="comparativo" className="mt-4">
