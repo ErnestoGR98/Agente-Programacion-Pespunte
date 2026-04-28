@@ -72,6 +72,15 @@ img_cache/
 backlog_tool/outputs/
 !backlog_tool/outputs/.gitkeep
 
+# Scripts personales locales (no se suben al repo)
+scripts/analizar_oportunidades_robots.py
+scripts/copia_matriz_oportunidades.py
+scripts/crear_checklist_programas.py
+scripts/crear_hoja_oportunidades.py
+scripts/crear_hoja_urgente_sem18.py
+scripts/escanear_matriz.py
+scripts/sincronizar_matriz_robots.py
+
 # Node (Next.js)
 node_modules/
 .next/

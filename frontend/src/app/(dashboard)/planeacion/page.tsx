@@ -69,8 +69,8 @@ interface RobotAssign {
   porcentaje: number
 }
 
-/** modelo_num -> fraccion -> lista de asignaciones */
-type AsignacionesMap = Record<string, Record<number, RobotAssign[]>>
+/** modelo_num -> fraccion -> dia -> lista de asignaciones (por dia) */
+type AsignacionesMap = Record<string, Record<number, Partial<Record<DayName, RobotAssign[]>>>>
 
 interface PlanRow {
   key: string
@@ -360,15 +360,17 @@ export default function PlaneacionPage() {
     setDirty(true)
   }, [])
 
-  // --- Asignaciones helpers -----------------------------------------------
-  const setAssignList = useCallback((modeloNum: string, fraccion: number, next: RobotAssign[]) => {
+  // --- Asignaciones helpers (por dia) -------------------------------------
+  const setAssignList = useCallback((modeloNum: string, fraccion: number, dia: DayName, next: RobotAssign[]) => {
     setAsignaciones((prev) => {
+      const byFrac = { ...(prev[modeloNum]?.[fraccion] ?? {}) } as Partial<Record<DayName, RobotAssign[]>>
+      if (next.length === 0) delete byFrac[dia]
+      else byFrac[dia] = next
+
       const byModel = { ...(prev[modeloNum] ?? {}) }
-      if (next.length === 0) {
-        delete byModel[fraccion]
-      } else {
-        byModel[fraccion] = next
-      }
+      if (Object.keys(byFrac).length === 0) delete byModel[fraccion]
+      else byModel[fraccion] = byFrac
+
       const out = { ...prev }
       if (Object.keys(byModel).length === 0) delete out[modeloNum]
       else out[modeloNum] = byModel
@@ -377,9 +379,9 @@ export default function PlaneacionPage() {
     setDirty(true)
   }, [])
 
-  const toggleRobotAssign = useCallback((modeloNum: string, fraccion: number, robotId: string) => {
+  const toggleRobotAssign = useCallback((modeloNum: string, fraccion: number, dia: DayName, robotId: string) => {
     setAsignaciones((prev) => {
-      const cur = prev[modeloNum]?.[fraccion] ?? []
+      const cur = prev[modeloNum]?.[fraccion]?.[dia] ?? []
       const exists = cur.some((a) => a.robot_id === robotId)
       const nextList = exists
         ? cur.filter((a) => a.robot_id !== robotId)
@@ -391,9 +393,14 @@ export default function PlaneacionPage() {
         robot_id: a.robot_id,
         porcentaje: i === n - 1 ? Math.round((100 - even * (n - 1)) * 100) / 100 : even,
       }))
+      const byFrac = { ...(prev[modeloNum]?.[fraccion] ?? {}) } as Partial<Record<DayName, RobotAssign[]>>
+      if (distributed.length === 0) delete byFrac[dia]
+      else byFrac[dia] = distributed
+
       const byModel = { ...(prev[modeloNum] ?? {}) }
-      if (distributed.length === 0) delete byModel[fraccion]
-      else byModel[fraccion] = distributed
+      if (Object.keys(byFrac).length === 0) delete byModel[fraccion]
+      else byModel[fraccion] = byFrac
+
       const out = { ...prev }
       if (Object.keys(byModel).length === 0) delete out[modeloNum]
       else out[modeloNum] = byModel
@@ -402,13 +409,12 @@ export default function PlaneacionPage() {
     setDirty(true)
   }, [])
 
-  const setAssignPercent = useCallback((modeloNum: string, fraccion: number, robotId: string, pct: number) => {
+  const setAssignPercent = useCallback((modeloNum: string, fraccion: number, dia: DayName, robotId: string, pct: number) => {
     setAsignaciones((prev) => {
-      const cur = prev[modeloNum]?.[fraccion] ?? []
+      const cur = prev[modeloNum]?.[fraccion]?.[dia] ?? []
       const clamped = Math.max(0, Math.min(100, pct))
       const others = cur.filter((a) => a.robot_id !== robotId)
       const remaining = Math.max(0, 100 - clamped)
-      // Reparto equitativo del remaining entre los otros
       const n = others.length
       const evenShare = n > 0 ? Math.round((remaining / n) * 100) / 100 : 0
       const redistOthers = others.map((a, i) => ({
@@ -420,8 +426,10 @@ export default function PlaneacionPage() {
           ? { robot_id: robotId, porcentaje: clamped }
           : redistOthers.find((o) => o.robot_id === a.robot_id) ?? a,
       )
+      const byFrac = { ...(prev[modeloNum]?.[fraccion] ?? {}) } as Partial<Record<DayName, RobotAssign[]>>
+      byFrac[dia] = next
       const byModel = { ...(prev[modeloNum] ?? {}) }
-      byModel[fraccion] = next
+      byModel[fraccion] = byFrac
       return { ...prev, [modeloNum]: byModel }
     })
     setDirty(true)
@@ -503,11 +511,11 @@ export default function PlaneacionPage() {
         .order('orden', { ascending: true }),
       supabase
         .from('plan_robot_asignacion')
-        .select('modelo_num, fraccion, robot_id, porcentaje')
+        .select('modelo_num, fraccion, dia, robot_id, porcentaje')
         .eq('plan_id', id),
     ])
     const items = itemsRes.data
-    const asignData = (asignRes.data || []) as { modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[]
+    const asignData = (asignRes.data || []) as { modelo_num: string; fraccion: number; dia: string; robot_id: string; porcentaje: number }[]
 
     if (!items) return
 
@@ -537,12 +545,15 @@ export default function PlaneacionPage() {
       .sort((a, b) => a.orden - b.orden)
       .map(({ orden: _orden, ...rest }) => rest)
 
-    // Reconstruir AsignacionesMap
+    // Reconstruir AsignacionesMap (modelo -> fraccion -> dia -> robots[])
     const asignMap: AsignacionesMap = {}
     for (const a of asignData) {
       if (!asignMap[a.modelo_num]) asignMap[a.modelo_num] = {}
-      if (!asignMap[a.modelo_num][a.fraccion]) asignMap[a.modelo_num][a.fraccion] = []
-      asignMap[a.modelo_num][a.fraccion].push({ robot_id: a.robot_id, porcentaje: Number(a.porcentaje) })
+      if (!asignMap[a.modelo_num][a.fraccion]) asignMap[a.modelo_num][a.fraccion] = {}
+      const byFrac = asignMap[a.modelo_num][a.fraccion]
+      const dia = (a.dia ?? 'Lun') as DayName
+      if (!byFrac[dia]) byFrac[dia] = []
+      byFrac[dia]!.push({ robot_id: a.robot_id, porcentaje: Number(a.porcentaje) })
     }
 
     setPlanId(id)
@@ -602,21 +613,24 @@ export default function PlaneacionPage() {
         await supabase.from('plan_semanal_items').insert(items)
       }
 
-      // Guardar asignaciones de robots (replace: borra y reinserta)
+      // Guardar asignaciones de robots por dia (replace: borra y reinserta)
       await supabase.from('plan_robot_asignacion').delete().eq('plan_id', id!)
-      const asignRows: { plan_id: string; modelo_num: string; fraccion: number; robot_id: string; porcentaje: number }[] = []
+      const asignRows: { plan_id: string; modelo_num: string; fraccion: number; dia: string; robot_id: string; porcentaje: number }[] = []
       for (const [modeloNum, byFraccion] of Object.entries(asignaciones)) {
-        for (const [fraccionStr, list] of Object.entries(byFraccion)) {
+        for (const [fraccionStr, byDia] of Object.entries(byFraccion)) {
           const fraccion = Number(fraccionStr)
-          for (const a of list) {
-            if (a.porcentaje > 0) {
-              asignRows.push({
-                plan_id: id!,
-                modelo_num: modeloNum,
-                fraccion,
-                robot_id: a.robot_id,
-                porcentaje: a.porcentaje,
-              })
+          for (const [dia, list] of Object.entries(byDia ?? {})) {
+            for (const a of (list as RobotAssign[])) {
+              if (a.porcentaje > 0) {
+                asignRows.push({
+                  plan_id: id!,
+                  modelo_num: modeloNum,
+                  fraccion,
+                  dia,
+                  robot_id: a.robot_id,
+                  porcentaje: a.porcentaje,
+                })
+              }
             }
           }
         }
@@ -881,41 +895,80 @@ export default function PlaneacionPage() {
     return { totalHrs, totalPares, hrsByEtapa, hrsByDay, opsByEtapa, hrsByEtapaByDay }
   }, [hoursData, activeDays])
 
-  // --- Robot load: lista de ops ROBOT por modelo en el plan + horas ---
+  // --- Robot load: lista de ops ROBOT por modelo en el plan + horas (total + por dia) ---
   const robotOpsByRow = useMemo(() => {
-    const result: { rowKey: string; modelo_num: string; color: string; ops: { fraccion: number; operacion: string; rate: number; totalHrs: number }[] }[] = []
+    const result: { rowKey: string; modelo_num: string; color: string; daysWithProd: DayName[]; ops: { fraccion: number; operacion: string; rate: number; totalHrs: number; hoursByDay: Partial<Record<DayName, number>> }[] }[] = []
     for (const row of rows) {
       const cat = catalogoMap.get(row.modelo_num)
       if (!cat) continue
-      const totalPares = activeDays.reduce((s, d) => s + (row.pares[d] || 0), 0)
+      const daysWithProd = activeDays.filter((d) => (row.pares[d] || 0) > 0)
+      const totalPares = daysWithProd.reduce((s, d) => s + (row.pares[d] || 0), 0)
       if (totalPares === 0) continue
-      const robotOps: { fraccion: number; operacion: string; rate: number; totalHrs: number }[] = []
+      const robotOps: { fraccion: number; operacion: string; rate: number; totalHrs: number; hoursByDay: Partial<Record<DayName, number>> }[] = []
       for (const op of cat.operaciones) {
         const recs = op.recurso.split(',').map((s) => s.trim())
         if (!recs.includes('ROBOT')) continue
-        const hrs = op.rate > 0 ? totalPares / op.rate : 0
-        robotOps.push({ fraccion: op.fraccion, operacion: op.operacion, rate: op.rate, totalHrs: hrs })
+        const hoursByDay: Partial<Record<DayName, number>> = {}
+        let totalHrs = 0
+        for (const d of daysWithProd) {
+          const h = op.rate > 0 ? (row.pares[d] || 0) / op.rate : 0
+          hoursByDay[d] = h
+          totalHrs += h
+        }
+        robotOps.push({ fraccion: op.fraccion, operacion: op.operacion, rate: op.rate, totalHrs, hoursByDay })
       }
       if (robotOps.length > 0) {
-        result.push({ rowKey: row.key, modelo_num: row.modelo_num, color: row.color, ops: robotOps })
+        result.push({ rowKey: row.key, modelo_num: row.modelo_num, color: row.color, daysWithProd, ops: robotOps })
       }
     }
     return result
   }, [rows, catalogoMap, activeDays])
 
-  // --- Carga total por robot (aplicando porcentajes) ---
+  // --- Vista day-first para asignacion: por dia -> lista de modelos con fracciones robot ---
+  const robotOpsByDay = useMemo(() => {
+    type DayModelOp = { fraccion: number; operacion: string; rate: number; hoursDia: number }
+    type DayModel = { rowKey: string; modelo_num: string; color: string; paresDia: number; ops: DayModelOp[] }
+    const result: { dia: DayName; models: DayModel[] }[] = []
+    for (const d of activeDays) {
+      const models: DayModel[] = []
+      for (const row of rows) {
+        const paresDia = row.pares[d] || 0
+        if (paresDia <= 0) continue
+        const cat = catalogoMap.get(row.modelo_num)
+        if (!cat) continue
+        const ops: DayModelOp[] = []
+        for (const op of cat.operaciones) {
+          const recs = op.recurso.split(',').map((s) => s.trim())
+          if (!recs.includes('ROBOT')) continue
+          const hoursDia = op.rate > 0 ? paresDia / op.rate : 0
+          ops.push({ fraccion: op.fraccion, operacion: op.operacion, rate: op.rate, hoursDia })
+        }
+        if (ops.length > 0) {
+          models.push({ rowKey: row.key, modelo_num: row.modelo_num, color: row.color, paresDia, ops })
+        }
+      }
+      if (models.length > 0) result.push({ dia: d, models })
+    }
+    return result
+  }, [rows, catalogoMap, activeDays])
+
+  // --- Carga total por robot (suma horas-por-dia ponderadas por porcentaje del robot ese dia) ---
   const loadByRobot = useMemo(() => {
     const byRobot = new Map<string, { totalHrs: number; byModel: Map<string, number> }>()
     for (const group of robotOpsByRow) {
       const modelKey = group.color ? `${group.modelo_num} ${group.color}` : group.modelo_num
       for (const op of group.ops) {
-        const assigns = asignaciones[group.modelo_num]?.[op.fraccion] ?? []
-        for (const a of assigns) {
-          const hrs = op.totalHrs * (a.porcentaje / 100)
-          if (!byRobot.has(a.robot_id)) byRobot.set(a.robot_id, { totalHrs: 0, byModel: new Map() })
-          const bucket = byRobot.get(a.robot_id)!
-          bucket.totalHrs += hrs
-          bucket.byModel.set(modelKey, (bucket.byModel.get(modelKey) ?? 0) + hrs)
+        const byDia = asignaciones[group.modelo_num]?.[op.fraccion] ?? {}
+        for (const dia of group.daysWithProd) {
+          const assignsDia = byDia[dia] ?? []
+          const hrsDia = op.hoursByDay[dia] ?? 0
+          for (const a of assignsDia) {
+            const hrs = hrsDia * (a.porcentaje / 100)
+            if (!byRobot.has(a.robot_id)) byRobot.set(a.robot_id, { totalHrs: 0, byModel: new Map() })
+            const bucket = byRobot.get(a.robot_id)!
+            bucket.totalHrs += hrs
+            bucket.byModel.set(modelKey, (bucket.byModel.get(modelKey) ?? 0) + hrs)
+          }
         }
       }
     }
@@ -1636,8 +1689,8 @@ export default function PlaneacionPage() {
         </Card>
       )}
 
-      {/* --- ASIGNACION DE ROBOTS --- */}
-      {robotOpsByRow.length > 0 && (
+      {/* --- ASIGNACION DE ROBOTS (day-first) --- */}
+      {robotOpsByDay.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -1646,55 +1699,77 @@ export default function PlaneacionPage() {
                 Asignacion de Robots
               </h2>
               <span className="text-xs text-muted-foreground">
-                Elige los robots reales y, si se divide, ajusta %
+                Una tarjeta por dia. Asigna los robots reales por modelo y, si se divide, ajusta %.
               </span>
             </div>
             <div className="space-y-4">
-              {robotOpsByRow.map((group) => {
-                const modelLabel = group.color ? `${group.modelo_num} ${group.color}` : group.modelo_num
+              {robotOpsByDay.map((dayGroup) => {
+                const totalParesDia = dayGroup.models.reduce((s, m) => s + m.paresDia, 0)
+                const totalHrsDia = dayGroup.models.reduce(
+                  (s, m) => s + m.ops.reduce((s2, op) => s2 + op.hoursDia, 0),
+                  0,
+                )
                 return (
-                  <div key={group.rowKey} className="rounded-md border overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b">
-                      <ModeloImg
-                        images={images}
-                        modeloNum={group.modelo_num}
-                        color={group.color || undefined}
-                        className="h-7 w-7 rounded border object-cover bg-white shrink-0"
-                      />
-                      <span className="font-medium text-sm">{modelLabel}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
-                        {group.ops.length} op{group.ops.length !== 1 ? 's' : ''} robot
+                  <div key={dayGroup.dia} className="rounded-md border overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b">
+                      <Badge variant="default" className="text-xs">{dayGroup.dia}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {dayGroup.models.length} modelo{dayGroup.models.length !== 1 ? 's' : ''} · {totalParesDia.toLocaleString()} pares · {totalHrsDia.toFixed(1)} hrs robot
                       </span>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-muted/20">
-                          <tr className="border-b text-muted-foreground">
-                            <th className="text-left px-3 py-1.5 w-12">Frac</th>
-                            <th className="text-left px-3 py-1.5">Operacion</th>
-                            <th className="text-right px-3 py-1.5 w-20">Rate</th>
-                            <th className="text-right px-3 py-1.5 w-20">Horas</th>
-                            <th className="text-left px-3 py-1.5">Robots asignados</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.ops.map((op) => (
-                            <RobotAssignRow
-                              key={op.fraccion}
-                              modeloNum={group.modelo_num}
-                              fraccion={op.fraccion}
-                              operacion={op.operacion}
-                              rate={op.rate}
-                              totalHrs={op.totalHrs}
-                              assigns={asignaciones[group.modelo_num]?.[op.fraccion] ?? []}
-                              robots={robots}
-                              programaForOp={programaMatriz[group.modelo_num]?.[op.fraccion]}
-                              onToggle={(robotId) => toggleRobotAssign(group.modelo_num, op.fraccion, robotId)}
-                              onSetPercent={(robotId, pct) => setAssignPercent(group.modelo_num, op.fraccion, robotId, pct)}
-                            />
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="divide-y">
+                      {dayGroup.models.map((m) => {
+                        const modelLabel = m.color ? `${m.modelo_num} ${m.color}` : m.modelo_num
+                        return (
+                          <div key={`${dayGroup.dia}_${m.rowKey}`}>
+                            <div className="flex items-center gap-2 px-3 py-2 bg-muted/20">
+                              <ModeloImg
+                                images={images}
+                                modeloNum={m.modelo_num}
+                                color={m.color || undefined}
+                                className="h-7 w-7 rounded border object-cover bg-white shrink-0"
+                              />
+                              <span className="font-medium text-sm">{modelLabel}</span>
+                              <Badge variant="secondary" className="text-xs ml-1">
+                                {m.paresDia.toLocaleString()} pares
+                              </Badge>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {m.ops.length} op{m.ops.length !== 1 ? 's' : ''} robot
+                              </span>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead className="bg-muted/10">
+                                  <tr className="border-b text-muted-foreground">
+                                    <th className="text-left px-3 py-1.5 w-12">Frac</th>
+                                    <th className="text-left px-3 py-1.5">Operacion</th>
+                                    <th className="text-right px-3 py-1.5 w-20">Rate</th>
+                                    <th className="text-right px-3 py-1.5 w-20">Horas</th>
+                                    <th className="text-left px-3 py-1.5">Robots asignados</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {m.ops.map((op) => (
+                                    <RobotAssignRow
+                                      key={op.fraccion}
+                                      modeloNum={m.modelo_num}
+                                      fraccion={op.fraccion}
+                                      operacion={op.operacion}
+                                      rate={op.rate}
+                                      totalHrs={op.hoursDia}
+                                      assigns={asignaciones[m.modelo_num]?.[op.fraccion]?.[dayGroup.dia] ?? []}
+                                      robots={robots}
+                                      programaForOp={programaMatriz[m.modelo_num]?.[op.fraccion]}
+                                      onToggle={(robotId) => toggleRobotAssign(m.modelo_num, op.fraccion, dayGroup.dia, robotId)}
+                                      onSetPercent={(robotId, pct) => setAssignPercent(m.modelo_num, op.fraccion, dayGroup.dia, robotId, pct)}
+                                    />
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )
