@@ -111,6 +111,27 @@ export async function generateDaily(req: { resultado_id: string; nota?: string }
 }
 
 // ============================================================
+// GENERATE SCENARIO FROM PLANEACION (manual matrix)
+// ============================================================
+
+export async function generateFromPlan(req: {
+  base_name: string
+  plan: { modelo: string; color: string; fabrica?: string; dias: Record<string, number> }[]
+  nota?: string
+}): Promise<{
+  status: string
+  total_pares: number
+  total_tardiness: number
+  wall_time: number
+  saved_as: string
+}> {
+  return fetchAPI('/api/generate-from-plan', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+// ============================================================
 // OPTIMIZE SINGLE DAY
 // ============================================================
 

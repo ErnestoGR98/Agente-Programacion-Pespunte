@@ -1419,6 +1419,303 @@ def generate_daily(req: GenerateDailyRequest):
 
 
 # ============================================================
+# Generate Scenario from Manual Plan (Planeacion view)
+# ============================================================
+
+class PlanItem(BaseModel):
+    modelo: str           # modelo_num (5 digitos)
+    color: str = ""
+    fabrica: str = ""
+    dias: dict            # {"Lun": 700, "Mar": 0, ...}
+
+
+class GenerateFromPlanRequest(BaseModel):
+    base_name: str        # ej "SEM20-MAY11" — clave de versionado
+    plan: list[PlanItem]
+    nota: str = ""
+
+
+class GenerateFromPlanResponse(BaseModel):
+    status: str
+    total_pares: int
+    total_tardiness: int
+    wall_time: float
+    saved_as: str
+
+
+@router.post("/generate-from-plan", response_model=GenerateFromPlanResponse)
+def generate_from_plan(req: GenerateFromPlanRequest):
+    """Genera escenario completo (daily + operarios) a partir del plan manual de /planeacion.
+    Construye weekly_schedule + pedido_snapshot sinteticos y salta el weekly optimizer."""
+    import time
+    t0 = time.time()
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(500, "Supabase no configurado en el servidor")
+
+    base_name = req.base_name.strip()
+    if not base_name:
+        raise HTTPException(400, "base_name es requerido")
+    if not req.plan:
+        raise HTTPException(400, "plan no puede estar vacio")
+
+    # 1. Construir weekly_schedule + pedido_snapshot sinteticos desde el plan
+    weekly_schedule = []
+    pedido_items = []
+    for item in req.plan:
+        codigo = f"{item.modelo} {item.color}".strip()
+        total_modelo = 0
+        for dia, pares in (item.dias or {}).items():
+            try:
+                pares_int = int(pares or 0)
+            except (TypeError, ValueError):
+                pares_int = 0
+            if pares_int <= 0:
+                continue
+            weekly_schedule.append({
+                "Modelo": codigo,
+                "Dia": dia,
+                "Pares": pares_int,
+                "Fabrica": item.fabrica or "",
+            })
+            total_modelo += pares_int
+        if total_modelo > 0:
+            pedido_items.append({
+                "modelo": item.modelo,
+                "color": item.color,
+                "volumen": total_modelo,
+                "fabrica": item.fabrica or "",
+            })
+
+    if not weekly_schedule:
+        raise HTTPException(400, "El plan no tiene celdas con pares > 0")
+
+    print(f"[GEN-PLAN] base_name='{base_name}' entries={len(weekly_schedule)} modelos={len(pedido_items)}")
+
+    # 2. Cargar datos necesarios (igual que generate_daily)
+    params = _load_params()
+    catalogo = _load_catalogo()
+    operarios = _load_operarios()
+    semana = base_name
+    restricciones = _load_restricciones(semana)
+    avance_data = _load_avance(semana) if semana else {}
+
+    # 3. Cruzar pedido sintetico con catalogo
+    matched = _match_models(catalogo, pedido_items)
+    if not matched:
+        raise HTTPException(400, "Ningun modelo del plan tiene match en catalogo")
+    print(f"[GEN-PLAN] matched: {len(matched)} modelos")
+
+    # 4. Compilar restricciones
+    compiled = compile_constraints(
+        restricciones, avance_data, matched, params["days"],
+    )
+
+    # 5. Aplicar volumenes del plan a los modelos
+    models_for_opt = deepcopy(matched)
+    weekly_by_model = {}
+    for entry in weekly_schedule:
+        modelo = entry["Modelo"]
+        weekly_by_model[modelo] = weekly_by_model.get(modelo, 0) + entry.get("Pares", 0)
+
+    for m in models_for_opt:
+        codigo = m["codigo"]
+        m["total_producir"] = weekly_by_model.get(codigo, 0)
+
+    models_for_opt = [m for m in models_for_opt if m["total_producir"] > 0]
+    print(f"[GEN-PLAN] models_for_opt: {len(models_for_opt)} con volumen > 0")
+
+    # 6. Corregir plantilla con operarios reales (igual que generate_daily)
+    params = deepcopy(params)
+    if operarios:
+        for day_cfg in params["days"]:
+            dn = day_cfg["name"]
+            dn_prefix = dn.split()[0] if dn else ""
+            real_count = 0
+            for op in operarios:
+                dias = op.get("dias_disponibles", [])
+                if not dias:
+                    real_count += 1
+                    continue
+                for d in dias:
+                    if d == dn or dn.startswith(d) or d.startswith(dn_prefix):
+                        real_count += 1
+                        break
+            day_cfg["plantilla"] = real_count
+            day_cfg["plantilla_ot"] = real_count
+
+    # 6b. Operator capacity
+    if operarios:
+        op_cap_global = {}
+        for op in operarios:
+            if not op.get("activo", True):
+                continue
+            for r in op.get("recursos_habilitados", []):
+                op_cap_global[r] = op_cap_global.get(r, 0) + 1
+        if op_cap_global:
+            params["operator_capacity"] = op_cap_global
+
+    # 7. Scheduling diario
+    raw_daily = schedule_week(weekly_schedule, models_for_opt, params, compiled, operarios=operarios)
+
+    # 8. Asignacion de operarios
+    op_results = {}
+    if operarios:
+        op_results = assign_operators_week(
+            raw_daily, operarios, params["time_blocks"]
+        )
+
+    # 9. Aplanar resultados (mismo formato que generate_daily / optimize)
+    model_lookup = {m["codigo"]: m for m in models_for_opt}
+    daily_results = {}
+    for day_name, day_data in raw_daily.items():
+        summary = day_data.get("summary", {})
+        op_day = op_results.get(day_name, {})
+        source_schedule = op_day.get("assignments") or day_data.get("schedule", [])
+
+        schedule = []
+        for s in source_schedule:
+            modelo_code = s.get("modelo", "")
+            etapa = ""
+            input_o_proceso = ""
+            cat_model = model_lookup.get(modelo_code)
+            if cat_model:
+                for op in cat_model.get("operations", []):
+                    if op["fraccion"] == s.get("fraccion"):
+                        etapa = op.get("etapa", "")
+                        input_o_proceso = op.get("input_o_proceso", "")
+                        break
+
+            entry = {
+                "modelo": modelo_code,
+                "fraccion": s.get("fraccion", 0),
+                "operacion": s.get("operacion", ""),
+                "recurso": s.get("recurso", ""),
+                "rate": s.get("rate", 0),
+                "hc": s.get("hc", 0),
+                "etapa": etapa,
+                "input_o_proceso": input_o_proceso,
+                "blocks": s.get("block_pares", []),
+                "total": s.get("total_pares", 0),
+                "robot": s.get("robot_asignado") or (s.get("robots_used") or [None])[0],
+                "robot_per_block": s.get("robot_per_block", []),
+                "operario": s.get("operario", ""),
+            }
+            if s.get("adelanto"):
+                entry["adelanto"] = True
+                entry["adelanto_de"] = s.get("adelanto_de", "")
+            if s.get("motivo_sin_asignar"):
+                entry["motivo_sin_asignar"] = s["motivo_sin_asignar"]
+            if s.get("motivos_por_bloque"):
+                entry["motivos_por_bloque"] = s["motivos_por_bloque"]
+            schedule.append(entry)
+
+        day_dict = {
+            "status": summary.get("status", ""),
+            "total_pares": summary.get("total_pares", 0),
+            "total_tardiness": summary.get("total_tardiness", 0),
+            "plantilla": summary.get("plantilla", 0),
+            "schedule": schedule,
+            "operator_timelines": op_day.get("operator_timelines", {}),
+            "unassigned_ops": op_day.get("unassigned", []),
+        }
+        if summary.get("pares_adelantados"):
+            day_dict["pares_adelantados"] = summary["pares_adelantados"]
+        if summary.get("pares_rezago"):
+            day_dict["pares_rezago"] = summary["pares_rezago"]
+        if summary.get("tardiness_by_model"):
+            day_dict["tardiness_by_model"] = summary["tardiness_by_model"]
+        if summary.get("prelim_adelantadas"):
+            day_dict["prelim_adelantadas"] = summary["prelim_adelantadas"]
+        daily_results[day_name] = day_dict
+
+    # 10. Construir weekly_summary desde el plan manual (sin solver)
+    days_summary = []
+    for day_cfg in params["days"]:
+        dn = day_cfg["name"]
+        pares_dia = sum(e.get("Pares", 0) for e in weekly_schedule if e.get("Dia") == dn)
+        # HC necesario: sum of secs / hours_day (solo modelos con pares en este dia)
+        sec_total = 0
+        for e in weekly_schedule:
+            if e.get("Dia") != dn:
+                continue
+            cat_m = model_lookup.get(e["Modelo"])
+            if cat_m:
+                sec_per_pair = cat_m.get("total_sec_per_pair", 0)
+                sec_total += e.get("Pares", 0) * sec_per_pair
+        hours_work = sec_total / 3600.0
+        hours_day = day_cfg["minutes"] / 60.0
+        hc_needed = hours_work / hours_day if hours_day > 0 else 0
+
+        # HC disponible (operarios que pueden trabajar este dia)
+        hc_disp = day_cfg["plantilla"]
+
+        days_summary.append({
+            "dia": dn,
+            "pares": pares_dia,
+            "hc_necesario": round(hc_needed, 1),
+            "hc_disponible": hc_disp,
+            "peak_hc": 0,
+            "diferencia": round(hc_disp - hc_needed, 1),
+            "utilizacion_pct": 0,
+            "overtime_hrs": 0,
+            "is_saturday": day_cfg.get("is_saturday", False),
+        })
+
+    models_summary = []
+    for m in models_for_opt:
+        codigo = m["codigo"]
+        producido = weekly_by_model.get(codigo, 0)
+        active_days = sorted({
+            e["Dia"] for e in weekly_schedule
+            if e["Modelo"] == codigo and e.get("Pares", 0) > 0
+        })
+        models_summary.append({
+            "codigo": codigo,
+            "fabrica": m.get("fabrica", ""),
+            "volumen": producido,
+            "producido": producido,
+            "tardiness": 0,
+            "pct_completado": 100.0 if producido > 0 else 0,
+            "span_dias": len(active_days),
+            "dias_produccion": active_days,
+        })
+
+    weekly_summary = {
+        "status": "MANUAL_PLAN",
+        "objective_value": 0,
+        "wall_time_s": 0,
+        "days": days_summary,
+        "models": models_summary,
+        "total_pares": sum(ds["pares"] for ds in days_summary),
+        "total_tardiness": 0,
+    }
+
+    # 11. Guardar resultado
+    wall_time = time.time() - t0
+    weekly_summary["wall_time_s"] = round(wall_time, 2)
+
+    total_daily_pares = sum(dr.get("total_pares", 0) for dr in daily_results.values())
+    total_daily_tardiness = sum(dr.get("total_tardiness", 0) for dr in daily_results.values())
+
+    saved_as = _save_resultado(
+        base_name, weekly_schedule, weekly_summary,
+        daily_results, pedido_items, params,
+        req.nota or "Escenario generado desde Planeacion",
+    )
+
+    print(f"[GEN-PLAN] Guardado como '{saved_as}' en {wall_time:.1f}s")
+
+    return GenerateFromPlanResponse(
+        status="OK",
+        total_pares=total_daily_pares,
+        total_tardiness=total_daily_tardiness,
+        wall_time=round(wall_time, 2),
+        saved_as=saved_as,
+    )
+
+
+# ============================================================
 # Optimize Single Day
 # ============================================================
 

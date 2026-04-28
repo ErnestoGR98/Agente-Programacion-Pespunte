@@ -1,7 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+import { generateFromPlan } from '@/lib/api/fastapi'
+import { useAppStore } from '@/lib/store/useAppStore'
+import type { Resultado } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -194,6 +198,7 @@ export default function PlaneacionPage() {
   const [programaMatriz, setProgramaMatriz] = useState<ProgramaMatriz>({})
 
   // --- Plan state ---
+  const router = useRouter()
   const [planId, setPlanId] = useState<string | null>(null)
   const [planName, setPlanName] = useState('')
   const [rows, setRows] = useState<PlanRow[]>([])
@@ -201,6 +206,7 @@ export default function PlaneacionPage() {
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
   // --- Saved plans list ---
   const [savedPlans, setSavedPlans] = useState<PlanHeader[]>([])
@@ -996,6 +1002,56 @@ export default function PlaneacionPage() {
     XLSX.writeFile(wb, `horas_fracciones_${(planName || 'plan').replace(/\s+/g, '_')}.xlsx`)
   }, [hoursData, globalSummary, activeDays, planName])
 
+  // --- Generar escenario: corre daily scheduling + operarios desde el plan ---
+  const handleGenerarEscenario = useCallback(async () => {
+    const baseName = planName.trim()
+    if (!baseName) {
+      alert('Ponle nombre al plan antes de generar el escenario.')
+      return
+    }
+    const plan = rows
+      .map((r) => ({
+        modelo: r.modelo_num,
+        color: r.color || '',
+        fabrica: '',
+        dias: Object.fromEntries(
+          activeDays.map((d) => [d, r.pares[d] || 0]),
+        ) as Record<string, number>,
+      }))
+      .filter((p) => Object.values(p.dias).some((v) => v > 0))
+
+    if (plan.length === 0) {
+      alert('El plan no tiene celdas con pares > 0.')
+      return
+    }
+
+    const baseSlug = baseName.replace(/\s+/g, '_')
+    setGenerating(true)
+    try {
+      const res = await generateFromPlan({
+        base_name: baseSlug,
+        plan,
+        nota: `Escenario desde Planeacion: ${baseName}`,
+      })
+      // Cargar el resultado guardado al store para que /resumen y /programa lo vean
+      const { data, error } = await supabase
+        .from('resultados')
+        .select('*')
+        .eq('nombre', res.saved_as)
+        .single()
+      if (error || !data) {
+        throw new Error(error?.message || 'No se pudo cargar el resultado guardado')
+      }
+      useAppStore.getState().setCurrentResult(data as Resultado)
+      router.push('/resumen')
+    } catch (e) {
+      console.error('[generateFromPlan] error', e)
+      alert(`No se pudo generar el escenario: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setGenerating(false)
+    }
+  }, [planName, rows, activeDays, router])
+
   // --- Render ---
   if (loadingCat) {
     return (
@@ -1098,6 +1154,16 @@ export default function PlaneacionPage() {
           >
             <Download className="h-4 w-4 mr-1" />
             Excel
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleGenerarEscenario}
+            disabled={generating || rows.length === 0 || !planName.trim()}
+            title="Genera programa diario y resumen semanal a partir de este plan"
+          >
+            <Workflow className="h-4 w-4 mr-1" />
+            {generating ? 'Generando...' : 'Generar escenario'}
           </Button>
       </div>
 
