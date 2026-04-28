@@ -20,6 +20,22 @@ const ETAPA_COLOR: Record<Etapa, string> = {
   'N/A': '#60a5fa',
 }
 
+// Display labels — N/A se muestra mas descriptivo en UI sin tocar el enum
+const ETAPA_LABEL: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR (Proceso directo a ensamble)',
+}
+const ETAPA_LABEL_SHORT: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR',
+}
+
 const PROCESO_TO_ETAPA: Record<string, Etapa> = {
   PRELIMINARES: 'PREL',
   ROBOT: 'ROBOT',
@@ -178,7 +194,7 @@ export function TablaTab() {
         const ed = p.hrsByEtapaByDay[e] ?? {}
         const rowTotal = diasActivos.reduce((s, d) => s + (ed[d] ?? 0), 0)
         if (rowTotal === 0) continue
-        const row: (string | number)[] = [p.nombre, e]
+        const row: (string | number)[] = [p.nombre, ETAPA_LABEL_SHORT[e]]
         for (const d of diasActivos) {
           const v = ed[d] ?? 0
           row.push(v > 0 ? round1(v) : '')
@@ -391,10 +407,11 @@ export function TablaTab() {
                     return (
                       <tr key={e} className="border-b">
                         <td
-                          className="px-3 py-1 text-xs font-bold sticky left-0 bg-background border-r-4 border-primary/60"
+                          className="px-3 py-1 text-xs font-bold sticky left-0 bg-background border-r-4 border-primary/60 whitespace-nowrap"
                           style={{ color: ETAPA_COLOR[e] }}
+                          title={ETAPA_LABEL[e]}
                         >
-                          {e}
+                          {ETAPA_LABEL_SHORT[e]}
                         </td>
                         {visible.map((p, planIdx) => {
                           const ed = p.hrsByEtapaByDay[e] ?? {}

@@ -23,6 +23,22 @@ const ETAPA_COLOR: Record<Etapa, string> = {
   MAQ: STAGE_COLORS.MAQUILA,
 }
 
+// Display labels — N/A se muestra mas descriptivo en UI sin tocar el enum
+const ETAPA_LABEL: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR (Proceso directo a ensamble)',
+}
+const ETAPA_LABEL_SHORT: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR',
+}
+
 // Paleta vibrante para detalle por modelo (independiente de CHART_COLORS
 // que representan semanas)
 const DETAIL_COLORS = [
@@ -456,7 +472,7 @@ export function ComparativoTab() {
             <KpiCard label="Modelos activos" value={String(summary.modsSum)} />
             {ETAPAS.map((e) =>
               summary.agg[e] > 0 ? (
-                <KpiCard key={e} label={e} value={summary.agg[e].toFixed(1) + ' hrs'} />
+                <KpiCard key={e} label={ETAPA_LABEL_SHORT[e]} value={summary.agg[e].toFixed(1) + ' hrs'} />
               ) : null,
             )}
           </div>
@@ -483,10 +499,11 @@ export function ComparativoTab() {
                       {etapasConDatos.map((e) => (
                         <tr key={e} className="border-b">
                           <td
-                            className="py-1.5 px-3 text-xs font-bold"
+                            className="py-1.5 px-3 text-xs font-bold whitespace-nowrap"
                             style={{ color: ETAPA_COLOR[e] }}
+                            title={ETAPA_LABEL[e]}
                           >
-                            {e}
+                            {ETAPA_LABEL_SHORT[e]}
                           </td>
                           {visible.map((p) => (
                             <td key={p.id} className="py-1.5 px-3 text-center text-xs">
@@ -657,8 +674,9 @@ export function ComparativoTab() {
                     <span
                       className="inline-block px-2 py-0.5 rounded text-xs font-bold text-white"
                       style={{ backgroundColor: ETAPA_COLOR[selectedEtapa] }}
+                      title={ETAPA_LABEL[selectedEtapa]}
                     >
-                      {selectedEtapa}
+                      {ETAPA_LABEL_SHORT[selectedEtapa]}
                     </span>
                     <span className="text-muted-foreground font-normal">en</span>
                     <span

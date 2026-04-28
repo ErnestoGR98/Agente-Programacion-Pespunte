@@ -16,6 +16,23 @@ import { cn } from '@/lib/utils'
 const ETAPAS = ['MAQ', 'PREL', 'ROBOT', 'POST', 'N/A'] as const
 type Etapa = typeof ETAPAS[number]
 
+// Display label: enum interno se mantiene 'N/A' pero en UI se muestra descriptivo.
+// Las demas etapas se muestran tal cual.
+const ETAPA_LABEL: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR (Proceso directo a ensamble)',
+}
+const ETAPA_LABEL_SHORT: Record<Etapa, string> = {
+  MAQ: 'MAQ',
+  PREL: 'PREL',
+  ROBOT: 'ROBOT',
+  POST: 'POST',
+  'N/A': 'N/A PRELIMINAR',
+}
+
 // Cada persona aporta 9 horas productivas al dia
 const HRS_POR_PERSONA = 9
 const toPersonas = (horas: number) => horas / HRS_POR_PERSONA
@@ -267,7 +284,7 @@ export function DesgloseDiarioTab() {
             />
             <KpiCard
               label="Etapa principal"
-              value={aggregates.topEtapa ? `${aggregates.topEtapa} · ${toPersonas(aggregates.topEtapaHrs).toFixed(1)} p` : '—'}
+              value={aggregates.topEtapa ? `${ETAPA_LABEL_SHORT[aggregates.topEtapa]} · ${toPersonas(aggregates.topEtapaHrs).toFixed(1)} p` : '—'}
             />
             <KpiCard
               label="Planes activos"
@@ -332,11 +349,11 @@ export function DesgloseDiarioTab() {
                             className="rounded-md border overflow-hidden"
                           >
                             <div
-                              className="px-3 py-1.5 text-sm font-bold flex items-center justify-between text-white"
+                              className="px-3 py-1.5 text-sm font-bold flex items-center justify-between text-white gap-2"
                               style={{ backgroundColor: color }}
                             >
-                              <span>{e}</span>
-                              <span className="text-xs font-semibold">
+                              <span className="truncate" title={ETAPA_LABEL[e]}>{ETAPA_LABEL[e]}</span>
+                              <span className="text-xs font-semibold whitespace-nowrap">
                                 {totalEtapa.toFixed(1)} h · {toPersonas(totalEtapa).toFixed(1)} p
                               </span>
                             </div>
@@ -545,8 +562,9 @@ export function DesgloseDiarioTab() {
                                     <td
                                       className="py-1 px-3 text-xs font-bold"
                                       style={{ color: ETAPA_COLOR[e] }}
+                                      title={ETAPA_LABEL[e]}
                                     >
-                                      {e}
+                                      {ETAPA_LABEL_SHORT[e]}
                                     </td>
                                     {diasConDatos.map((d) => {
                                       const v = p.hrsByEtapaByDay[e]?.[d] ?? 0
