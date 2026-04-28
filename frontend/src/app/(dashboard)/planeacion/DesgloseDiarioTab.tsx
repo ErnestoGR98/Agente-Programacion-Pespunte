@@ -8,7 +8,7 @@ import { STAGE_COLORS, CHART_COLORS, DAY_ORDER } from '@/types'
 import type { DayName } from '@/types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, LabelList,
+  LineChart, Line, LabelList, ReferenceLine,
 } from 'recharts'
 import { BarChart3, TrendingUp, Layers, Clock, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -321,6 +321,11 @@ export function DesgloseDiarioTab() {
                           hrs: p.hrsByEtapaByDay[e]?.[d] ?? 0,
                         }))
                         const totalEtapa = chartData.reduce((s, r) => s + r.hrs, 0)
+                        // Promedio de los dias CON produccion (linea de referencia)
+                        const diasConProd = chartData.filter((r) => r.hrs > 0)
+                        const avgEtapa = diasConProd.length > 0
+                          ? totalEtapa / diasConProd.length
+                          : 0
                         return (
                           <div
                             key={e}
@@ -357,6 +362,21 @@ export function DesgloseDiarioTab() {
                                     }}
                                     contentStyle={{ fontSize: 12, fontWeight: 600 }}
                                   />
+                                  {avgEtapa > 0 && (
+                                    <ReferenceLine
+                                      y={avgEtapa}
+                                      stroke="rgba(255,255,255,0.55)"
+                                      strokeDasharray="4 3"
+                                      strokeWidth={1.5}
+                                      label={{
+                                        value: `x̄ ${avgEtapa.toFixed(1)}h`,
+                                        position: 'insideTopLeft',
+                                        fill: 'currentColor',
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                      }}
+                                    />
+                                  )}
                                   <Bar dataKey="hrs" fill={color} radius={[3, 3, 0, 0]}>
                                     <LabelList
                                       dataKey="hrs"
