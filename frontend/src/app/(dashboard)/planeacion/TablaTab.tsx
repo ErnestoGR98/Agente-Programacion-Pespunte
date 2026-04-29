@@ -155,20 +155,23 @@ export function TablaTab() {
     )
   }
 
-  // Total general
+  // Total general (con y sin maquila)
   const grandTotal = useMemo(() => {
     let total = 0
+    let totalSinMaq = 0
     const byDay: Record<string, number> = {}
     for (const p of visible) {
       total += p.totalHrs
       for (const e of ETAPAS) {
         const ed = p.hrsByEtapaByDay[e]
+        const sumEtapa = (Object.values(ed ?? {}) as number[]).reduce((a, b) => a + b, 0)
+        if (e !== 'MAQ') totalSinMaq += sumEtapa
         for (const d of diasActivos) {
           byDay[d] = (byDay[d] ?? 0) + (ed?.[d] ?? 0)
         }
       }
     }
-    return { total, byDay }
+    return { total, totalSinMaq, byDay }
   }, [visible, diasActivos])
 
   const handleExportExcel = async () => {
@@ -214,6 +217,22 @@ export function TablaTab() {
       planTotalRow.push(round1(p.totalHrs))
       planTotalRow.push(round1(toP(p.totalHrs)))
       wsData.push(planTotalRow)
+
+      // Total sin maquila por plan
+      const etapasInternas = ETAPAS.filter((e) => e !== 'MAQ')
+      const planTotalSinMaq = etapasInternas.reduce(
+        (s, e) => s + (Object.values(p.hrsByEtapaByDay[e] ?? {}) as number[]).reduce((a, b) => a + b, 0),
+        0,
+      )
+      const planTotalSinMaqRow: (string | number)[] = [p.nombre, 'TOTAL S/MAQ']
+      for (const d of diasActivos) {
+        const colTot = etapasInternas.reduce((s, e) => s + (p.hrsByEtapaByDay[e]?.[d] ?? 0), 0)
+        planTotalSinMaqRow.push(colTot > 0 ? round1(colTot) : '')
+        planTotalSinMaqRow.push(colTot > 0 ? round1(toP(colTot)) : '')
+      }
+      planTotalSinMaqRow.push(round1(planTotalSinMaq))
+      planTotalSinMaqRow.push(round1(toP(planTotalSinMaq)))
+      wsData.push(planTotalSinMaqRow)
     }
 
     if (visible.length > 1) {
@@ -475,6 +494,47 @@ export function TablaTab() {
                       ]
                     })}
                   </tr>
+                  {/* Fila TOTAL S/MAQ: misma logica pero excluyendo MAQ */}
+                  <tr className="bg-muted/30 font-semibold border-t">
+                    <td
+                      className="px-3 py-1.5 text-xs sticky left-0 bg-muted/30 border-r-4 border-primary/60 whitespace-nowrap"
+                      title="Total sin Maquila — solo lo que se hace en planta"
+                    >
+                      TOTAL S/MAQ
+                    </td>
+                    {visible.map((p, planIdx) => {
+                      const etapasInternas = ETAPAS.filter((e) => e !== 'MAQ')
+                      const planTotalSinMaq = etapasInternas.reduce(
+                        (s, e) => s + (Object.values(p.hrsByEtapaByDay[e] ?? {}) as number[]).reduce((a, b) => a + b, 0),
+                        0,
+                      )
+                      return [
+                        ...diasActivos.map((d, dIdx) => {
+                          const colTot = etapasInternas.reduce((s, e) => s + (p.hrsByEtapaByDay[e]?.[d] ?? 0), 0)
+                          return (
+                            <td
+                              key={`${p.id}-${d}`}
+                              className={cn(
+                                'px-2 py-1.5 text-center text-xs',
+                                dIdx === 0 && 'border-l',
+                              )}
+                            >
+                              {renderCell(colTot)}
+                            </td>
+                          )
+                        }),
+                        <td
+                          key={`${p.id}-total`}
+                          className={cn(
+                            'px-2 py-1.5 text-center text-xs border-l bg-muted/50',
+                            planIdx < visible.length - 1 && 'border-r-4 border-primary/60',
+                          )}
+                        >
+                          {renderCell(planTotalSinMaq)}
+                        </td>,
+                      ]
+                    })}
+                  </tr>
                   {/* Fila GRAN TOTAL: solo si >1 plan, suma cross-semanas por dia */}
                   {visible.length > 1 && (
                     <tr className="bg-primary/15 font-bold border-t-4 border-primary">
@@ -512,11 +572,19 @@ export function TablaTab() {
               </table>
             </div>
             {visible.length > 1 && (
-              <div className="px-4 py-2 border-t bg-muted/20 text-xs text-muted-foreground text-right">
-                Suma de las {visible.length} semanas seleccionadas:{' '}
-                <span className="font-semibold text-foreground">{grandTotal.total.toFixed(1)} h</span>
-                {' · '}
-                <span className="font-semibold text-foreground">{(grandTotal.total / HRS_POR_PERSONA).toFixed(1)} personas</span>
+              <div className="px-4 py-2 border-t bg-muted/20 text-xs text-muted-foreground space-y-0.5 text-right">
+                <div>
+                  Suma de las {visible.length} semanas seleccionadas:{' '}
+                  <span className="font-semibold text-foreground">{grandTotal.total.toFixed(1)} h</span>
+                  {' · '}
+                  <span className="font-semibold text-foreground">{(grandTotal.total / HRS_POR_PERSONA).toFixed(1)} personas</span>
+                </div>
+                <div>
+                  Sin Maquila:{' '}
+                  <span className="font-semibold text-foreground">{grandTotal.totalSinMaq.toFixed(1)} h</span>
+                  {' · '}
+                  <span className="font-semibold text-foreground">{(grandTotal.totalSinMaq / HRS_POR_PERSONA).toFixed(1)} personas</span>
+                </div>
               </div>
             )}
           </CardContent>
