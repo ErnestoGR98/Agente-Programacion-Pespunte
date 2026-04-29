@@ -176,93 +176,234 @@ export function TablaTab() {
 
   const handleExportExcel = async () => {
     const XLSX = await import('xlsx-js-style')
-    const wsData: (string | number | null)[][] = []
     const round1 = (x: number) => Number(x.toFixed(1))
     const toP = (h: number) => h / HRS_POR_PERSONA
+    // Cada semana ocupa: (dias × 2 cols h+p) + (Total × 2 cols h+p)
+    const colsPerWeek = diasActivos.length * 2 + 2
+    const wsData: (string | number | null)[][] = []
 
-    // 2 filas de header: dia (col span 2) y abajo h/p
-    const header1: (string | number)[] = ['Semana', 'Etapa']
-    const header2: (string | number)[] = ['', '']
-    for (const d of diasActivos) {
-      header1.push(d, '')
-      header2.push('h', 'personas')
-    }
-    header1.push('Total', '')
-    header2.push('h', 'personas')
-    wsData.push(header1)
-    wsData.push(header2)
-
+    // Row 0: 'Etapa' (merge vertical) + nombre semana
+    const row0: (string | number)[] = ['Etapa']
     for (const p of visible) {
-      for (const e of ETAPAS) {
+      row0.push(p.nombre)
+      for (let j = 1; j < colsPerWeek; j++) row0.push('')
+    }
+    wsData.push(row0)
+
+    // Row 1: '' + dias + Total
+    const row1: (string | number)[] = ['']
+    for (let _i = 0; _i < visible.length; _i++) {
+      for (const d of diasActivos) row1.push(d, '')
+      row1.push('Total', '')
+    }
+    wsData.push(row1)
+
+    // Row 2: '' + (h, personas)
+    const row2: (string | number)[] = ['']
+    for (let _i = 0; _i < visible.length; _i++) {
+      for (let _j = 0; _j < diasActivos.length; _j++) row2.push('h', 'personas')
+      row2.push('h', 'personas')
+    }
+    wsData.push(row2)
+
+    // Body: una fila por etapa
+    const etapasConDatos = ETAPAS.filter((e) =>
+      visible.some((p) => diasActivos.some((d) => (p.hrsByEtapaByDay[e]?.[d] ?? 0) > 0)),
+    )
+    for (const e of etapasConDatos) {
+      const row: (string | number)[] = [ETAPA_LABEL_SHORT[e]]
+      for (const p of visible) {
         const ed = p.hrsByEtapaByDay[e] ?? {}
         const rowTotal = diasActivos.reduce((s, d) => s + (ed[d] ?? 0), 0)
-        if (rowTotal === 0) continue
-        const row: (string | number)[] = [p.nombre, ETAPA_LABEL_SHORT[e]]
         for (const d of diasActivos) {
           const v = ed[d] ?? 0
           row.push(v > 0 ? round1(v) : '')
           row.push(v > 0 ? round1(toP(v)) : '')
         }
-        row.push(round1(rowTotal))
-        row.push(round1(toP(rowTotal)))
-        wsData.push(row)
+        row.push(rowTotal > 0 ? round1(rowTotal) : '')
+        row.push(rowTotal > 0 ? round1(toP(rowTotal)) : '')
       }
-      // Total por plan
-      const planTotalRow: (string | number)[] = [p.nombre, 'TOTAL']
+      wsData.push(row)
+    }
+
+    // TOTAL
+    const totalRow: (string | number)[] = ['TOTAL']
+    for (const p of visible) {
       for (const d of diasActivos) {
         const colTot = ETAPAS.reduce((s, e) => s + (p.hrsByEtapaByDay[e]?.[d] ?? 0), 0)
-        planTotalRow.push(colTot > 0 ? round1(colTot) : '')
-        planTotalRow.push(colTot > 0 ? round1(toP(colTot)) : '')
+        totalRow.push(colTot > 0 ? round1(colTot) : '')
+        totalRow.push(colTot > 0 ? round1(toP(colTot)) : '')
       }
-      planTotalRow.push(round1(p.totalHrs))
-      planTotalRow.push(round1(toP(p.totalHrs)))
-      wsData.push(planTotalRow)
+      totalRow.push(round1(p.totalHrs))
+      totalRow.push(round1(toP(p.totalHrs)))
+    }
+    wsData.push(totalRow)
 
-      // Total sin maquila por plan
-      const etapasInternas = ETAPAS.filter((e) => e !== 'MAQ')
+    // TOTAL S/MAQ
+    const etapasInternas = ETAPAS.filter((e) => e !== 'MAQ')
+    const totalSinMaqRow: (string | number)[] = ['TOTAL S/MAQ']
+    for (const p of visible) {
       const planTotalSinMaq = etapasInternas.reduce(
         (s, e) => s + (Object.values(p.hrsByEtapaByDay[e] ?? {}) as number[]).reduce((a, b) => a + b, 0),
         0,
       )
-      const planTotalSinMaqRow: (string | number)[] = [p.nombre, 'TOTAL S/MAQ']
       for (const d of diasActivos) {
         const colTot = etapasInternas.reduce((s, e) => s + (p.hrsByEtapaByDay[e]?.[d] ?? 0), 0)
-        planTotalSinMaqRow.push(colTot > 0 ? round1(colTot) : '')
-        planTotalSinMaqRow.push(colTot > 0 ? round1(toP(colTot)) : '')
+        totalSinMaqRow.push(colTot > 0 ? round1(colTot) : '')
+        totalSinMaqRow.push(colTot > 0 ? round1(toP(colTot)) : '')
       }
-      planTotalSinMaqRow.push(round1(planTotalSinMaq))
-      planTotalSinMaqRow.push(round1(toP(planTotalSinMaq)))
-      wsData.push(planTotalSinMaqRow)
+      totalSinMaqRow.push(round1(planTotalSinMaq))
+      totalSinMaqRow.push(round1(toP(planTotalSinMaq)))
     }
-
-    if (visible.length > 1) {
-      const gt: (string | number)[] = ['GRAN TOTAL', '']
-      for (const d of diasActivos) {
-        const v = grandTotal.byDay[d] ?? 0
-        gt.push(v > 0 ? round1(v) : '')
-        gt.push(v > 0 ? round1(toP(v)) : '')
-      }
-      gt.push(round1(grandTotal.total))
-      gt.push(round1(toP(grandTotal.total)))
-      wsData.push(gt)
-    }
+    wsData.push(totalSinMaqRow)
 
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet(wsData)
-    // Ancho columnas: Semana, Etapa, luego (h, p) por dia + (h, p) total
-    ws['!cols'] = [
-      { wch: 22 }, { wch: 8 },
-      ...diasActivos.flatMap(() => [{ wch: 7 }, { wch: 8 }]),
-      { wch: 9 }, { wch: 10 },
+
+    // Anchos: Etapa, luego por cada semana (h+p por dia + h+p total)
+    const cols: { wch: number }[] = [{ wch: 30 }]
+    for (let _i = 0; _i < visible.length; _i++) {
+      for (let _j = 0; _j < diasActivos.length; _j++) cols.push({ wch: 7 }, { wch: 9 })
+      cols.push({ wch: 9 }, { wch: 10 })
+    }
+    ws['!cols'] = cols
+
+    // Alturas de filas para los headers
+    ws['!rows'] = [
+      { hpx: 26 }, // row 0 - week name
+      { hpx: 22 }, // row 1 - day/total
+      { hpx: 18 }, // row 2 - h/personas
     ]
-    // Merge de los headers de dia (h+personas → 2 cols)
-    ws['!merges'] = [
-      ...diasActivos.map((_, idx) => ({
-        s: { r: 0, c: 2 + idx * 2 },
-        e: { r: 0, c: 2 + idx * 2 + 1 },
-      })),
-      { s: { r: 0, c: 2 + diasActivos.length * 2 }, e: { r: 0, c: 2 + diasActivos.length * 2 + 1 } },
-    ]
+
+    // Helper: ultima columna de la semana i (Total personas)
+    const weekLastCol = (i: number) => 1 + (i + 1) * colsPerWeek - 1
+
+    // Merges
+    const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = []
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 2, c: 0 } })
+    for (let i = 0; i < visible.length; i++) {
+      const start = 1 + i * colsPerWeek
+      merges.push({ s: { r: 0, c: start }, e: { r: 0, c: start + colsPerWeek - 1 } })
+      for (let j = 0; j < diasActivos.length; j++) {
+        const dayStart = start + j * 2
+        merges.push({ s: { r: 1, c: dayStart }, e: { r: 1, c: dayStart + 1 } })
+      }
+      const totalStart = start + diasActivos.length * 2
+      merges.push({ s: { r: 1, c: totalStart }, e: { r: 1, c: totalStart + 1 } })
+    }
+    ws['!merges'] = merges
+
+    // ---- Estilos ----
+    // Paleta sin '#'
+    const ETAPA_HEX: Record<Etapa, string> = {
+      MAQ: 'F43F5E', PREL: 'FBBF24', ROBOT: '10B981', POST: 'EC4899', 'N/A': '60A5FA',
+    }
+    const HEADER_BG = '1F4E79'
+    const SUBHEADER_BG = 'D9D9D9'
+    const TOTAL_BG = 'E7E6E6'
+    const BORDER = '808080'
+    const BORDER_THICK = '1F4E79'
+
+    type BorderEdge = { style: string; color: { rgb: string } }
+    const thin: BorderEdge = { style: 'thin', color: { rgb: BORDER } }
+    const mediumBlue: BorderEdge = { style: 'medium', color: { rgb: BORDER_THICK } }
+    // Linea negra gruesa que separa semanas (no es celda, es border)
+    const separator: BorderEdge = { style: 'thick', color: { rgb: '000000' } }
+
+    const numRows = wsData.length
+    const numCols = wsData[0].length
+
+    // Cols que son ULTIMA de una semana (excepto la ultima) → borde derecho grueso negro
+    // Cols que son PRIMERA de una semana (excepto la primera) → borde izquierdo grueso negro
+    const rightEdgeCols = new Set<number>()
+    const leftEdgeCols = new Set<number>()
+    for (let i = 0; i < visible.length - 1; i++) {
+      rightEdgeCols.add(weekLastCol(i))
+      leftEdgeCols.add(weekLastCol(i) + 1)
+    }
+
+    const numHeaderRows = 3
+    const totalRowIdx = numHeaderRows + etapasConDatos.length
+    const totalSinMaqRowIdx = totalRowIdx + 1
+
+    const computeBorder = (rTop: BorderEdge, rBottom: BorderEdge, c: number) => ({
+      top: rTop,
+      bottom: rBottom,
+      left: leftEdgeCols.has(c) ? separator : thin,
+      right: rightEdgeCols.has(c) ? separator : thin,
+    })
+
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c })
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' }
+
+        // Header rows 0-1: bg azul oscuro, texto blanco bold
+        if (r === 0 || r === 1) {
+          ws[addr].s = {
+            font: { name: 'Calibri', sz: r === 0 ? 12 : 10, bold: true, color: { rgb: 'FFFFFF' } },
+            fill: { patternType: 'solid', fgColor: { rgb: HEADER_BG } },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+            border: computeBorder(thin, thin, c),
+          }
+          continue
+        }
+        // Sub-header row 2: bg gris claro, italic
+        if (r === 2) {
+          ws[addr].s = {
+            font: { name: 'Calibri', sz: 9, italic: true, color: { rgb: '4A4A4A' } },
+            fill: { patternType: 'solid', fgColor: { rgb: SUBHEADER_BG } },
+            alignment: { horizontal: 'center', vertical: 'center' },
+            border: computeBorder(thin, thin, c),
+          }
+          continue
+        }
+        // Etapa rows (body)
+        if (r >= numHeaderRows && r < totalRowIdx) {
+          const etapaIdx = r - numHeaderRows
+          const etapa = etapasConDatos[etapaIdx]
+          if (c === 0) {
+            ws[addr].s = {
+              font: { name: 'Calibri', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+              fill: { patternType: 'solid', fgColor: { rgb: ETAPA_HEX[etapa] } },
+              alignment: { horizontal: 'left', vertical: 'center', indent: 1 },
+              border: computeBorder(thin, thin, c),
+            }
+          } else {
+            ws[addr].s = {
+              font: { name: 'Calibri', sz: 10, color: { rgb: '1F1F1F' } },
+              alignment: { horizontal: 'center', vertical: 'center' },
+              border: computeBorder(thin, thin, c),
+            }
+          }
+          continue
+        }
+        // TOTAL row
+        if (r === totalRowIdx) {
+          ws[addr].s = {
+            font: { name: 'Calibri', sz: 11, bold: true, color: { rgb: '1F1F1F' } },
+            fill: { patternType: 'solid', fgColor: { rgb: TOTAL_BG } },
+            alignment: { horizontal: c === 0 ? 'left' : 'center', vertical: 'center', indent: c === 0 ? 1 : 0 },
+            border: computeBorder(mediumBlue, thin, c),
+          }
+          continue
+        }
+        // TOTAL S/MAQ row
+        if (r === totalSinMaqRowIdx) {
+          ws[addr].s = {
+            font: { name: 'Calibri', sz: 11, bold: true, italic: true, color: { rgb: '1F1F1F' } },
+            fill: { patternType: 'solid', fgColor: { rgb: TOTAL_BG } },
+            alignment: { horizontal: c === 0 ? 'left' : 'center', vertical: 'center', indent: c === 0 ? 1 : 0 },
+            border: computeBorder(thin, thin, c),
+          }
+          continue
+        }
+      }
+    }
+
+    // Freeze panes: primera columna y header rows
+    ws['!freeze'] = { xSplit: 1, ySplit: numHeaderRows }
+
     XLSX.utils.book_append_sheet(wb, ws, 'Tabla')
     XLSX.writeFile(wb, `tabla_dia_etapa_horas_personas.xlsx`)
   }
